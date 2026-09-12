@@ -1,0 +1,6 @@
+{
+  "name": "Trace - Quản Lý Lớp Học & Đánh Giá AI",
+  "description": "Nền tảng quản lý lớp học tập trung kết hợp đánh giá tư duy quá trình qua AI Chat cho giáo dục Việt Nam.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

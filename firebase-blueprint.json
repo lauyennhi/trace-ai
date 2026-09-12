@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "courses": {
+      "title": "Course",
+      "description": "Courses created by teachers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "teacher_id": { "type": "string" },
+        "teacher_name": { "type": "string" },
+        "semester": { "type": "string" },
+        "description": { "type": "string" },
+        "invite_code": { "type": "string" },
+        "accent_color": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "teacher_id", "invite_code"]
+    },
+    "course_members": {
+      "title": "CourseMember",
+      "description": "Students enrolled in courses",
+      "type": "object",
+      "properties": {
+        "course_id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "student_email": { "type": "string" },
+        "joined_at": { "type": "string" }
+      },
+      "required": ["course_id", "student_id"]
+    },
+    "assignments": {
+      "title": "Assignment",
+      "description": "Assignments created in courses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "course_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "rubric": { "type": "string" },
+        "due_date": { "type": "string" },
+        "submission_mode": { "type": "string" },
+        "ai_submode": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "course_id", "title"]
+    },
+    "submissions": {
+      "title": "Submission",
+      "description": "Student submissions for assignments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignment_id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "assignment_id", "student_id"]
+    },
+    "chat_sessions": {
+      "title": "ChatSession",
+      "description": "AI Socratic dialogue sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignment_id": { "type": "string" },
+        "student_id": { "type": "string" }
+      },
+      "required": ["id", "assignment_id", "student_id"]
+    }
+  }
+}
