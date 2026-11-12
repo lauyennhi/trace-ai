@@ -455,7 +455,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                 </div>
                 {!isConfigured && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
-                    💡 Để kích hoạt đồng bộ, hãy thêm <strong>SUPABASE_URL</strong> và <strong>SUPABASE_ANON_KEY</strong> vào mục Settings hoặc file <code>.env</code>.
+                    💡 Để kích hoạt đồng bộ, hãy thêm <strong>SUPABASE_URL</strong> và <strong>SUPABASE_SERVICE_ROLE_KEY</strong> vào mục Settings hoặc file <code>.env</code>.
                   </p>
                 )}
               </div>
@@ -523,7 +523,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                       </p>
                       <ul className="list-disc pl-5 mt-1 text-ink-2 font-mono text-[11px] space-y-0.5">
                         <li><code>SUPABASE_URL=https://[YOUR_PROJECT_REF].supabase.co</code></li>
-                        <li><code>SUPABASE_ANON_KEY=[YOUR_ANON_PUBLIC_KEY]</code></li>
+                        <li><code>SUPABASE_SERVICE_ROLE_KEY=[YOUR_SERVICE_ROLE_SECRET_KEY]</code></li>
                       </ul>
                     </div>
                   </div>

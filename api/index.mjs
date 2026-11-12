@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -46,7 +47,7 @@ async function checkSupabaseConnection() {
       configured: false,
       connected: false,
       url: null,
-      error: "Ch\u01B0a c\u1EA5u h\xECnh bi\u1EBFn m\xF4i tr\u01B0\u1EDDng SUPABASE_URL v\xE0 SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY."
+      error: "Ch\u01B0a c\u1EA5u h\xECnh bi\u1EBFn m\xF4i tr\u01B0\u1EDDng SUPABASE_URL v\xE0 SUPABASE_SERVICE_ROLE_KEY."
     };
   }
   const client = getSupabaseClient();
@@ -58,32 +59,19 @@ async function checkSupabaseConnection() {
       error: "Kh\xF4ng th\u1EC3 kh\u1EDFi t\u1EA1o Supabase Client. Vui l\xF2ng ki\u1EC3m tra \u0111\u1ECBnh d\u1EA1ng URL."
     };
   }
-  const tableStatus = {
-    courses: false,
-    assignments: false,
-    submissions: false,
-    chat_sessions: false,
-    users: false,
-    course_members: false
-  };
+  const tableStatus = { documents: false };
   let connected = false;
   let connectionError;
-  for (const table of Object.keys(tableStatus)) {
-    try {
-      const { error } = await client.from(table).select("id").limit(1);
-      if (!error) {
-        tableStatus[table] = true;
-        connected = true;
-      } else {
-        if (!connectionError) {
-          connectionError = `B\u1EA3ng '${table}': ${error.message}`;
-        }
-      }
-    } catch (e) {
-      if (!connectionError) {
-        connectionError = e.message || "L\u1ED7i ki\u1EC3m tra k\u1EBFt n\u1ED1i";
-      }
+  try {
+    const { error } = await client.from("documents").select("id").limit(1);
+    if (!error) {
+      tableStatus.documents = true;
+      connected = true;
+    } else {
+      connectionError = `B\u1EA3ng 'documents': ${error.message}`;
     }
+  } catch (e) {
+    connectionError = e.message || "L\u1ED7i ki\u1EC3m tra k\u1EBFt n\u1ED1i";
   }
   return {
     configured: true,
@@ -94,163 +82,38 @@ async function checkSupabaseConnection() {
   };
 }
 var SUPABASE_SCHEMA_SQL = `-- ==========================================================
--- TRACE LMS Schema for Supabase PostgreSQL
+-- TRACE: l\u01B0u d\u1EEF li\u1EC7u \u1EE9ng d\u1EE5ng tr\xEAn Supabase (PostgreSQL)
 -- Ch\u1EA1y script n\xE0y trong Supabase: SQL Editor -> New query -> Paste & Run
+-- C\xF3 th\u1EC3 ch\u1EA1y l\u1EA1i nhi\u1EC1u l\u1EA7n m\xE0 kh\xF4ng m\u1EA5t d\u1EEF li\u1EC7u.
 -- ==========================================================
 
--- 1. B\u1EA3ng Ng\u01B0\u1EDDi d\xF9ng (Users)
-CREATE TABLE IF NOT EXISTS public.users (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'student',
-  avatar TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+-- M\u1ED7i b\u1EA3n ghi c\u1EE7a \u1EE9ng d\u1EE5ng (ng\u01B0\u1EDDi d\xF9ng, m\xF4n h\u1ECDc, b\xE0i n\u1ED9p, ...) l\xE0 m\u1ED9t d\xF2ng JSON.
+CREATE TABLE IF NOT EXISTS public.documents (
+  collection TEXT NOT NULL,
+  id TEXT NOT NULL,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (collection, id)
 );
 
--- 2. B\u1EA3ng M\xF4n h\u1ECDc (Courses)
-CREATE TABLE IF NOT EXISTS public.courses (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  code TEXT NOT NULL,
-  teacher_id TEXT REFERENCES public.users(id) ON DELETE SET NULL,
-  teacher_name TEXT,
-  semester TEXT,
-  description TEXT,
-  invite_code TEXT UNIQUE,
-  accent_color TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS documents_updated_at_idx ON public.documents (updated_at);
 
--- 3. B\u1EA3ng Th\xE0nh vi\xEAn m\xF4n h\u1ECDc (Course Members)
-CREATE TABLE IF NOT EXISTS public.course_members (
-  id TEXT PRIMARY KEY,
-  course_id TEXT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
-  student_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  student_name TEXT,
-  student_email TEXT,
-  student_avatar TEXT,
-  joined_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. B\u1EA3ng B\xE0i t\u1EADp (Assignments)
-CREATE TABLE IF NOT EXISTS public.assignments (
-  id TEXT PRIMARY KEY,
-  course_id TEXT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  topic TEXT,
-  due_date TIMESTAMPTZ,
-  rubric JSONB DEFAULT '[]'::jsonb,
-  ai_instructions TEXT,
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. B\u1EA3ng B\xE0i l\xE0m & \u0110i\u1EC3m t\u01B0 duy (Submissions)
-CREATE TABLE IF NOT EXISTS public.submissions (
-  id TEXT PRIMARY KEY,
-  assignment_id TEXT NOT NULL REFERENCES public.assignments(id) ON DELETE CASCADE,
-  student_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  student_name TEXT,
-  student_email TEXT,
-  status TEXT DEFAULT 'submitted',
-  submitted_at TIMESTAMPTZ DEFAULT NOW(),
-  content TEXT,
-  process_score NUMERIC DEFAULT 0,
-  process_score_result JSONB DEFAULT '{}'::jsonb,
-  history_summary TEXT,
-  turn_count INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. B\u1EA3ng Phi\xEAn chat AI (Chat Sessions)
-CREATE TABLE IF NOT EXISTS public.chat_sessions (
-  id TEXT PRIMARY KEY,
-  assignment_id TEXT NOT NULL REFERENCES public.assignments(id) ON DELETE CASCADE,
-  student_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  started_at TIMESTAMPTZ DEFAULT NOW(),
-  messages JSONB DEFAULT '[]'::jsonb,
-  status TEXT DEFAULT 'active'
-);
-
--- Indexes t\u1ED1i \u01B0u truy v\u1EA5n
-CREATE INDEX IF NOT EXISTS idx_courses_teacher ON public.courses(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_courses_invite_code ON public.courses(invite_code);
-CREATE INDEX IF NOT EXISTS idx_assignments_course ON public.assignments(course_id);
-CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON public.submissions(assignment_id);
-CREATE INDEX IF NOT EXISTS idx_submissions_student ON public.submissions(student_id);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_lookup ON public.chat_sessions(assignment_id, student_id);
-
--- 7. C\u1ED9t b\u1ED5 sung cho \u0111\u0103ng nh\u1EADp, ch\u1EA5m \u0111i\u1EC3m th\u1EE7 c\xF4ng v\xE0 th\xF4ng b\xE1o
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS pwd TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
-CREATE TABLE IF NOT EXISTS public.settings (
-  id TEXT PRIMARY KEY,
-  allow_registration BOOLEAN DEFAULT TRUE,
-  teacher_self_register BOOLEAN DEFAULT TRUE,
-  permissions JSONB
-);
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-  id TEXT PRIMARY KEY,
-  actor_id TEXT,
-  actor_name TEXT,
-  action TEXT,
-  target TEXT,
-  detail TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS allow_late BOOLEAN DEFAULT TRUE;
-ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
-ALTER TABLE public.course_members ADD COLUMN IF NOT EXISTS student_avatar TEXT;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS grade NUMERIC;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS eval_status TEXT;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS eval_error TEXT;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS draft_saved_at TIMESTAMPTZ;
-CREATE TABLE IF NOT EXISTS public.notifications (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  title TEXT,
-  body TEXT,
-  link TEXT,
-  read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Row Level Security (RLS)
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.course_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_sessions ENABLE ROW LEVEL SECURITY;
-
--- C\xE1c policy cho ph\xE9p \u1EE9ng d\u1EE5ng \u0111\u1ECDc/ghi d\u1EEF li\u1EC7u
-DO $$
+-- T\u1EF1 \u0111\xF3ng d\u1EA5u th\u1EDDi gian c\u1EADp nh\u1EADt \u1EDF ph\xEDa c\u01A1 s\u1EDF d\u1EEF li\u1EC7u (\u0111\u1EC3 nhi\u1EC1u m\xE1y ch\u1EE7 \u0111\u1ED3ng b\u1ED9 v\u1EDBi nhau).
+CREATE OR REPLACE FUNCTION public.touch_documents() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access users') THEN
-    CREATE POLICY "Allow public access users" ON public.users FOR ALL USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access courses') THEN
-    CREATE POLICY "Allow public access courses" ON public.courses FOR ALL USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access course_members') THEN
-    CREATE POLICY "Allow public access course_members" ON public.course_members FOR ALL USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access assignments') THEN
-    CREATE POLICY "Allow public access assignments" ON public.assignments FOR ALL USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access submissions') THEN
-    CREATE POLICY "Allow public access submissions" ON public.submissions FOR ALL USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public access chat_sessions') THEN
-    CREATE POLICY "Allow public access chat_sessions" ON public.chat_sessions FOR ALL USING (true);
-  END IF;
+  NEW.updated_at = clock_timestamp();
+  RETURN NEW;
 END $$;
+
+DROP TRIGGER IF EXISTS documents_touch ON public.documents;
+CREATE TRIGGER documents_touch BEFORE INSERT OR UPDATE ON public.documents
+  FOR EACH ROW EXECUTE FUNCTION public.touch_documents();
+
+-- B\u1EA3o m\u1EADt: b\u1EADt RLS v\xE0 KH\xD4NG t\u1EA1o policy n\xE0o => ch\u1EC9 m\xE1y ch\u1EE7 (service_role key) m\u1EDBi \u0111\u1ECDc/ghi \u0111\u01B0\u1EE3c.
+-- Kh\xF3a anon c\xF4ng khai s\u1EBD KH\xD4NG truy c\u1EADp \u0111\u01B0\u1EE3c d\u1EEF li\u1EC7u.
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 `;
 function getSupabaseProjectRef() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -289,7 +152,7 @@ async function runAutoSetupSql(options) {
     await client.query(SUPABASE_SCHEMA_SQL);
     return {
       success: true,
-      message: "Kh\u1EDFi t\u1EA1o th\xE0nh c\xF4ng to\xE0n b\u1ED9 6 b\u1EA3ng v\xE0 quy\u1EC1n truy c\u1EADp tr\xEAn Supabase!"
+      message: "Kh\u1EDFi t\u1EA1o th\xE0nh c\xF4ng b\u1EA3ng l\u01B0u d\u1EEF li\u1EC7u tr\xEAn Supabase!"
     };
   } catch (err) {
     console.error("[Supabase Auto-Setup Error]", err);
@@ -371,7 +234,10 @@ function requireAuth(req, res, next) {
   const user = uid2 ? db.users.find((u) => u.id === uid2) : null;
   if (!user) return res.status(401).json({ success: false, message: "Phi\xEAn \u0111\u0103ng nh\u1EADp \u0111\xE3 h\u1EBFt h\u1EA1n, vui l\xF2ng \u0111\u0103ng nh\u1EADp l\u1EA1i." });
   if (user.active === false) return res.status(401).json({ success: false, message: "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB v\xF4 hi\u1EC7u h\xF3a." });
-  if (!user.last_seen || Date.now() - new Date(user.last_seen).getTime() > 5 * 60 * 1e3) user.last_seen = (/* @__PURE__ */ new Date()).toISOString();
+  if (!user.last_seen || Date.now() - new Date(user.last_seen).getTime() > 5 * 60 * 1e3) {
+    user.last_seen = (/* @__PURE__ */ new Date()).toISOString();
+    saveDocument("users", user.id, user);
+  }
   req.user = user;
   next();
 }
@@ -830,54 +696,197 @@ async function loadFromFirestore() {
     console.log("[Firestore] Firestore load skipped:", err.message || err);
   }
 }
-async function saveDocument(collectionName, docId, data) {
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection(collectionName).doc(docId).set(data, { merge: true });
-    } catch (err) {
-      const msg = err.message || "";
-      if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) {
-        firestoreDb = null;
-      }
-      console.warn(`[Firestore] Unable to save to ${collectionName}/${docId}:`, msg);
-    }
-  }
+var reqStore = new AsyncLocalStorage();
+var track = (p) => {
+  reqStore.getStore()?.pending.push(p.catch(() => {
+  }));
+  return p;
+};
+var DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "notifications", "audit_logs"];
+var docKey = (collection, d) => collection === "course_members" ? `${d.course_id}_${d.student_id}` : d.id;
+async function saveDocumentInner(collectionName, docId, data) {
+  const snapshot = JSON.parse(JSON.stringify(data));
   const supabase = getSupabaseClient();
+  const writes = [];
   if (supabase) {
-    try {
-      const payload = { ...data, id: docId };
-      const { error } = await supabase.from(collectionName).upsert(payload);
-      if (error) {
-        console.warn(`[Supabase] Upsert warning on ${collectionName}:`, error.message);
+    writes.push((async () => {
+      try {
+        const { error } = await supabase.from("documents").upsert({ collection: collectionName, id: docId, data: snapshot, deleted: false }, { onConflict: "collection,id" });
+        if (error) console.warn(`[Supabase] Save ${collectionName}/${docId} failed:`, error.message);
+      } catch (err) {
+        console.error(`[Supabase] Error saving ${collectionName}/${docId}:`, err?.message || err);
       }
-    } catch (err) {
-      console.error(`[Supabase] Error saving to ${collectionName}/${docId}:`, err);
-    }
+    })());
+  }
+  if (firestoreDb) {
+    writes.push((async () => {
+      try {
+        await firestoreDb.collection(collectionName).doc(docId).set(snapshot, { merge: true });
+      } catch (err) {
+        const msg = err.message || "";
+        if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) firestoreDb = null;
+        console.warn(`[Firestore] Unable to save to ${collectionName}/${docId}:`, msg);
+      }
+    })());
+  }
+  await Promise.all(writes);
+}
+var saveDocument = (collectionName, docId, data) => track(saveDocumentInner(collectionName, docId, data));
+async function deleteDocumentInner(collectionName, docId) {
+  const supabase = getSupabaseClient();
+  const writes = [];
+  if (supabase) {
+    writes.push((async () => {
+      try {
+        const { error } = await supabase.from("documents").upsert({ collection: collectionName, id: docId, data: {}, deleted: true }, { onConflict: "collection,id" });
+        if (error) console.warn(`[Supabase] Delete ${collectionName}/${docId} failed:`, error.message);
+      } catch (err) {
+        console.error(`[Supabase] Error deleting ${collectionName}/${docId}:`, err?.message || err);
+      }
+    })());
+  }
+  if (firestoreDb) {
+    writes.push((async () => {
+      try {
+        await firestoreDb.collection(collectionName).doc(docId).delete();
+      } catch (err) {
+        const msg = err.message || "";
+        if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) firestoreDb = null;
+        console.warn(`[Firestore] Unable to delete from ${collectionName}/${docId}:`, msg);
+      }
+    })());
+  }
+  await Promise.all(writes);
+}
+var deleteDocument = (collectionName, docId) => track(deleteDocumentInner(collectionName, docId));
+var syncCursor = 0;
+var lastRefresh = 0;
+var initialLoad = null;
+var supabaseLoaded = false;
+var refreshing = null;
+function emptyDb() {
+  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
+}
+function applyRow(row) {
+  if (row.collection === "settings") {
+    if (!row.deleted) db.settings = row.data;
+    return;
+  }
+  const arr = db[row.collection];
+  if (!arr) return;
+  const idx = arr.findIndex((x) => docKey(row.collection, x) === row.id);
+  if (row.deleted) {
+    if (idx >= 0) arr.splice(idx, 1);
+    return;
+  }
+  const incoming = row.data || {};
+  if (idx >= 0) {
+    const cur = arr[idx];
+    if (row.collection === "users" && cur.last_seen && (!incoming.last_seen || cur.last_seen > incoming.last_seen)) incoming.last_seen = cur.last_seen;
+    for (const k of Object.keys(cur)) delete cur[k];
+    Object.assign(cur, incoming);
+  } else {
+    arr.push(incoming);
   }
 }
-async function deleteDocument(collectionName, docId) {
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection(collectionName).doc(docId).delete();
-    } catch (err) {
-      const msg = err.message || "";
-      if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) {
-        firestoreDb = null;
-      }
-      console.warn(`[Firestore] Unable to delete from ${collectionName}/${docId}:`, msg);
+async function pullFromSupabase(full = false) {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  const since = full || !syncCursor ? null : new Date(syncCursor - 3e3).toISOString();
+  const page = 1e3;
+  let from = 0;
+  let maxTs = syncCursor;
+  for (; ; ) {
+    let q = sb.from("documents").select("collection,id,data,deleted,updated_at").order("updated_at", { ascending: true }).order("collection").order("id").range(from, from + page - 1);
+    if (since) q = q.gte("updated_at", since);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    for (const r of data || []) {
+      applyRow(r);
+      const t = Date.parse(r.updated_at);
+      if (t > maxTs) maxTs = t;
     }
+    if (!data || data.length < page) break;
+    from += page;
   }
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const { error } = await supabase.from(collectionName).delete().eq("id", docId);
-      if (error) {
-        console.warn(`[Supabase] Delete warning on ${collectionName}:`, error.message);
-      }
-    } catch (err) {
-      console.error(`[Supabase] Error deleting from ${collectionName}/${docId}:`, err);
+  syncCursor = maxTs;
+}
+async function pushAllToSupabase() {
+  const sb = getSupabaseClient();
+  if (!sb) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh Supabase.");
+  const rows = [];
+  const counts = {};
+  for (const c of DOC_COLLECTIONS) {
+    const list = db[c] || [];
+    counts[c] = list.length;
+    for (const d of list) rows.push({ collection: c, id: docKey(c, d), data: JSON.parse(JSON.stringify(d)), deleted: false });
+  }
+  rows.push({ collection: "settings", id: "global", data: JSON.parse(JSON.stringify(db.settings)), deleted: false });
+  for (let i = 0; i < rows.length; i += 100) {
+    const { error } = await sb.from("documents").upsert(rows.slice(i, i + 100), { onConflict: "collection,id" });
+    if (error) throw new Error(error.message);
+  }
+  return counts;
+}
+async function seedIfEmpty() {
+  if (db.users.length > 0) return;
+  const demo = process.env.SEED_DEMO_DATA !== "false";
+  const seed = JSON.parse(JSON.stringify(initialDb));
+  const admin = seed.users.find((u) => u.role === "admin");
+  if (process.env.ADMIN_PASSWORD) admin.pwd = hashPassword(process.env.ADMIN_PASSWORD);
+  db.users = demo ? seed.users : [admin];
+  if (demo) {
+    db.courses = seed.courses;
+    db.course_members = seed.course_members;
+    db.assignments = seed.assignments;
+    db.submissions = seed.submissions;
+    db.chat_sessions = seed.chat_sessions;
+  }
+  await pushAllToSupabase();
+  console.log(`[Supabase] Database was empty: seeded ${demo ? "demo data" : "admin account only"}.`);
+}
+async function loadFromSupabase() {
+  db = emptyDb();
+  syncCursor = 0;
+  await pullFromSupabase(true);
+  await seedIfEmpty();
+  ensureSeedCredentials();
+  supabaseLoaded = true;
+  lastRefresh = Date.now();
+  console.log(`[Supabase] Loaded ${db.users.length} users, ${db.courses.length} courses, ${db.submissions.length} submissions.`);
+}
+function needsFreshData(req) {
+  const header = String(req.headers.authorization || "");
+  if (header.startsWith("Bearer ")) {
+    const uid2 = readToken(header.slice(7));
+    if (uid2 && !db.users.some((u) => u.id === uid2)) return true;
+  }
+  if (req.path === "/auth/login" && req.body?.email) {
+    const email = String(req.body.email).trim().toLowerCase();
+    if (!db.users.some((u) => u.email.toLowerCase() === email)) return true;
+  }
+  return false;
+}
+async function syncMiddleware(req, res, next) {
+  if (!isSupabaseConfigured()) return next();
+  try {
+    if (!supabaseLoaded) {
+      if (!initialLoad) initialLoad = loadFromSupabase().finally(() => {
+        if (!supabaseLoaded) initialLoad = null;
+      });
+      await initialLoad;
+    } else if (needsFreshData(req) || Date.now() - lastRefresh > 1500) {
+      if (!refreshing) refreshing = pullFromSupabase().catch((e) => console.warn("[Supabase] Refresh failed:", e.message)).finally(() => {
+        lastRefresh = Date.now();
+        refreshing = null;
+      });
+      await refreshing;
     }
+  } catch (e) {
+    console.error("[Supabase] Load failed:", e.message);
+    return res.status(503).json({ success: false, message: "Kh\xF4ng k\u1EBFt n\u1ED1i \u0111\u01B0\u1EE3c c\u01A1 s\u1EDF d\u1EEF li\u1EC7u. Vui l\xF2ng th\u1EED l\u1EA1i sau \xEDt ph\xFAt." });
   }
+  next();
 }
 function generateInviteCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -889,6 +898,18 @@ function generateInviteCode() {
 }
 var app = express();
 app.use(express.json({ limit: "10mb" }));
+app.use("/api", (req, res, next) => {
+  const store = { pending: [] };
+  const origEnd = res.end;
+  res.end = function(...args) {
+    const go = () => origEnd.apply(this, args);
+    if (store.pending.length) Promise.allSettled([...store.pending]).then(go);
+    else go();
+    return this;
+  };
+  reqStore.run(store, next);
+});
+app.use("/api", syncMiddleware);
 app.use("/api/supabase", requireAuth, (req, res, next) => req.user?.role === "admin" ? next() : res.status(403).json({ success: false, message: "Ch\u1EC9 qu\u1EA3n tr\u1ECB vi\xEAn m\u1EDBi \u0111\u01B0\u1EE3c qu\u1EA3n l\xFD c\u01A1 s\u1EDF d\u1EEF li\u1EC7u." }));
 app.get("/api/supabase/status", async (req, res) => {
   try {
@@ -914,116 +935,21 @@ app.get("/api/supabase/schema", (req, res) => {
   res.json({ success: true, sql: SUPABASE_SCHEMA_SQL });
 });
 app.post("/api/supabase/sync", async (req, res) => {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return res.status(400).json({
-      success: false,
-      message: "Ch\u01B0a c\u1EA5u h\xECnh Supabase. Vui l\xF2ng thi\u1EBFt l\u1EADp bi\u1EBFn m\xF4i tr\u01B0\u1EDDng SUPABASE_URL v\xE0 SUPABASE_KEY."
-    });
-  }
-  const results = {};
-  const errors = [];
+  if (!getSupabaseClient()) return res.status(400).json({ success: false, message: "Ch\u01B0a c\u1EA5u h\xECnh Supabase. H\xE3y \u0111\u1EB7t SUPABASE_URL v\xE0 SUPABASE_SERVICE_ROLE_KEY." });
   try {
-    if (db.users.length > 0) {
-      const { error } = await supabase.from("users").upsert(db.users);
-      if (error) errors.push(`Users: ${error.message}`);
-      else results.users = db.users.length;
-    }
-    if (db.courses.length > 0) {
-      const { error } = await supabase.from("courses").upsert(db.courses);
-      if (error) errors.push(`Courses: ${error.message}`);
-      else results.courses = db.courses.length;
-    }
-    if (db.course_members.length > 0) {
-      const formattedMembers = db.course_members.map((m) => ({
-        ...m,
-        id: m.id || `${m.course_id}_${m.student_id}`
-      }));
-      const { error } = await supabase.from("course_members").upsert(formattedMembers);
-      if (error) errors.push(`Course Members: ${error.message}`);
-      else results.course_members = db.course_members.length;
-    }
-    if (db.assignments.length > 0) {
-      const { error } = await supabase.from("assignments").upsert(db.assignments);
-      if (error) errors.push(`Assignments: ${error.message}`);
-      else results.assignments = db.assignments.length;
-    }
-    if (db.submissions.length > 0) {
-      const { error } = await supabase.from("submissions").upsert(db.submissions);
-      if (error) errors.push(`Submissions: ${error.message}`);
-      else results.submissions = db.submissions.length;
-    }
-    if (db.chat_sessions.length > 0) {
-      const { error } = await supabase.from("chat_sessions").upsert(db.chat_sessions);
-      if (error) errors.push(`Chat Sessions: ${error.message}`);
-      else results.chat_sessions = db.chat_sessions.length;
-    }
-    if (errors.length > 0 && Object.keys(results).length === 0) {
-      return res.status(500).json({
-        success: false,
-        message: "Kh\xF4ng th\u1EC3 \u0111\u1ED3ng b\u1ED9 sang Supabase. H\xE3y \u0111\u1EA3m b\u1EA3o b\u1EA1n \u0111\xE3 ch\u1EA1y SQL Schema trong Supabase SQL Editor.",
-        errors
-      });
-    }
-    res.json({
-      success: true,
-      message: "\u0110\u1ED3ng b\u1ED9 d\u1EEF li\u1EC7u sang Supabase th\xE0nh c\xF4ng!",
-      results,
-      warnings: errors.length > 0 ? errors : void 0
-    });
+    const results = await pushAllToSupabase();
+    res.json({ success: true, message: "\u0110\xE3 ghi to\xE0n b\u1ED9 d\u1EEF li\u1EC7u hi\u1EC7n t\u1EA1i l\xEAn Supabase.", results });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message || "L\u1ED7i \u0111\u1ED3ng b\u1ED9 Supabase" });
+    res.status(500).json({ success: false, message: `L\u1ED7i ghi d\u1EEF li\u1EC7u: ${err.message}. B\u1EA1n \u0111\xE3 ch\u1EA1y SQL Schema ch\u01B0a?` });
   }
 });
 app.post("/api/supabase/pull", async (req, res) => {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return res.status(400).json({
-      success: false,
-      message: "Ch\u01B0a c\u1EA5u h\xECnh Supabase."
-    });
-  }
+  if (!getSupabaseClient()) return res.status(400).json({ success: false, message: "Ch\u01B0a c\u1EA5u h\xECnh Supabase." });
   try {
-    const [cRes, aRes, sRes, csRes, mRes] = await Promise.all([
-      supabase.from("courses").select("*"),
-      supabase.from("assignments").select("*"),
-      supabase.from("submissions").select("*"),
-      supabase.from("chat_sessions").select("*"),
-      supabase.from("course_members").select("*")
-    ]);
-    let importedCount = 0;
-    if (!cRes.error && cRes.data && cRes.data.length > 0) {
-      db.courses = cRes.data;
-      importedCount += cRes.data.length;
-    }
-    if (!aRes.error && aRes.data && aRes.data.length > 0) {
-      db.assignments = aRes.data;
-      importedCount += aRes.data.length;
-    }
-    if (!sRes.error && sRes.data && sRes.data.length > 0) {
-      db.submissions = sRes.data;
-      importedCount += sRes.data.length;
-    }
-    if (!csRes.error && csRes.data && csRes.data.length > 0) {
-      db.chat_sessions = csRes.data;
-      importedCount += csRes.data.length;
-    }
-    if (!mRes.error && mRes.data && mRes.data.length > 0) {
-      db.course_members = mRes.data;
-      importedCount += mRes.data.length;
-    }
-    res.json({
-      success: true,
-      message: `\u0110\xE3 nh\u1EADp th\xE0nh c\xF4ng d\u1EEF li\u1EC7u t\u1EEB Supabase!`,
-      stats: {
-        courses: db.courses.length,
-        assignments: db.assignments.length,
-        submissions: db.submissions.length,
-        chat_sessions: db.chat_sessions.length
-      }
-    });
+    await pullFromSupabase(true);
+    res.json({ success: true, message: "\u0110\xE3 n\u1EA1p l\u1EA1i d\u1EEF li\u1EC7u t\u1EEB Supabase.", stats: { users: db.users.length, courses: db.courses.length, assignments: db.assignments.length, submissions: db.submissions.length } });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message || "L\u1ED7i k\xE9o d\u1EEF li\u1EC7u t\u1EEB Supabase" });
+    res.status(500).json({ success: false, message: err.message || "L\u1ED7i \u0111\u1ECDc d\u1EEF li\u1EC7u t\u1EEB Supabase" });
   }
 });
 app.post("/api/supabase/auto-setup", async (req, res) => {

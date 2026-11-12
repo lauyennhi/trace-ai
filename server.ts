@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -77,7 +78,7 @@ function requireAuth(req: any, res: express.Response, next: express.NextFunction
   const user = uid ? db.users.find((u: any) => u.id === uid) : null;
   if (!user) return res.status(401).json({ success: false, message: "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại." });
   if (user.active === false) return res.status(401).json({ success: false, message: "Tài khoản đã bị vô hiệu hóa." });
-  if (!user.last_seen || Date.now() - new Date(user.last_seen).getTime() > 5 * 60 * 1000) user.last_seen = new Date().toISOString();
+  if (!user.last_seen || Date.now() - new Date(user.last_seen).getTime() > 5 * 60 * 1000) { user.last_seen = new Date().toISOString(); saveDocument("users", user.id, user); }
   req.user = user;
   next();
 }
@@ -577,62 +578,201 @@ async function loadFromFirestore() {
   }
 }
 
-async function saveDocument(collectionName: string, docId: string, data: any) {
-  // 1. Mirror to Firestore if configured & accessible
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection(collectionName).doc(docId).set(data, { merge: true });
-    } catch (err: any) {
-      const msg = err.message || "";
-      if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) {
-        firestoreDb = null; // Disable further Firestore attempts
-      }
-      console.warn(`[Firestore] Unable to save to ${collectionName}/${docId}:`, msg);
-    }
-  }
+// ---------------------------------------------------------------------------
+// Persistence. Source of truth = Supabase table `documents` (when configured);
+// Firestore stays an optional mirror. Every record is one JSON row, keyed by
+// (collection, id). Deletions are soft ("tombstones") so other server instances
+// can pick them up. All writes issued during a request are awaited before the
+// response is sent, because serverless platforms freeze the process afterwards.
+// ---------------------------------------------------------------------------
+const reqStore = new AsyncLocalStorage<{ pending: Promise<any>[] }>();
+const track = <T,>(p: Promise<T>): Promise<T> => { reqStore.getStore()?.pending.push(p.catch(() => {})); return p; };
 
-  // 2. Mirror to Supabase if configured
+const DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "notifications", "audit_logs"] as const;
+const docKey = (collection: string, d: any) => (collection === "course_members" ? `${d.course_id}_${d.student_id}` : d.id);
+
+async function saveDocumentInner(collectionName: string, docId: string, data: any) {
+  const snapshot = JSON.parse(JSON.stringify(data)); // freeze the value now; the caller may keep mutating it
   const supabase = getSupabaseClient();
+  const writes: Promise<any>[] = [];
+
   if (supabase) {
-    try {
-      const payload = { ...data, id: docId };
-      const { error } = await supabase.from(collectionName).upsert(payload);
-      if (error) {
-        console.warn(`[Supabase] Upsert warning on ${collectionName}:`, error.message);
+    writes.push((async () => {
+      try {
+        const { error } = await supabase.from("documents").upsert({ collection: collectionName, id: docId, data: snapshot, deleted: false }, { onConflict: "collection,id" });
+        if (error) console.warn(`[Supabase] Save ${collectionName}/${docId} failed:`, error.message);
+      } catch (err: any) { console.error(`[Supabase] Error saving ${collectionName}/${docId}:`, err?.message || err); }
+    })());
+  }
+  if (firestoreDb) {
+    writes.push((async () => {
+      try {
+        await firestoreDb!.collection(collectionName).doc(docId).set(snapshot, { merge: true });
+      } catch (err: any) {
+        const msg = err.message || "";
+        if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) firestoreDb = null;
+        console.warn(`[Firestore] Unable to save to ${collectionName}/${docId}:`, msg);
       }
-    } catch (err) {
-      console.error(`[Supabase] Error saving to ${collectionName}/${docId}:`, err);
-    }
+    })());
+  }
+  await Promise.all(writes);
+}
+const saveDocument = (collectionName: string, docId: string, data: any) => track(saveDocumentInner(collectionName, docId, data));
+
+async function deleteDocumentInner(collectionName: string, docId: string) {
+  const supabase = getSupabaseClient();
+  const writes: Promise<any>[] = [];
+  if (supabase) {
+    writes.push((async () => {
+      try {
+        const { error } = await supabase.from("documents").upsert({ collection: collectionName, id: docId, data: {}, deleted: true }, { onConflict: "collection,id" });
+        if (error) console.warn(`[Supabase] Delete ${collectionName}/${docId} failed:`, error.message);
+      } catch (err: any) { console.error(`[Supabase] Error deleting ${collectionName}/${docId}:`, err?.message || err); }
+    })());
+  }
+  if (firestoreDb) {
+    writes.push((async () => {
+      try {
+        await firestoreDb!.collection(collectionName).doc(docId).delete();
+      } catch (err: any) {
+        const msg = err.message || "";
+        if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) firestoreDb = null;
+        console.warn(`[Firestore] Unable to delete from ${collectionName}/${docId}:`, msg);
+      }
+    })());
+  }
+  await Promise.all(writes);
+}
+const deleteDocument = (collectionName: string, docId: string) => track(deleteDocumentInner(collectionName, docId));
+
+// ---- Supabase -> memory sync ----
+let syncCursor = 0;            // newest updated_at (ms) seen so far
+let lastRefresh = 0;
+let initialLoad: Promise<void> | null = null;
+let supabaseLoaded = false;
+let refreshing: Promise<void> | null = null;
+
+function emptyDb(): DB {
+  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
+}
+
+function applyRow(row: { collection: string; id: string; data: any; deleted: boolean }) {
+  if (row.collection === "settings") { if (!row.deleted) db.settings = row.data; return; }
+  const arr = (db as any)[row.collection] as any[] | undefined;
+  if (!arr) return;
+  const idx = arr.findIndex((x) => docKey(row.collection, x) === row.id);
+  if (row.deleted) { if (idx >= 0) arr.splice(idx, 1); return; }
+  const incoming = row.data || {};
+  if (idx >= 0) {
+    const cur = arr[idx];
+    // last_seen is refreshed in memory more often than it is saved: never move it backwards
+    if (row.collection === "users" && cur.last_seen && (!incoming.last_seen || cur.last_seen > incoming.last_seen)) incoming.last_seen = cur.last_seen;
+    for (const k of Object.keys(cur)) delete cur[k]; // mutate in place so existing references stay valid
+    Object.assign(cur, incoming);
+  } else {
+    arr.push(incoming);
   }
 }
 
-async function deleteDocument(collectionName: string, docId: string) {
-  // 1. Delete from Firestore if configured & accessible
-  if (firestoreDb) {
-    try {
-      await firestoreDb.collection(collectionName).doc(docId).delete();
-    } catch (err: any) {
-      const msg = err.message || "";
-      if (msg.includes("PERMISSION_DENIED") || msg.includes("has not been used") || msg.includes("7")) {
-        firestoreDb = null; // Disable further Firestore attempts
-      }
-      console.warn(`[Firestore] Unable to delete from ${collectionName}/${docId}:`, msg);
+async function pullFromSupabase(full = false) {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  const since = full || !syncCursor ? null : new Date(syncCursor - 3000).toISOString(); // small overlap; applying a row twice is harmless
+  const page = 1000;
+  let from = 0;
+  let maxTs = syncCursor;
+  for (;;) {
+    let q = sb.from("documents").select("collection,id,data,deleted,updated_at").order("updated_at", { ascending: true }).order("collection").order("id").range(from, from + page - 1);
+    if (since) q = q.gte("updated_at", since);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    for (const r of data || []) {
+      applyRow(r as any);
+      const t = Date.parse((r as any).updated_at);
+      if (t > maxTs) maxTs = t;
     }
+    if (!data || data.length < page) break;
+    from += page;
   }
-
-  // 2. Delete from Supabase if configured
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const { error } = await supabase.from(collectionName).delete().eq("id", docId);
-      if (error) {
-        console.warn(`[Supabase] Delete warning on ${collectionName}:`, error.message);
-      }
-    } catch (err) {
-      console.error(`[Supabase] Error deleting from ${collectionName}/${docId}:`, err);
-    }
-  }
+  syncCursor = maxTs;
 }
+
+async function pushAllToSupabase(): Promise<Record<string, number>> {
+  const sb = getSupabaseClient();
+  if (!sb) throw new Error("Chưa cấu hình Supabase.");
+  const rows: any[] = [];
+  const counts: Record<string, number> = {};
+  for (const c of DOC_COLLECTIONS) {
+    const list = ((db as any)[c] as any[]) || [];
+    counts[c] = list.length;
+    for (const d of list) rows.push({ collection: c, id: docKey(c, d), data: JSON.parse(JSON.stringify(d)), deleted: false });
+  }
+  rows.push({ collection: "settings", id: "global", data: JSON.parse(JSON.stringify(db.settings)), deleted: false });
+  for (let i = 0; i < rows.length; i += 100) {
+    const { error } = await sb.from("documents").upsert(rows.slice(i, i + 100), { onConflict: "collection,id" });
+    if (error) throw new Error(error.message);
+  }
+  return counts;
+}
+
+async function seedIfEmpty() {
+  if (db.users.length > 0) return;
+  const demo = process.env.SEED_DEMO_DATA !== "false";
+  const seed: DB = JSON.parse(JSON.stringify(initialDb));
+  const admin = seed.users.find((u) => u.role === "admin")!;
+  if (process.env.ADMIN_PASSWORD) admin.pwd = hashPassword(process.env.ADMIN_PASSWORD);
+  db.users = demo ? seed.users : [admin];
+  if (demo) {
+    db.courses = seed.courses; db.course_members = seed.course_members; db.assignments = seed.assignments;
+    db.submissions = seed.submissions; db.chat_sessions = seed.chat_sessions;
+  }
+  await pushAllToSupabase();
+  console.log(`[Supabase] Database was empty: seeded ${demo ? "demo data" : "admin account only"}.`);
+}
+
+async function loadFromSupabase() {
+  db = emptyDb();           // never mix leftover demo data with what is really stored
+  syncCursor = 0;
+  await pullFromSupabase(true);
+  await seedIfEmpty();
+  ensureSeedCredentials();
+  supabaseLoaded = true;
+  lastRefresh = Date.now();
+  console.log(`[Supabase] Loaded ${db.users.length} users, ${db.courses.length} courses, ${db.submissions.length} submissions.`);
+}
+
+/** A token or login for an account this instance has not seen yet usually means it was created on another instance. */
+function needsFreshData(req: express.Request): boolean {
+  const header = String(req.headers.authorization || "");
+  if (header.startsWith("Bearer ")) {
+    const uid = readToken(header.slice(7));
+    if (uid && !db.users.some((u: any) => u.id === uid)) return true;
+  }
+  if (req.path === "/auth/login" && req.body?.email) {
+    const email = String(req.body.email).trim().toLowerCase();
+    if (!db.users.some((u: any) => u.email.toLowerCase() === email)) return true;
+  }
+  return false;
+}
+
+/** Runs before every API request: wait for the first load, then refresh changes made by other instances. */
+async function syncMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!isSupabaseConfigured()) return next();
+  try {
+    if (!supabaseLoaded) {
+      if (!initialLoad) initialLoad = loadFromSupabase().finally(() => { if (!supabaseLoaded) initialLoad = null; });
+      await initialLoad;
+    } else if (needsFreshData(req) || Date.now() - lastRefresh > 1500) {
+      if (!refreshing) refreshing = pullFromSupabase().catch((e) => console.warn("[Supabase] Refresh failed:", e.message)).finally(() => { lastRefresh = Date.now(); refreshing = null; });
+      await refreshing;
+    }
+  } catch (e: any) {
+    console.error("[Supabase] Load failed:", e.message);
+    return res.status(503).json({ success: false, message: "Không kết nối được cơ sở dữ liệu. Vui lòng thử lại sau ít phút." });
+  }
+  next();
+}
+
 
 // Utility helper to generate 6-character random invite codes
 function generateInviteCode(): string {
@@ -646,6 +786,19 @@ function generateInviteCode(): string {
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+
+// Hold the response until every database write started by this request has finished
+app.use("/api", (req, res, next) => {
+  const store = { pending: [] as Promise<any>[] };
+  const origEnd = res.end;
+  (res as any).end = function (this: any, ...args: any[]) {
+    const go = () => origEnd.apply(this, args as any);
+    if (store.pending.length) Promise.allSettled([...store.pending]).then(go); else go();
+    return this;
+  };
+  reqStore.run(store, next);
+});
+app.use("/api", syncMiddleware);
 
 // Supabase admin endpoints require a logged-in teacher
 app.use("/api/supabase", requireAuth, (req: any, res, next) =>
@@ -682,136 +835,22 @@ app.get("/api/supabase/schema", (req, res) => {
 
 // Push/Sync all current courses, assignments, and submissions into Supabase
 app.post("/api/supabase/sync", async (req, res) => {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return res.status(400).json({
-      success: false,
-      message: "Chưa cấu hình Supabase. Vui lòng thiết lập biến môi trường SUPABASE_URL và SUPABASE_KEY.",
-    });
-  }
-
-  const results: Record<string, number> = {};
-  const errors: string[] = [];
-
+  if (!getSupabaseClient()) return res.status(400).json({ success: false, message: "Chưa cấu hình Supabase. Hãy đặt SUPABASE_URL và SUPABASE_SERVICE_ROLE_KEY." });
   try {
-    // 1. Users
-    if (db.users.length > 0) {
-      const { error } = await supabase.from("users").upsert(db.users);
-      if (error) errors.push(`Users: ${error.message}`);
-      else results.users = db.users.length;
-    }
-
-    // 2. Courses
-    if (db.courses.length > 0) {
-      const { error } = await supabase.from("courses").upsert(db.courses);
-      if (error) errors.push(`Courses: ${error.message}`);
-      else results.courses = db.courses.length;
-    }
-
-    // 3. Course Members
-    if (db.course_members.length > 0) {
-      const formattedMembers = db.course_members.map((m) => ({
-        ...m,
-        id: m.id || `${m.course_id}_${m.student_id}`,
-      }));
-      const { error } = await supabase.from("course_members").upsert(formattedMembers);
-      if (error) errors.push(`Course Members: ${error.message}`);
-      else results.course_members = db.course_members.length;
-    }
-
-    // 4. Assignments
-    if (db.assignments.length > 0) {
-      const { error } = await supabase.from("assignments").upsert(db.assignments);
-      if (error) errors.push(`Assignments: ${error.message}`);
-      else results.assignments = db.assignments.length;
-    }
-
-    // 5. Submissions
-    if (db.submissions.length > 0) {
-      const { error } = await supabase.from("submissions").upsert(db.submissions);
-      if (error) errors.push(`Submissions: ${error.message}`);
-      else results.submissions = db.submissions.length;
-    }
-
-    // 6. Chat Sessions
-    if (db.chat_sessions.length > 0) {
-      const { error } = await supabase.from("chat_sessions").upsert(db.chat_sessions);
-      if (error) errors.push(`Chat Sessions: ${error.message}`);
-      else results.chat_sessions = db.chat_sessions.length;
-    }
-
-    if (errors.length > 0 && Object.keys(results).length === 0) {
-      return res.status(500).json({
-        success: false,
-        message: "Không thể đồng bộ sang Supabase. Hãy đảm bảo bạn đã chạy SQL Schema trong Supabase SQL Editor.",
-        errors,
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Đồng bộ dữ liệu sang Supabase thành công!",
-      results,
-      warnings: errors.length > 0 ? errors : undefined,
-    });
+    const results = await pushAllToSupabase();
+    res.json({ success: true, message: "Đã ghi toàn bộ dữ liệu hiện tại lên Supabase.", results });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || "Lỗi đồng bộ Supabase" });
+    res.status(500).json({ success: false, message: `Lỗi ghi dữ liệu: ${err.message}. Bạn đã chạy SQL Schema chưa?` });
   }
 });
 
-// Pull data from Supabase into application
 app.post("/api/supabase/pull", async (req, res) => {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return res.status(400).json({
-      success: false,
-      message: "Chưa cấu hình Supabase.",
-    });
-  }
-
+  if (!getSupabaseClient()) return res.status(400).json({ success: false, message: "Chưa cấu hình Supabase." });
   try {
-    const [cRes, aRes, sRes, csRes, mRes] = await Promise.all([
-      supabase.from("courses").select("*"),
-      supabase.from("assignments").select("*"),
-      supabase.from("submissions").select("*"),
-      supabase.from("chat_sessions").select("*"),
-      supabase.from("course_members").select("*"),
-    ]);
-
-    let importedCount = 0;
-    if (!cRes.error && cRes.data && cRes.data.length > 0) {
-      db.courses = cRes.data;
-      importedCount += cRes.data.length;
-    }
-    if (!aRes.error && aRes.data && aRes.data.length > 0) {
-      db.assignments = aRes.data;
-      importedCount += aRes.data.length;
-    }
-    if (!sRes.error && sRes.data && sRes.data.length > 0) {
-      db.submissions = sRes.data;
-      importedCount += sRes.data.length;
-    }
-    if (!csRes.error && csRes.data && csRes.data.length > 0) {
-      db.chat_sessions = csRes.data;
-      importedCount += csRes.data.length;
-    }
-    if (!mRes.error && mRes.data && mRes.data.length > 0) {
-      db.course_members = mRes.data;
-      importedCount += mRes.data.length;
-    }
-
-    res.json({
-      success: true,
-      message: `Đã nhập thành công dữ liệu từ Supabase!`,
-      stats: {
-        courses: db.courses.length,
-        assignments: db.assignments.length,
-        submissions: db.submissions.length,
-        chat_sessions: db.chat_sessions.length,
-      },
-    });
+    await pullFromSupabase(true);
+    res.json({ success: true, message: "Đã nạp lại dữ liệu từ Supabase.", stats: { users: db.users.length, courses: db.courses.length, assignments: db.assignments.length, submissions: db.submissions.length } });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message || "Lỗi kéo dữ liệu từ Supabase" });
+    res.status(500).json({ success: false, message: err.message || "Lỗi đọc dữ liệu từ Supabase" });
   }
 });
 
