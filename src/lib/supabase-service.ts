@@ -3,8 +3,15 @@ import pg from "pg";
 
 let clientInstance: SupabaseClient | null = null;
 
+/** Accepts the URL however it was pasted (trailing slash, /rest/v1, spaces) and keeps only https://<ref>.supabase.co */
+export function normalizeSupabaseUrl(raw?: string): string {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  try { return new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`).origin; } catch { return v; }
+}
+
 export function getSupabaseClient(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL?.trim();
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL);
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
 
   if (!url || !key) {
@@ -43,7 +50,7 @@ export async function checkSupabaseConnection(): Promise<{
   tableStatus?: Record<string, boolean>;
 }> {
   const configured = isSupabaseConfigured();
-  const url = process.env.SUPABASE_URL?.trim() || null;
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL) || null;
 
   if (!configured) {
     return {

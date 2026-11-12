@@ -12,8 +12,17 @@ import { getFirestore } from "firebase-admin/firestore";
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 var clientInstance = null;
+function normalizeSupabaseUrl(raw) {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  try {
+    return new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`).origin;
+  } catch {
+    return v;
+  }
+}
 function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL?.trim();
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL);
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
   if (!url || !key) {
     return null;
@@ -41,7 +50,7 @@ function isSupabaseConfigured() {
 }
 async function checkSupabaseConnection() {
   const configured = isSupabaseConfigured();
-  const url = process.env.SUPABASE_URL?.trim() || null;
+  const url = normalizeSupabaseUrl(process.env.SUPABASE_URL) || null;
   if (!configured) {
     return {
       configured: false,
