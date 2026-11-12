@@ -135,19 +135,6 @@
   .dark .pill-active { color: #d3e3fd; }
 }
 
-@layer components {
-  .btn-lg { padding: .95rem 1.8rem; font-size: 1rem; }
-  /* faint, blurry highlight under the cursor (see useSpotlight) */
-  .spotlight { position: relative; --mx: 50%; --my: 50%; }
-  .spotlight::before {
-    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .4s; z-index: 0;
-    background: radial-gradient(300px circle at var(--mx) var(--my), color-mix(in srgb, var(--brand) 11%, transparent), transparent 72%);
-  }
-  .spotlight:hover::before { opacity: 1; }
-  .spotlight > * { position: relative; z-index: 1; }
-  .outline-word { color: transparent; -webkit-text-stroke: 1.5px color-mix(in srgb, var(--brand) 22%, transparent); }
-}
-
 /* ---------- Motion graphics ---------- */
 @keyframes float-slow { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(30px,-40px,0) scale(1.08); } }
 @keyframes float-slow-2 { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(-40px,30px,0) scale(1.12); } }

@@ -208,13 +208,13 @@ export const CourseArt: React.FC<{ id: string; className?: string }> = ({ id, cl
 };
 
 /* ---------- Collapsible section (Classroom home style) ---------- */
-export const Section: React.FC<{ title: string; storageKey?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; large?: boolean; spot?: boolean }> = ({ title, storageKey, action, children, className = "", large, spot }) => {
+export const Section: React.FC<{ title: string; storageKey?: string; action?: React.ReactNode; children: React.ReactNode; className?: string }> = ({ title, storageKey, action, children, className = "" }) => {
   const [open, setOpen] = useState(() => {
     try { return storageKey ? localStorage.getItem("sec_" + storageKey) !== "0" : true; } catch { return true; }
   });
   const toggle = () => { setOpen(!open); try { storageKey && localStorage.setItem("sec_" + storageKey, open ? "0" : "1"); } catch { /* ignore */ } };
   return (
-    <section className={`panel ${spot ? "spotlight" : ""} ${className}`}>
+    <section className={`panel ${className}`}>
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[1.65rem] leading-tight font-normal tracking-tight">{title}</h2>
         <div className="flex items-center gap-1">
