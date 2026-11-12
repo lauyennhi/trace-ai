@@ -18,7 +18,32 @@ import {
 // --- Auth helpers (scrypt password hashing + HMAC signed tokens) ---
 const AUTH_SECRET = process.env.AUTH_SECRET || "trace-dev-secret-change-me";
 if (!process.env.AUTH_SECRET) console.warn("[Auth] AUTH_SECRET is not set. Using an insecure development secret.");
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const GEMINI_FALLBACKS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.6-flash,gemini-flash-lite-latest").split(",").map((m) => m.trim()).filter(Boolean);
+
+/** Calls Gemini, retrying overloaded/rate-limited responses and falling back to other models. */
+async function generateWithFallback(params: { contents: any; config?: any }, timeoutMs = 30000) {
+  const models = [GEMINI_MODEL, ...GEMINI_FALLBACKS.filter((m) => m !== GEMINI_MODEL)];
+  let lastErr: any;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await Promise.race([
+          getGenAI().models.generateContent({ model, ...params }),
+          new Promise<never>((_, rej) => setTimeout(() => rej(Object.assign(new Error(`Model ${model} không phản hồi trong ${timeoutMs / 1000}s`), { code: 503 })), timeoutMs)),
+        ]);
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        const code = Number(err?.status || err?.code || (msg.match(/"code":\s*(\d+)/) || [])[1]);
+        if (code === 503 || code === 429 || code === 500) { await new Promise((r) => setTimeout(r, 700 * (attempt + 1))); continue; }
+        if (code === 404) break; // model unavailable for this key -> try next model
+        throw err; // auth / bad request: no point retrying
+      }
+    }
+  }
+  throw lastErr;
+}
 
 function hashPassword(pw: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -1286,8 +1311,7 @@ async function evaluateProcess(assignment: any, chat: any, submittedText: string
 - nhan_xet_ngan: 2-3 câu tiếng Việt tóm tắt kiểu tư duy
 - highlight_segments: danh sách {doan_van_ban (trích NGUYÊN VĂN câu của sinh viên), mau: "xanh"|"vang"|"do", ly_do}
 Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần làm rõ; do = copy hoàn toàn hoặc nhờ AI làm hộ.`;
-  const response = await getGenAI().models.generateContent({
-    model: GEMINI_MODEL,
+  const response = await generateWithFallback({
     contents: [{ role: "user", parts: [{ text: `Transcript:\n${transcript}\n\n${evalPrompt}` }] }],
     config: {
       responseMimeType: "application/json",
@@ -1397,8 +1421,7 @@ Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài 
 
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
-    const response = await getGenAI().models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateWithFallback({
       contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
       config: { systemInstruction, temperature: 0.7 },
     });
