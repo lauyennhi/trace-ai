@@ -47,7 +47,7 @@ export const Header: React.FC<Props> = ({ user, crumbs, theme, onToggleTheme, on
   const meRef = useOutside(me, () => setMe(false));
   const plusItems = [
     ...(user.role === "student" ? [{ icon: KeyRound, label: "Tham gia môn học", fn: onJoinCourse }] : []),
-    ...(user.role !== "student" && onCreateCourse ? [{ icon: BookPlus, label: "Tạo môn học", fn: onCreateCourse }] : []),
+    ...(user.role === "teacher" && onCreateCourse ? [{ icon: BookPlus, label: "Tạo môn học", fn: onCreateCourse }] : []),
     ...(user.role === "admin" && onCreateUser ? [{ icon: UserPlus, label: "Thêm người dùng", fn: onCreateUser }] : []),
   ].filter((i) => i.fn);
   const roleLabel = user.role === "admin" ? "Quản trị viên" : user.role === "teacher" ? "Giảng viên" : "Sinh viên";

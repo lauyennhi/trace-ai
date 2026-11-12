@@ -958,14 +958,14 @@ app.put("/api/auth/me", (req: AuthedRequest, res) => {
 
 // ---- Helpers ----
 const findCourse = (id: string) => db.courses.find((c: any) => c.id === id);
-const isOwner = (course: any, user: any) => !!course && (user.role === "admin" || (user.role === "teacher" && course.teacher_id === user.id));
+const isOwner = (course: any, user: any) => !!course && user.role === "teacher" && course.teacher_id === user.id;
 const isMember = (courseId: string, user: any) => db.course_members.some((m: any) => m.course_id === courseId && m.student_id === user.id);
 const canViewCourse = (course: any, user: any) => isOwner(course, user) || (user.role === "student" && isMember(course.id, user));
 const gradedState = (s: any) => s.grade !== undefined && s.grade !== null;
 const isSubmitted = (s: any) => s.status === "submitted" || s.status === "late";
 
 function teacherOnly(req: AuthedRequest, res: express.Response): boolean {
-  if (req.user.role === "student") { fail(res, 403, "Chức năng này chỉ dành cho giảng viên."); return false; }
+  if (req.user.role !== "teacher") { fail(res, 403, "Chức năng này chỉ dành cho giảng viên."); return false; }
   return true;
 }
 
@@ -1001,7 +1001,7 @@ function courseWithCounts(course: any, user: any) {
 app.get("/api/courses", (req: AuthedRequest, res) => {
   const user = req.user;
   const list = user.role === "admin"
-    ? db.courses
+    ? []
     : user.role === "teacher"
     ? db.courses.filter((c: any) => c.teacher_id === user.id)
     : db.courses.filter((c: any) => isMember(c.id, user));
@@ -1067,8 +1067,12 @@ app.delete("/api/courses/:id", (req: AuthedRequest, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Không tìm thấy môn học để xóa.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền xóa môn học này.");
-  const courseId = course.id;
   audit(req.user, "course.delete", course.name, `Mã ${course.code}`);
+  deleteCourseCascade(course.id);
+  res.json({ success: true, message: `Đã xóa môn học "${course.name}" và các dữ liệu liên quan.` });
+});
+
+function deleteCourseCascade(courseId: string) {
   db.courses = db.courses.filter((c: any) => c.id !== courseId);
   deleteDocument("courses", courseId);
   const assignmentIds = db.assignments.filter((a: any) => a.course_id === courseId).map((a: any) => a.id);
@@ -1076,8 +1080,7 @@ app.delete("/api/courses/:id", (req: AuthedRequest, res) => {
   const members = db.course_members.filter((m: any) => m.course_id === courseId);
   db.course_members = db.course_members.filter((m: any) => m.course_id !== courseId);
   for (const m of members) deleteDocument("course_members", `${courseId}_${m.student_id}`);
-  res.json({ success: true, message: `Đã xóa môn học "${course.name}" và các dữ liệu liên quan.` });
-});
+}
 
 function deleteAssignmentCascade(assignmentId: string) {
   db.assignments = db.assignments.filter((a: any) => a.id !== assignmentId);
@@ -1585,8 +1588,9 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
 app.get("/api/overview", (req: AuthedRequest, res) => {
   const user = req.user;
   const now = Date.now();
-  if (user.role !== "student") {
-    const myCourses = user.role === "admin" ? db.courses : db.courses.filter((c: any) => c.teacher_id === user.id);
+  if (user.role === "admin") return res.json({ success: true, data: {} });
+  if (user.role === "teacher") {
+    const myCourses = db.courses.filter((c: any) => c.teacher_id === user.id);
     const myAssignments = db.assignments.filter((a: any) => myCourses.some((c: any) => c.id === a.course_id));
     const toGrade = db.submissions
       .filter((s: any) => isSubmitted(s) && !gradedState(s) && myAssignments.some((a: any) => a.id === s.assignment_id))
@@ -1790,6 +1794,14 @@ app.put("/api/admin/courses/:id/teacher", (req: AuthedRequest, res) => {
   saveDocument("courses", course.id, course);
   addNotification(teacher.id, "Bạn được giao phụ trách môn học", course.name, `/course/${course.id}`);
   res.json({ success: true, data: course });
+});
+
+app.delete("/api/admin/courses/:id", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  audit(req.user, "course.delete", course.name, `Mã ${course.code} (bởi quản trị viên)`);
+  deleteCourseCascade(course.id);
+  res.json({ success: true, message: `Đã xóa môn học "${course.name}" và các dữ liệu liên quan.` });
 });
 
 app.get("/api/admin/settings", (req, res) => res.json({ success: true, data: db.settings }));

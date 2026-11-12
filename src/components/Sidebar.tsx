@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Home, LayoutGrid, ListTodo, ShieldCheck, Settings, GraduationCap, BookOpen } from "lucide-react";
+import { Home, LayoutGrid, ListTodo, ShieldCheck, Settings, GraduationCap, BookOpen, Users, ScrollText } from "lucide-react";
 import { User, Course } from "../types";
 import { courseTheme } from "./ui";
 
@@ -10,6 +10,7 @@ interface Props {
   expanded: boolean;
   mobileOpen: boolean;
   routeName: string;
+  adminTab?: string;
   activeCourseId: string | null;
   todoCount: number;
   onNavigate: (to: string) => void;
@@ -17,13 +18,20 @@ interface Props {
   onCloseMobile: () => void;
 }
 
-export const Sidebar: React.FC<Props> = ({ user, courses, expanded, mobileOpen, routeName, activeCourseId, todoCount, onNavigate, onOpenSettings, onCloseMobile }) => {
-  const teacher = user.role !== "student";
-  const items = [
+export const Sidebar: React.FC<Props> = ({ user, courses, expanded, mobileOpen, routeName, adminTab, activeCourseId, todoCount, onNavigate, onOpenSettings, onCloseMobile }) => {
+  const teacher = user.role === "teacher";
+  const admin = user.role === "admin";
+  const tab = adminTab || "overview";
+  const items = admin ? [
+    { id: "a-overview", label: "Tổng quan hệ thống", icon: Home, to: "/admin", on: routeName === "admin" && tab === "overview" },
+    { id: "a-users", label: "Người dùng", icon: Users, to: "/admin/users", on: routeName === "admin" && tab === "users" },
+    { id: "a-courses", label: "Môn học", icon: BookOpen, to: "/admin/courses", on: routeName === "admin" && tab === "courses" },
+    { id: "a-perms", label: "Phân quyền", icon: ShieldCheck, to: "/admin/permissions", on: routeName === "admin" && tab === "permissions" },
+    { id: "a-audit", label: "Nhật ký", icon: ScrollText, to: "/admin/audit", on: routeName === "admin" && tab === "audit" },
+  ] : [
     { id: "home", label: "Trang chủ", icon: Home, to: "/", on: routeName === "home" },
     { id: "courses", label: "Tất cả môn học", icon: LayoutGrid, to: "/courses", on: routeName === "courses" },
     { id: "todo", label: teacher ? "Cần chấm" : "Việc cần làm", icon: ListTodo, to: "/todo", on: routeName === "todo", badge: todoCount },
-    ...(user.role === "admin" ? [{ id: "admin", label: "Quản trị", icon: ShieldCheck, to: "/admin", on: routeName === "admin" }] : []),
   ];
   const go = (to: string) => { onNavigate(to); onCloseMobile(); };
   const wide = expanded || mobileOpen;
@@ -47,7 +55,7 @@ export const Sidebar: React.FC<Props> = ({ user, courses, expanded, mobileOpen, 
             </button>
           ))}
 
-          {wide && (
+          {wide && !admin && (
             <div className="pt-3">
               <div className="mx-3 mb-2 border-t border-line" />
               <div className="px-4 py-1 flex items-center gap-2 text-xs font-medium text-mute">

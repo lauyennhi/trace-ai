@@ -48,6 +48,7 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [delUser, setDelUser] = useState<any>(null);
+  const [delCourse, setDelCourse] = useState<any>(null);
   const [tempPw, setTempPw] = useState<{ name: string; pw: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,7 +86,7 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
         <h1 className="text-3xl font-normal tracking-tight flex items-center gap-3"><ShieldCheck className="w-8 h-8 text-brand" />Quản trị hệ thống</h1>
         <p className="text-sm text-ink-2 mt-1">Quản lý người dùng, môn học và phân quyền cho toàn bộ Trace.</p>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist">
+      <div className="flex gap-2 overflow-x-auto pb-1 md:hidden" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={active === t.id} onClick={() => onTab(t.id)} className={`pill whitespace-nowrap ${active === t.id ? "pill-active" : ""}`}><t.icon className="w-4 h-4" />{t.label}</button>
         ))}
@@ -174,9 +175,9 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
             <div className="panel !p-0 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="text-left text-xs text-mute bg-surface-2"><th className="py-3 px-5 font-medium">Môn học</th><th className="px-3 font-medium">Giảng viên phụ trách</th><th className="px-3 font-medium">SV</th><th className="px-3 font-medium">Bài tập</th><th className="px-5 font-medium">Mã mời</th></tr></thead>
+                  <thead><tr className="text-left text-xs text-mute bg-surface-2"><th className="py-3 px-5 font-medium">Môn học</th><th className="px-3 font-medium">Giảng viên phụ trách</th><th className="px-3 font-medium">SV</th><th className="px-3 font-medium">Bài tập</th><th className="px-3 font-medium">Mã mời</th><th className="px-5" /></tr></thead>
                   <tbody className="divide-y divide-line">
-                    {!courses && <tr><td colSpan={5} className="p-6"><Skeleton className="h-10" /></td></tr>}
+                    {!courses && <tr><td colSpan={6} className="p-6"><Skeleton className="h-10" /></td></tr>}
                     {courses?.map((c) => (
                       <tr key={c.id} className="hover:bg-surface-2/60">
                         <td className="py-3 px-5"><div className="font-medium">{c.name}</div><div className="text-xs text-mute">{c.code} · {c.semester}</div></td>
@@ -184,10 +185,11 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
                           {!teachers.some((t) => t.id === c.teacher_id) && <option value={c.teacher_id}>{c.teacher_name}</option>}
                           {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></td>
                         <td className="px-3">{c.member_count}</td><td className="px-3">{c.assignment_count}</td>
-                        <td className="px-5"><button className="chip chip-gray font-mono" onClick={() => { navigator.clipboard?.writeText(c.invite_code); toast.success("Đã sao chép mã mời."); }}>{c.invite_code}<Copy className="w-3 h-3" /></button></td>
+                        <td className="px-3"><button className="chip chip-gray font-mono" onClick={() => { navigator.clipboard?.writeText(c.invite_code); toast.success("Đã sao chép mã mời."); }}>{c.invite_code}<Copy className="w-3 h-3" /></button></td>
+                        <td className="px-5 text-right"><button className="p-2 rounded-full hover:bg-surface-2 text-[#d93025]" title="Xóa môn học" aria-label={`Xóa môn ${c.name}`} onClick={() => setDelCourse(c)}><Trash2 className="w-[18px] h-[18px]" /></button></td>
                       </tr>
                     ))}
-                    {courses?.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-mute">Chưa có môn học nào.</td></tr>}
+                    {courses?.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-mute">Chưa có môn học nào.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -247,6 +249,8 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
         <div className="tonal mt-4 p-4 flex items-center justify-between font-mono text-xl tracking-widest"><span>{tempPw?.pw}</span><button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard?.writeText(tempPw?.pw || ""); toast.success("Đã sao chép."); }}><Copy className="w-4 h-4" />Sao chép</button></div>
         <div className="flex justify-end mt-5"><button className="btn btn-primary" onClick={() => setTempPw(null)}>Đã lưu lại</button></div>
       </Modal>
+      <DeleteConfirmModal isOpen={!!delCourse} title="Xóa môn học" itemType="môn học" itemName={delCourse?.name || ""} confirmLabel="Xóa môn học"
+        onClose={() => setDelCourse(null)} onConfirm={async () => { await api(`/api/admin/courses/${delCourse.id}`, { method: "DELETE" }); toast.success("Đã xóa môn học."); load("courses"); }} />
       <DeleteConfirmModal isOpen={!!delUser} title="Xóa người dùng" itemType="người dùng" itemName={delUser?.name || ""} confirmLabel="Xóa người dùng"
         warning="Tài khoản, lượt tham gia lớp, bài nộp và nhật ký chat của người này sẽ bị xóa vĩnh viễn."
         onClose={() => setDelUser(null)} onConfirm={async () => { await api(`/api/admin/users/${delUser.id}`, { method: "DELETE" }); toast.success("Đã xóa người dùng."); load("users"); }} />

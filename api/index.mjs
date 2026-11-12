@@ -1147,13 +1147,13 @@ app.put("/api/auth/me", (req, res) => {
   res.json({ success: true, data: publicUser(req.user) });
 });
 var findCourse = (id) => db.courses.find((c) => c.id === id);
-var isOwner = (course, user) => !!course && (user.role === "admin" || user.role === "teacher" && course.teacher_id === user.id);
+var isOwner = (course, user) => !!course && user.role === "teacher" && course.teacher_id === user.id;
 var isMember = (courseId, user) => db.course_members.some((m) => m.course_id === courseId && m.student_id === user.id);
 var canViewCourse = (course, user) => isOwner(course, user) || user.role === "student" && isMember(course.id, user);
 var gradedState = (s) => s.grade !== void 0 && s.grade !== null;
 var isSubmitted = (s) => s.status === "submitted" || s.status === "late";
 function teacherOnly(req, res) {
-  if (req.user.role === "student") {
+  if (req.user.role !== "teacher") {
     fail(res, 403, "Ch\u1EE9c n\u0103ng n\xE0y ch\u1EC9 d\xE0nh cho gi\u1EA3ng vi\xEAn.");
     return false;
   }
@@ -1184,7 +1184,7 @@ function courseWithCounts(course, user) {
 }
 app.get("/api/courses", (req, res) => {
   const user = req.user;
-  const list = user.role === "admin" ? db.courses : user.role === "teacher" ? db.courses.filter((c) => c.teacher_id === user.id) : db.courses.filter((c) => isMember(c.id, user));
+  const list = user.role === "admin" ? [] : user.role === "teacher" ? db.courses.filter((c) => c.teacher_id === user.id) : db.courses.filter((c) => isMember(c.id, user));
   res.json({ success: true, data: list.map((c) => courseWithCounts(c, user)) });
 });
 var COURSE_COLORS = ["from-indigo-500 to-violet-600", "from-sky-500 to-blue-600", "from-emerald-500 to-teal-600", "from-rose-500 to-pink-600", "from-amber-500 to-orange-600", "from-fuchsia-500 to-purple-600"];
@@ -1242,8 +1242,11 @@ app.delete("/api/courses/:id", (req, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y m\xF4n h\u1ECDc \u0111\u1EC3 x\xF3a.");
   if (!isOwner(course, req.user)) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n x\xF3a m\xF4n h\u1ECDc n\xE0y.");
-  const courseId = course.id;
   audit(req.user, "course.delete", course.name, `M\xE3 ${course.code}`);
+  deleteCourseCascade(course.id);
+  res.json({ success: true, message: `\u0110\xE3 x\xF3a m\xF4n h\u1ECDc "${course.name}" v\xE0 c\xE1c d\u1EEF li\u1EC7u li\xEAn quan.` });
+});
+function deleteCourseCascade(courseId) {
   db.courses = db.courses.filter((c) => c.id !== courseId);
   deleteDocument("courses", courseId);
   const assignmentIds = db.assignments.filter((a) => a.course_id === courseId).map((a) => a.id);
@@ -1251,8 +1254,7 @@ app.delete("/api/courses/:id", (req, res) => {
   const members = db.course_members.filter((m) => m.course_id === courseId);
   db.course_members = db.course_members.filter((m) => m.course_id !== courseId);
   for (const m of members) deleteDocument("course_members", `${courseId}_${m.student_id}`);
-  res.json({ success: true, message: `\u0110\xE3 x\xF3a m\xF4n h\u1ECDc "${course.name}" v\xE0 c\xE1c d\u1EEF li\u1EC7u li\xEAn quan.` });
-});
+}
 function deleteAssignmentCascade(assignmentId) {
   db.assignments = db.assignments.filter((a) => a.id !== assignmentId);
   deleteDocument("assignments", assignmentId);
@@ -1721,8 +1723,9 @@ app.get("/api/courses/:id/stats", (req, res) => {
 app.get("/api/overview", (req, res) => {
   const user = req.user;
   const now = Date.now();
-  if (user.role !== "student") {
-    const myCourses = user.role === "admin" ? db.courses : db.courses.filter((c) => c.teacher_id === user.id);
+  if (user.role === "admin") return res.json({ success: true, data: {} });
+  if (user.role === "teacher") {
+    const myCourses = db.courses.filter((c) => c.teacher_id === user.id);
     const myAssignments = db.assignments.filter((a) => myCourses.some((c) => c.id === a.course_id));
     const toGrade = db.submissions.filter((s) => isSubmitted(s) && !gradedState(s) && myAssignments.some((a) => a.id === s.assignment_id)).map((s) => {
       const a = myAssignments.find((x) => x.id === s.assignment_id);
@@ -1923,6 +1926,13 @@ app.put("/api/admin/courses/:id/teacher", (req, res) => {
   saveDocument("courses", course.id, course);
   addNotification(teacher.id, "B\u1EA1n \u0111\u01B0\u1EE3c giao ph\u1EE5 tr\xE1ch m\xF4n h\u1ECDc", course.name, `/course/${course.id}`);
   res.json({ success: true, data: course });
+});
+app.delete("/api/admin/courses/:id", (req, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y m\xF4n h\u1ECDc.");
+  audit(req.user, "course.delete", course.name, `M\xE3 ${course.code} (b\u1EDFi qu\u1EA3n tr\u1ECB vi\xEAn)`);
+  deleteCourseCascade(course.id);
+  res.json({ success: true, message: `\u0110\xE3 x\xF3a m\xF4n h\u1ECDc "${course.name}" v\xE0 c\xE1c d\u1EEF li\u1EC7u li\xEAn quan.` });
 });
 app.get("/api/admin/settings", (req, res) => res.json({ success: true, data: db.settings }));
 app.put("/api/admin/settings", (req, res) => {

@@ -105,7 +105,7 @@ function Shell() {
     } catch (e: any) { toast.error(e.message); navigate("/"); }
   }, []);
 
-  useEffect(() => { if (user) { loadCourses(); loadOverview(); loadNotifications(); } }, [user?.id]);
+  useEffect(() => { if (user) { if (user.role !== "admin") { loadCourses(); loadOverview(); } loadNotifications(); } }, [user?.id]);
   useEffect(() => {
     if (!user) return;
     const t = setInterval(loadNotifications, 30000);
@@ -117,6 +117,7 @@ function Shell() {
     if (!user) return;
     setMobileOpen(false);
     window.scrollTo({ top: 0 });
+    if (user.role === "admin") { if (route.name !== "admin") navigate("/admin"); return; }
     if (route.name === "home" || route.name === "courses" || route.name === "todo") { loadCourses(); loadOverview(); return; }
     if (route.name === "admin") return;
     const teacher = user.role !== "student";
@@ -209,7 +210,7 @@ function Shell() {
   if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg"><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }} className="w-10 h-10 rounded-full border-4 border-line border-t-brand" /></div>;
   if (!user) return <LoginPage onAuthed={(u) => { setUser(u); navigate("/"); }} />;
 
-  const manage = user.role !== "student";
+  const manage = user.role === "teacher";
   const cid = "courseId" in route ? route.courseId : null;
   const goCourse = () => cid && navigate(`/course/${cid}`);
   const crumbs: { label: string; onClick?: () => void }[] = [];
@@ -235,18 +236,18 @@ function Shell() {
 
   return (
     <div className="min-h-screen bg-bg text-ink antialiased">
-      <Header user={user} crumbs={crumbs} theme={theme} onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")} onToggleMenu={toggleMenu} onGoHome={() => navigate("/")}
+      <Header user={user} crumbs={crumbs} theme={theme} onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")} onToggleMenu={toggleMenu} onGoHome={() => navigate(user.role === "admin" ? "/admin" : "/")}
         notifications={notifications} unread={unread} onOpenNotifications={readNotifications} onNotificationClick={notificationClick}
         onCreateCourse={canCreateCourse ? () => setCourseModal({ open: true, course: null }) : undefined} onJoinCourse={() => setJoinOpen(true)}
         onCreateUser={user.role === "admin" ? () => navigate("/admin/users") : undefined} onOpenSettings={() => setSettingsOpen(true)} onLogout={logout} />
       <Sidebar user={user} courses={courses} expanded={expanded} mobileOpen={mobileOpen} routeName={route.name} activeCourseId={cid} todoCount={todoCount}
-        onNavigate={navigate} onOpenSettings={() => setSettingsOpen(true)} onCloseMobile={() => setMobileOpen(false)} />
+        adminTab={route.name === "admin" ? route.tab : undefined} onNavigate={navigate} onOpenSettings={() => setSettingsOpen(true)} onCloseMobile={() => setMobileOpen(false)} />
 
       <div className={`pt-16 min-h-screen flex flex-col min-w-0 transition-[padding] duration-300 ${expanded ? "md:pl-72" : "md:pl-[72px]"}`}>
         <main className="flex-1 w-full min-w-0 max-w-[88rem] mx-auto px-4 md:px-6 py-4 md:py-5 overflow-x-clip">
           <AnimatePresence mode="wait">
             <motion.div key={pageKey} variants={pageVariants} initial="initial" animate="animate" exit="exit">
-              {route.name === "home" && (
+              {route.name === "home" && user.role !== "admin" && (
                 <DashboardPage user={user} courses={courses} overview={overview} loading={coursesLoading}
                   onSelectCourse={openCourse} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)}
                   onOpenSubmission={(c, a, s) => navigate(`/course/${c}/assignment/${a}/submission/${s}`)}
@@ -269,7 +270,7 @@ function Shell() {
               )}
               {route.name === "admin" && user.role !== "admin" && <div className="panel text-center text-ink-2">Bạn không có quyền truy cập khu vực quản trị.</div>}
 
-              {route.name === "course" && (
+              {route.name === "course" && user.role !== "admin" && (
                 <CoursePage user={user} course={course} stats={stats} tab={route.tab || "assignments"} onTab={(t) => navigate(`/course/${route.courseId}${t === "assignments" ? "" : "/" + t}`)}
                   onOpenAssignment={(id) => navigate(`/course/${route.courseId}/assignment/${id}`)}
                   onCreateAssignment={() => setAssignmentModal({ open: true, assignment: null })} onEditAssignment={(a) => setAssignmentModal({ open: true, assignment: a })}
