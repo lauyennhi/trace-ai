@@ -31,3 +31,8 @@ CREATE TRIGGER documents_touch BEFORE INSERT OR UPDATE ON public.documents
 -- Bảo mật: bật RLS và KHÔNG tạo policy nào => chỉ máy chủ (service_role key) mới đọc/ghi được.
 -- Khóa anon công khai sẽ KHÔNG truy cập được dữ liệu.
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+
+-- Cấp quyền cho khóa máy chủ (service_role). Supabase mới không còn tự cấp quyền cho bảng tạo thêm.
+-- Cố ý KHÔNG cấp cho anon / authenticated.
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON TABLE public.documents TO service_role;

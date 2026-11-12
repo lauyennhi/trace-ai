@@ -123,6 +123,11 @@ CREATE TRIGGER documents_touch BEFORE INSERT OR UPDATE ON public.documents
 -- B\u1EA3o m\u1EADt: b\u1EADt RLS v\xE0 KH\xD4NG t\u1EA1o policy n\xE0o => ch\u1EC9 m\xE1y ch\u1EE7 (service_role key) m\u1EDBi \u0111\u1ECDc/ghi \u0111\u01B0\u1EE3c.
 -- Kh\xF3a anon c\xF4ng khai s\u1EBD KH\xD4NG truy c\u1EADp \u0111\u01B0\u1EE3c d\u1EEF li\u1EC7u.
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+
+-- C\u1EA5p quy\u1EC1n cho kh\xF3a m\xE1y ch\u1EE7 (service_role). Supabase m\u1EDBi kh\xF4ng c\xF2n t\u1EF1 c\u1EA5p quy\u1EC1n cho b\u1EA3ng t\u1EA1o th\xEAm.
+-- C\u1ED1 \xFD KH\xD4NG c\u1EA5p cho anon / authenticated.
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON TABLE public.documents TO service_role;
 `;
 function getSupabaseProjectRef() {
   const url = process.env.SUPABASE_URL?.trim();
