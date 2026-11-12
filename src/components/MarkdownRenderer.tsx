@@ -65,7 +65,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           ),
           h1: ({ ...props }) => (
             <h1
-              className="text-base font-extrabold text-zinc-900 dark:text-zinc-100 mt-4 mb-2 first:mt-0 tracking-tight"
+              className="text-base font-medium text-zinc-900 dark:text-zinc-100 mt-4 mb-2 first:mt-0 tracking-tight"
               {...props}
             />
           ),

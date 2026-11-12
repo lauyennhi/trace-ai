@@ -33,7 +33,7 @@ export const AssignmentSubmissionsPage: React.FC<Props> = ({ assignment, submiss
       <motion.div variants={riseItem} className="card p-5 flex flex-wrap items-center gap-5">
         <div className="flex-1 min-w-[16rem]">
           <div className="text-xs font-semibold text-brand">Bài nộp của sinh viên</div>
-          <h2 className="text-xl font-extrabold">{assignment.title}</h2>
+          <h2 className="text-xl font-medium">{assignment.title}</h2>
           <p className="text-xs text-mute mt-1 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />Hạn {fmtDate(assignment.due_date)} · {relTime(assignment.due_date)}</p>
         </div>
         <div className="w-56"><div className="flex justify-between text-xs mb-1.5"><span className="text-ink-2 font-medium">Đã nộp</span><strong>{submissions.length - counts.missing}/{submissions.length}</strong></div><Bar value={submittedPct} /></div>

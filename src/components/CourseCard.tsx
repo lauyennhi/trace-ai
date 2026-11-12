@@ -1,61 +1,67 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Users, ClipboardList, Copy, Check, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
+import { BarChart3, Users, FolderOpen, MoreVertical, Copy, Check, Pencil, Trash2, ClipboardList } from "lucide-react";
 import { Course, UserRole } from "../types";
-import { riseItem } from "./ui";
+import { CourseArt, courseTheme, relTime, riseItem } from "./ui";
 
 interface Props {
   course: Course; role: UserRole;
-  onSelect: (id: string) => void; onEdit?: (c: Course) => void; onDelete?: (c: Course) => void;
+  onSelect: (id: string, tab?: string) => void; onEdit?: (c: Course) => void; onDelete?: (c: Course) => void;
 }
 
 export const CourseCard: React.FC<Props> = ({ course, role, onSelect, onEdit, onDelete }) => {
+  const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const t = courseTheme(course.id);
+  const manage = role !== "student";
+  useEffect(() => {
+    if (!menu) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [menu]);
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
-  const copy = () => {
-    if (!course.invite_code) return;
-    navigator.clipboard?.writeText(course.invite_code);
-    setCopied(true); setTimeout(() => setCopied(false), 1800);
-  };
-  const teacher = role === "teacher";
+  const copy = () => { if (course.invite_code) { navigator.clipboard?.writeText(course.invite_code); setCopied(true); setTimeout(() => setCopied(false), 1500); } };
+
+  const iconBtn = "p-2.5 rounded-full text-ink-2 hover:bg-surface-2 transition-colors";
   return (
-    <motion.div variants={riseItem} whileTap={{ scale: 0.99 }} onClick={() => onSelect(course.id)} role="button" tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onSelect(course.id)}
-      className="group card card-hover cursor-pointer overflow-hidden flex flex-col">
-      <div className={`relative h-28 bg-gradient-to-br ${course.accent_color || "from-indigo-500 to-violet-600"} p-4 overflow-hidden`}>
-        <div className="absolute -right-6 -top-8 w-32 h-32 rounded-full bg-white/15 transition-transform duration-500 group-hover:scale-125" />
-        <div className="absolute right-10 -bottom-10 w-24 h-24 rounded-full bg-white/10 transition-transform duration-700 group-hover:scale-150" />
-        <div className="relative flex items-start justify-between">
-          <span className="px-2.5 py-1 rounded-lg bg-white/25 backdrop-blur text-white text-xs font-bold font-mono tracking-wider">{course.code}</span>
-          {teacher && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-              <button onClick={stop(() => onEdit?.(course))} className="p-1.5 rounded-lg bg-white/25 hover:bg-white/40 text-white backdrop-blur" title="Chỉnh sửa" aria-label="Chỉnh sửa môn học"><Pencil className="w-3.5 h-3.5" /></button>
-              <button onClick={stop(() => onDelete?.(course))} className="p-1.5 rounded-lg bg-white/25 hover:bg-rose-500 text-white backdrop-blur" title="Xóa" aria-label="Xóa môn học"><Trash2 className="w-3.5 h-3.5" /></button>
-            </div>
-          )}
-        </div>
-        <h3 className="relative mt-3 text-white font-bold text-lg leading-tight line-clamp-1 drop-shadow-sm">{course.name}</h3>
+    <motion.article variants={riseItem} onClick={() => onSelect(course.id)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(course.id)}
+      className="group card card-hover cursor-pointer overflow-visible flex flex-col rounded-[1.5rem]" style={{ boxShadow: "var(--shadow-card)" }}>
+      <div className="relative h-[7.5rem] rounded-t-[1.5rem] px-5 pt-4" style={{ background: t.bg }}>
+        <CourseArt id={course.id} className="rounded-t-[1.5rem]" />
+        <h3 className="relative text-[1.35rem] leading-snug font-normal line-clamp-2 pr-24 group-hover:underline underline-offset-4" style={{ color: "color-mix(in srgb, " + t.color + " 70%, var(--ink))" }}>{course.name}</h3>
+        <p className="relative text-sm mt-0.5 text-ink-2 truncate">{course.code} · {course.semester}</p>
       </div>
-      <div className="p-4 flex-1 flex flex-col gap-3">
-        <p className="text-xs text-mute">{course.semester} · {course.teacher_name}</p>
-        {course.description && <p className="text-sm text-ink-2 line-clamp-2 leading-relaxed">{course.description}</p>}
-        <div className="mt-auto pt-3 border-t border-line flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
-          <div className="flex items-center gap-3 text-xs text-ink-2 font-medium">
-            <span className="flex items-center gap-1.5 whitespace-nowrap"><Users className="w-4 h-4 text-mute" />{course.member_count || 0}</span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap"><ClipboardList className="w-4 h-4 text-mute" />{course.assignments_count ?? 0} bài</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {teacher && (course.ungraded_count || 0) > 0 && <span className="chip chip-rose whitespace-nowrap">{course.ungraded_count} chờ chấm</span>}
-            {!teacher && (course.todo_count || 0) > 0 && <span className="chip chip-amber whitespace-nowrap">{course.todo_count} cần làm</span>}
-            {teacher && course.invite_code && (
-              <button onClick={stop(copy)} className="chip chip-gray font-mono hover:border-brand/50 transition-colors" title="Sao chép mã mời">
-                {course.invite_code}{copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-              </button>
+      <div className="px-5 pt-4 pb-3 flex-1 min-h-[5.5rem]">
+        {course.next_due ? (
+          <>
+            <div className="text-sm font-medium">Sắp đến hạn · <span className="text-ink-2 font-normal">{relTime(course.next_due.due_date)}</span></div>
+            <div className="text-sm text-ink-2 truncate mt-0.5">{course.next_due.title}</div>
+          </>
+        ) : <div className="text-sm text-mute">Không có bài tập sắp đến hạn</div>}
+        {manage && (course.ungraded_count || 0) > 0 && <span className="chip chip-rose mt-2">{course.ungraded_count} bài chờ chấm</span>}
+        {!manage && (course.todo_count || 0) > 0 && <span className="chip chip-amber mt-2">{course.todo_count} bài cần làm</span>}
+      </div>
+      <div className="relative border-t border-line px-3 py-1.5 flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+        {manage && course.invite_code && (
+          <button onClick={copy} className="mr-auto ml-2 chip chip-gray font-mono hover:border-brand/40" title="Sao chép mã mời">{course.invite_code}{copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}</button>
+        )}
+        {manage && <button className={iconBtn} title="Thống kê lớp" aria-label="Thống kê lớp" onClick={stop(() => onSelect(course.id, "stats"))}><BarChart3 className="w-5 h-5" /></button>}
+        <button className={iconBtn} title="Sinh viên" aria-label="Sinh viên" onClick={stop(() => onSelect(course.id, "students"))}><Users className="w-5 h-5" /></button>
+        <button className={iconBtn} title="Bài tập" aria-label="Bài tập" onClick={stop(() => onSelect(course.id))}>{manage ? <FolderOpen className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}</button>
+        {manage && (
+          <div className="relative" ref={ref}>
+            <button className={iconBtn} aria-label="Thêm tùy chọn" onClick={stop(() => setMenu(!menu))}><MoreVertical className="w-5 h-5" /></button>
+            {menu && (
+              <div className="absolute right-0 bottom-full mb-1 w-44 card shadow-2xl py-1.5 z-20">
+                <button onClick={stop(() => { setMenu(false); onEdit?.(course); })} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-2"><Pencil className="w-4 h-4" />Chỉnh sửa</button>
+                <button onClick={stop(() => { setMenu(false); onDelete?.(course); })} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#d93025] hover:bg-surface-2"><Trash2 className="w-4 h-4" />Xóa môn học</button>
+              </div>
             )}
-            <ArrowUpRight className="w-4 h-4 text-mute group-hover:text-brand group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
           </div>
-        </div>
+        )}
       </div>
-    </motion.div>
+    </motion.article>
   );
 };

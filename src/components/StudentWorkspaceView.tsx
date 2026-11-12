@@ -143,7 +143,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
       <div className="card p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold text-brand">{courseName}</div>
-          <h2 className="text-lg font-extrabold leading-tight truncate">{assignment.title}</h2>
+          <h2 className="text-lg font-medium leading-tight truncate">{assignment.title}</h2>
           <div className="text-xs text-mute mt-1 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />Hạn {fmtDate(assignment.due_date)} · {relTime(assignment.due_date)}
             {pastDue && !submitted && <span className="chip chip-rose ml-1">Quá hạn</span>}</div>
         </div>
@@ -173,13 +173,13 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           {/* Result */}
           {submitted && (current?.grade !== undefined || result || current?.eval_status === "failed") && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card p-5 overflow-hidden relative">
-              <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-gradient-to-br from-brand to-brand-2 opacity-10" />
+              <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-brand opacity-10" />
               <h3 className="font-bold flex items-center gap-2 mb-4"><Award className="w-5 h-5 text-amber-500" />Kết quả của bạn</h3>
               <div className="grid sm:grid-cols-2 gap-5">
                 <div className="space-y-3">
                   <div className="flex items-end gap-5">
-                    <div><div className="text-xs text-mute">Điểm giảng viên</div><div className="text-4xl font-extrabold gradient-text">{current?.grade !== undefined ? current.grade : "—"}<span className="text-base text-mute font-semibold">{current?.grade !== undefined ? "/10" : ""}</span></div></div>
-                    {result && <div><div className="text-xs text-mute">Tư duy (AI)</div><div className="text-2xl font-extrabold">{result.process_score}<span className="text-sm text-mute">/100</span></div></div>}
+                    <div><div className="text-xs text-mute">Điểm giảng viên</div><div className="text-4xl font-medium gradient-text">{current?.grade !== undefined ? current.grade : "—"}<span className="text-base text-mute font-semibold">{current?.grade !== undefined ? "/10" : ""}</span></div></div>
+                    {result && <div><div className="text-xs text-mute">Tư duy (AI)</div><div className="text-2xl font-medium">{result.process_score}<span className="text-sm text-mute">/100</span></div></div>}
                   </div>
                   {current?.grade === undefined && <p className="text-xs text-mute">Giảng viên chưa chấm điểm. Bạn sẽ nhận được thông báo khi có kết quả.</p>}
                   {current?.feedback && <div className="rounded-xl bg-surface-2 border border-line p-3 text-sm"><div className="text-xs font-bold text-mute mb-1">Nhận xét của giảng viên</div>{current.feedback}</div>}
@@ -211,7 +211,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
               <div className="overflow-y-auto p-4 md:p-5 space-y-5 min-h-[22rem] max-h-[60vh] bg-surface-2/40">
                 {messages.length === 0 && (
                   <div className="h-72 flex flex-col items-center justify-center text-center gap-3">
-                    <motion.div animate={{ y: [0, -8, 0], rotate: [0, 4, -4, 0] }} transition={{ repeat: Infinity, duration: 4 }} className="w-16 h-16 rounded-3xl bg-gradient-to-br from-brand to-brand-2 text-white flex items-center justify-center shadow-xl shadow-brand/30"><Sparkles className="w-8 h-8" /></motion.div>
+                    <motion.div animate={{ y: [0, -8, 0], rotate: [0, 4, -4, 0] }} transition={{ repeat: Infinity, duration: 4 }} className="w-16 h-16 rounded-3xl bg-gradient-to-br bg-brand text-white flex items-center justify-center shadow-xl shadow-brand/30"><Sparkles className="w-8 h-8" /></motion.div>
                     <h4 className="font-bold">Bắt đầu cuộc trao đổi</h4>
                     <p className="text-sm text-ink-2 max-w-sm">{assignment.ai_submode === "socratic" ? "Đặt câu hỏi về đề bài — trợ lý sẽ gợi mở từng bước để bạn tự xây dựng lời giải." : "Hỏi bất cứ điều gì liên quan đến bài tập."}</p>
                   </div>
@@ -221,9 +221,9 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                     const mine = m.role === "user";
                     return (
                       <motion.div key={m.id || i} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 26 }} className={`flex gap-3 ${mine ? "flex-row-reverse" : ""}`}>
-                        {mine ? <Avatar name={userName} src={userAvatar} size={32} /> : <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand to-brand-2 text-white flex items-center justify-center shrink-0"><Bot className="w-4 h-4" /></div>}
+                        {mine ? <Avatar name={userName} src={userAvatar} size={32} /> : <div className="w-8 h-8 rounded-full bg-gradient-to-br bg-brand text-white flex items-center justify-center shrink-0"><Bot className="w-4 h-4" /></div>}
                         <div className={`max-w-[85%] ${mine ? "items-end" : ""} flex flex-col gap-1`}>
-                          <div className={`px-4 py-3 rounded-2xl ${mine ? "bg-gradient-to-br from-brand to-brand-2 text-white rounded-tr-md" : "bg-surface border border-line rounded-tl-md shadow-sm"}`}>
+                          <div className={`px-4 py-3 rounded-2xl ${mine ? "bg-gradient-to-br bg-brand text-white rounded-tr-md" : "bg-surface border border-line rounded-tl-md shadow-sm"}`}>
                             <MarkdownRenderer content={m.content} className={mine ? "!text-white [&_*]:!text-white" : ""} />
                           </div>
                           <span className="text-[11px] text-mute px-1">{new Date(m.timestamp || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
@@ -233,7 +233,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                   })}
                   {sending && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand to-brand-2 text-white flex items-center justify-center"><Bot className="w-4 h-4" /></div>
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br bg-brand text-white flex items-center justify-center"><Bot className="w-4 h-4" /></div>
                       <div className="px-4 py-3.5 rounded-2xl rounded-tl-md bg-surface border border-line flex items-center gap-1.5" aria-label="AI đang trả lời"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></div>
                     </motion.div>
                   )}
@@ -285,7 +285,7 @@ const Confetti: React.FC = () => {
           initial={{ y: -40, rotate: 0, opacity: 1 }} animate={{ y: "105vh", rotate: 540 + i * 20, x: [0, (i % 2 ? 40 : -40), 0] }} transition={{ duration: 2.2 + (i % 5) * 0.25, delay: (i % 8) * 0.06, ease: "easeIn" }} />
       ))}
       <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", delay: 0.1 }} className="absolute top-1/3 left-1/2 -translate-x-1/2 card px-6 py-4 flex items-center gap-3 shadow-2xl">
-        <PartyPopper className="w-8 h-8 text-amber-500" /><div><div className="font-extrabold text-lg">Nộp bài thành công!</div><div className="text-xs text-mute">Giảng viên sẽ sớm chấm điểm cho bạn.</div></div>
+        <PartyPopper className="w-8 h-8 text-amber-500" /><div><div className="font-medium text-lg">Nộp bài thành công!</div><div className="text-xs text-mute">Giảng viên sẽ sớm chấm điểm cho bạn.</div></div>
       </motion.div>
     </motion.div>
   );

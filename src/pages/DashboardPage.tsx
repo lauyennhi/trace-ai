@@ -1,133 +1,147 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Plus, KeyRound, BookOpen, Users, ClipboardCheck, AlertTriangle, CalendarClock, Award, Sparkles, ArrowRight, GraduationCap, Brain } from "lucide-react";
+import { Plus, KeyRound, ClipboardList, Check, UserX, TrendingDown, EyeOff, Sparkles, BarChart3, UserPlus, Award, BookOpen, ArrowRight } from "lucide-react";
 import { User, Course } from "../types";
 import { CourseCard } from "../components/CourseCard";
-import { AnimatedNumber, EmptyState, Skeleton, relTime, riseItem, staggerParent } from "../components/ui";
+import { EmptyState, Section, Skeleton, courseTheme, hasPerm, relTime, riseItem, staggerParent } from "../components/ui";
 
 interface Props {
   user: User; courses: Course[]; overview: any | null; loading: boolean;
-  onSelectCourse: (id: string) => void; onOpenAssignment: (courseId: string, assignmentId: string) => void; onOpenSubmission: (courseId: string, assignmentId: string, submissionId: string) => void;
-  onCreateCourse: () => void; onJoinCourse: () => void; onEditCourse: (c: Course) => void; onDeleteCourse: (c: Course) => void;
+  onSelectCourse: (id: string, tab?: string) => void; onOpenAssignment: (courseId: string, assignmentId: string) => void; onOpenSubmission: (courseId: string, assignmentId: string, submissionId: string) => void;
+  onCreateCourse: () => void; onJoinCourse: () => void; onEditCourse: (c: Course) => void; onDeleteCourse: (c: Course) => void; onGoAdmin: () => void; onGoCourses: () => void;
 }
 
-const greeting = () => { const h = new Date().getHours(); return h < 11 ? "Chào buổi sáng" : h < 14 ? "Chào buổi trưa" : h < 18 ? "Chào buổi chiều" : "Chào buổi tối"; };
+const insightIcon: Record<string, { i: any; c: string }> = { missed: { i: UserX, c: "#7c5cd6" }, low: { i: TrendingDown, c: "#1e9e5a" }, idle: { i: EyeOff, c: "#2b7de0" } };
 
-export const DashboardPage: React.FC<Props> = ({ user, courses, overview: o, loading, onSelectCourse, onOpenAssignment, onOpenSubmission, onCreateCourse, onJoinCourse, onEditCourse, onDeleteCourse }) => {
-  const teacher = user.role === "teacher";
-  const firstName = user.name.split(" ").slice(-1)[0];
-  const kpis = teacher && o ? [
-    { l: "Môn giảng dạy", v: o.course_count, i: BookOpen, t: "from-indigo-500 to-violet-500" },
-    { l: "Sinh viên", v: o.student_count, i: Users, t: "from-sky-500 to-blue-500" },
-    { l: "Bài tập đã giao", v: o.assignment_count, i: ClipboardCheck, t: "from-emerald-500 to-teal-500" },
-    { l: "Chờ chấm", v: o.to_grade_count, i: AlertTriangle, t: "from-rose-500 to-orange-500" },
-  ] : o ? [
-    { l: "Môn đang học", v: o.course_count, i: BookOpen, t: "from-indigo-500 to-violet-500" },
-    { l: "Cần làm", v: o.pending_count, i: ClipboardCheck, t: "from-amber-500 to-orange-500" },
-    { l: "Quá hạn", v: o.overdue_count, i: AlertTriangle, t: "from-rose-500 to-pink-500" },
-    { l: "Điểm trung bình", v: o.avg_grade ?? 0, i: Award, t: "from-emerald-500 to-teal-500", dec: 1, none: o.avg_grade === null },
-  ] : [];
+export const DashboardPage: React.FC<Props> = ({ user, courses, overview: o, loading, onSelectCourse, onOpenAssignment, onOpenSubmission, onCreateCourse, onJoinCourse, onEditCourse, onDeleteCourse, onGoAdmin, onGoCourses }) => {
+  const manage = user.role !== "student";
+  const admin = user.role === "admin";
+  const canCreate = manage && hasPerm(user, "create_course");
+  const firstName = admin ? "quản trị viên" : user.name.split(" ").slice(-1)[0];
+  const h = new Date().getHours();
+  const greet = h < 11 ? "Chào buổi sáng" : h < 14 ? "Chào buổi trưa" : h < 18 ? "Chào buổi chiều" : "Chào buổi tối";
 
   return (
-    <motion.div variants={staggerParent} initial="initial" animate="animate" className="space-y-8">
-      {/* Hero */}
-      <motion.section variants={riseItem} className="relative isolate overflow-hidden rounded-[1.75rem] [transform:translateZ(0)] p-7 md:p-9 text-white animated-gradient bg-gradient-to-br from-[#4338ca] via-[#7c3aed] to-[#c026d3] shadow-[0_30px_60px_-24px_rgba(91,91,240,0.6)]">
-        <div className="blob blob-1 w-72 h-72 bg-sky-300 -top-20 right-10" />
-        <div className="blob blob-2 w-64 h-64 bg-pink-300 -bottom-24 left-1/3" />
-        <div className="absolute inset-0 dot-grid opacity-25" />
-        <motion.div className="absolute right-8 top-1/2 -translate-y-1/2 hidden md:block opacity-90" animate={{ y: [0, -10, 0], rotate: [0, 4, 0] }} transition={{ repeat: Infinity, duration: 6 }}>
-          {teacher ? <GraduationCap className="w-32 h-32 text-white/25" /> : <Brain className="w-32 h-32 text-white/25" />}
-        </motion.div>
-        <div className="relative max-w-xl">
-          <p className="text-white/80 text-sm font-medium">{greeting()},</p>
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mt-1">{firstName} 👋</h1>
-          <p className="text-white/80 mt-2">{teacher
-            ? (o?.to_grade_count ? `Có ${o.to_grade_count} bài nộp đang chờ bạn chấm.` : "Mọi bài nộp đã được chấm. Tuyệt vời!")
-            : (o?.pending_count ? `Bạn có ${o.pending_count} bài tập cần hoàn thành.` : "Bạn đã hoàn thành hết bài tập hiện có.")}</p>
-          <div className="flex flex-wrap gap-3 mt-6">
-            {teacher
-              ? <button onClick={onCreateCourse} className="btn bg-white text-[#4338ca] hover:bg-white/90 shadow-xl"><Plus className="w-4 h-4" />Tạo môn học mới</button>
-              : <button onClick={onJoinCourse} className="btn bg-white text-[#4338ca] hover:bg-white/90 shadow-xl"><KeyRound className="w-4 h-4" />Nhập mã tham gia lớp</button>}
-          </div>
-        </div>
-      </motion.section>
+    <motion.div variants={staggerParent} initial="initial" animate="animate" className="space-y-5">
+      <motion.div variants={riseItem} className="flex flex-wrap items-center gap-2">
+        {admin && <button onClick={onGoAdmin} className="pill"><span>Quản trị</span></button>}
+        <span className="pill pill-active"><Check className="w-4 h-4" />{admin ? "Tất cả môn học" : manage ? "Giảng dạy" : "Đang học"}</span>
+        <span className="ml-auto text-sm text-mute hidden sm:block">{greet}, {firstName} 👋</span>
+      </motion.div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {loading && !o ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />) : kpis.map((k: any) => (
-          <motion.div key={k.l} variants={riseItem} whileHover={{ y: -4 }} className="card p-5 relative overflow-hidden">
-            <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full bg-gradient-to-br ${k.t} opacity-15`} />
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${k.t} text-white flex items-center justify-center mb-3 shadow-lg`}><k.i className="w-5 h-5" /></div>
-            <div className="text-3xl font-extrabold tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.v} decimals={k.dec || 0} />}</div>
-            <div className="text-sm text-ink-2 font-medium">{k.l}</div>
-          </motion.div>
-        ))}
+      <div className="grid xl:grid-cols-[1.15fr_1fr] gap-5">
+        {/* Recently due / Upcoming */}
+        <motion.div variants={riseItem}>
+          <Section title={manage ? "Gần đến hạn" : "Việc cần làm"} storageKey="due" action={<button onClick={() => (manage ? onGoCourses() : onGoCourses())} className="text-sm font-medium text-brand hover:underline px-2 hidden sm:block">{manage ? "Xem tất cả môn" : "Xem môn học"}</button>}>
+            {!o ? <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div> : manage ? (
+              o.recent_due.length === 0 ? <p className="text-sm text-mute py-6 text-center">Không có bài tập nào đến hạn gần đây.</p> : (
+                <div>
+                  <div className="hidden sm:grid grid-cols-[1fr_4.5rem_4.5rem_4.5rem_2rem] gap-2 px-2 pb-1 text-[11px] text-mute"><span /><span className="text-center">Đã nộp</span><span className="text-center">Được giao</span><span className="text-center">Đã chấm</span><span /></div>
+                  {o.recent_due.map((a: any) => {
+                    const t = courseTheme(a.course_id);
+                    return (
+                      <button key={a.id} onClick={() => onOpenAssignment(a.course_id, a.id)} className="w-full grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_4.5rem_4.5rem_4.5rem_2rem] items-center gap-2 px-2 py-2.5 rounded-2xl hover:bg-surface-2 text-left transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: t.bg, color: t.color }}><ClipboardList className="w-5 h-5" /></span>
+                          <div className="min-w-0"><div className="text-sm truncate">{a.title}</div><div className="text-xs text-mute truncate">{a.course_name} · {relTime(a.due_date)}</div></div>
+                        </div>
+                        <span className="hidden sm:block text-center text-lg">{a.turned_in}</span>
+                        <span className="hidden sm:block text-center text-lg">{a.assigned}</span>
+                        <span className="hidden sm:block text-center text-lg">{a.graded}</span>
+                        <Check className={`w-5 h-5 justify-self-end ${a.graded >= a.turned_in && a.turned_in > 0 ? "text-emerald-600" : "text-mute"}`} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              [...o.overdue.map((a: any) => ({ ...a, od: true })), ...o.upcoming].length === 0 ? <p className="text-sm text-mute py-6 text-center">Bạn đã hoàn thành hết bài tập 🎉</p> : (
+                <div>{[...o.overdue.map((a: any) => ({ ...a, od: true })), ...o.upcoming].map((a: any) => {
+                  const t = courseTheme(a.course_id);
+                  return (
+                    <button key={a.id} onClick={() => onOpenAssignment(a.course_id, a.id)} className="w-full flex items-center gap-3 px-2 py-2.5 rounded-2xl hover:bg-surface-2 text-left transition-colors">
+                      <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: t.bg, color: t.color }}><ClipboardList className="w-5 h-5" /></span>
+                      <div className="min-w-0 flex-1"><div className="text-sm truncate">{a.title}</div><div className="text-xs text-mute truncate">{a.course_name}</div></div>
+                      <span className={`chip ${a.od ? "chip-rose" : "chip-amber"}`}>{a.od ? "Quá hạn" : relTime(a.due_date)}</span>
+                    </button>
+                  );
+                })}</div>
+              )
+            )}
+          </Section>
+        </motion.div>
+
+        {/* Class insights / Recent results */}
+        <motion.div variants={riseItem}>
+          <Section title={manage ? "Phân tích lớp học" : "Kết quả gần đây"} storageKey="insights">
+            {!o ? <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div> : manage ? (
+              o.insights.length === 0 ? <div className="tonal p-6 text-sm text-ink-2 text-center">Chưa có điểm cần chú ý. Mọi thứ đang ổn 👍</div> : (
+                <div className="space-y-3">{o.insights.map((n: any, i: number) => {
+                  const ic = insightIcon[n.kind] || insightIcon.idle;
+                  return (
+                    <button key={i} onClick={() => onSelectCourse(n.course_id, "stats")} className="tonal w-full flex items-center gap-4 p-4 text-left hover:brightness-[0.98] transition" style={{ background: "color-mix(in srgb, var(--brand) 9%, var(--surface))" }}>
+                      <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: `color-mix(in srgb, ${ic.c} 16%, var(--surface))`, color: ic.c }}><ic.i className="w-5 h-5" /></span>
+                      <div className="min-w-0"><div className="text-[0.95rem]"><strong className="font-semibold">{n.count} sinh viên</strong> {n.text.replace(/^\d+ sinh viên /, "")}</div><div className="text-xs text-ink-2 mt-0.5 truncate">{n.course}</div></div>
+                    </button>
+                  );
+                })}</div>
+              )
+            ) : (
+              o.recent_graded.length === 0 ? <div className="tonal p-6 text-sm text-ink-2 text-center">Chưa có bài nào được chấm.</div> : (
+                <div className="space-y-3">{o.recent_graded.map((g: any) => (
+                  <button key={g.assignment_id} onClick={() => onOpenAssignment(g.course_id, g.assignment_id)} className="tonal w-full flex items-center gap-4 p-4 text-left hover:brightness-[0.98] transition" style={{ background: "color-mix(in srgb, var(--brand) 9%, var(--surface))" }}>
+                    <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-[#e7f8ef] text-[#0f8a55] dark:bg-[#0e2a1f]"><Award className="w-5 h-5" /></span>
+                    <div className="min-w-0 flex-1"><div className="text-sm font-medium truncate">{g.title}</div>{g.feedback && <div className="text-xs text-ink-2 truncate">{g.feedback}</div>}</div>
+                    <span className="chip chip-green text-sm">{g.grade}/10</span>
+                  </button>))}</div>
+              )
+            )}
+          </Section>
+        </motion.div>
       </div>
 
-      {/* Work queues */}
-      {o && (
-        <div className="grid lg:grid-cols-2 gap-5">
-          {teacher ? (
-            <motion.div variants={riseItem} className="card p-5 min-w-0">
-              <h3 className="font-bold flex items-center gap-2 mb-3"><ClipboardCheck className="w-5 h-5 text-rose-500" />Bài nộp chờ chấm</h3>
-              {o.to_grade.length === 0 ? <p className="text-sm text-mute py-6 text-center">Không có bài nào đang chờ 🎉</p> : (
-                <div className="space-y-1">{o.to_grade.map((s: any) => (
-                  <button key={s.submission_id} onClick={() => onOpenSubmission(s.course_id, s.assignment_id, s.submission_id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-surface-2 text-left transition-colors group">
-                    <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate">{s.student_name}</div><div className="text-xs text-mute truncate">{s.assignment_title} · {relTime(s.submitted_at)}</div></div>
-                    {s.process_score !== undefined && <span className="chip chip-brand"><Sparkles className="w-3 h-3" />{s.process_score}</span>}
-                    <ArrowRight className="w-4 h-4 text-mute group-hover:text-brand group-hover:translate-x-0.5 transition-all" />
-                  </button>))}</div>)}
-            </motion.div>
+      {/* Spotlight / quick actions */}
+      <motion.div variants={riseItem}>
+        <Section title="Bắt đầu nhanh" storageKey="spot">
+          <div className="grid md:grid-cols-3 gap-4">
+            {(manage ? [
+              { icon: Sparkles, c: "#5b6cff", title: "Giao bài tập Socratic", text: "Trợ lý AI gợi mở bằng câu hỏi, giúp sinh viên tự tư duy thay vì xin đáp án.", btn: courses.length ? "Chọn môn học" : "Tạo môn học", fn: () => (courses.length ? onGoCourses() : canCreate && onCreateCourse()) },
+              { icon: BarChart3, c: "#1e9e5a", title: "Xem phân tích tư duy", text: "Radar 5 tiêu chí, nhật ký chat và cảnh báo sinh viên cần chú ý theo từng lớp.", btn: "Mở thống kê", fn: () => courses[0] ? onSelectCourse(courses[0].id, "stats") : onGoCourses() },
+              admin ? { icon: UserPlus, c: "#d98a00", title: "Quản lý người dùng", text: "Cấp vai trò, vô hiệu hóa tài khoản và cấu hình phân quyền cho toàn hệ thống.", btn: "Vào khu vực quản trị", fn: onGoAdmin }
+                : { icon: UserPlus, c: "#d98a00", title: "Mời sinh viên vào lớp", text: "Chia sẻ mã mời của môn học. Bạn có thể đổi mã bất cứ lúc nào.", btn: "Xem mã mời", fn: () => (courses[0] ? onSelectCourse(courses[0].id) : onGoCourses()) },
+            ] : [
+              { icon: KeyRound, c: "#5b6cff", title: "Tham gia môn học mới", text: "Nhập mã mời do giảng viên cung cấp để vào lớp và nhận bài tập.", btn: "Nhập mã lớp", fn: onJoinCourse },
+              { icon: Sparkles, c: "#1e9e5a", title: "Luyện tư duy cùng AI", text: "Hỏi, phản biện và diễn giải bằng lời của bạn — đó là điều được đánh giá.", btn: "Chọn bài tập", fn: onGoCourses },
+              { icon: Award, c: "#d98a00", title: "Xem điểm của bạn", text: "Điểm giảng viên, điểm tư duy và nhận xét chi tiết cho từng bài.", btn: "Mở môn học", fn: onGoCourses },
+            ]).map((c) => (
+              <div key={c.title} className="tonal p-5 flex flex-col gap-3">
+                <span className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: `color-mix(in srgb, ${c.c} 18%, var(--surface))`, color: c.c }}><c.icon className="w-6 h-6" /></span>
+                <div className="text-lg leading-snug">{c.title}</div>
+                <p className="text-sm text-ink-2 flex-1">{c.text}</p>
+                <button onClick={c.fn} className="btn btn-ghost btn-sm self-start bg-surface">{c.btn}<ArrowRight className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+        </Section>
+      </motion.div>
+
+      {/* Classes */}
+      <motion.div variants={riseItem}>
+        <Section title={admin ? "Tất cả môn học" : manage ? "Môn học của bạn" : "Môn học đang tham gia"} storageKey="classes"
+          action={(canCreate || !manage) && <button onClick={manage ? onCreateCourse : onJoinCourse} className="flex items-center gap-1.5 text-sm font-medium text-brand hover:bg-brand-soft/60 px-3 py-2 rounded-full">{manage ? <Plus className="w-4 h-4" /> : <KeyRound className="w-4 h-4" />}{manage ? "Thêm môn" : "Tham gia"}</button>}>
+          {loading && courses.length === 0 ? (
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-60 rounded-3xl" />)}</div>
+          ) : courses.length === 0 ? (
+            <EmptyState icon={<BookOpen className="w-8 h-8" />} title={manage ? "Chưa có môn học nào" : "Bạn chưa tham gia môn nào"}
+              text={manage ? "Tạo môn học đầu tiên để lấy mã mời và giao bài." : "Nhập mã mời từ giảng viên để vào lớp học."}
+              action={(canCreate || !manage) ? <button className="btn btn-primary" onClick={manage ? onCreateCourse : onJoinCourse}>{manage ? "Tạo môn học" : "Nhập mã tham gia"}</button> : undefined} />
           ) : (
-            <motion.div variants={riseItem} className="card p-5 min-w-0">
-              <h3 className="font-bold flex items-center gap-2 mb-3"><AlertTriangle className="w-5 h-5 text-amber-500" />Cần làm ngay</h3>
-              {o.overdue.length + o.upcoming.length === 0 ? <p className="text-sm text-mute py-6 text-center">Không có bài tập nào đang chờ 🎉</p> : (
-                <div className="space-y-1">{[...o.overdue.map((a: any) => ({ ...a, od: true })), ...o.upcoming].map((a: any) => (
-                  <button key={a.id} onClick={() => onOpenAssignment(a.course_id, a.id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-surface-2 text-left transition-colors group">
-                    <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate">{a.title}</div><div className="text-xs text-mute truncate">{a.course_name}</div></div>
-                    <span className={`chip ${a.od ? "chip-rose" : "chip-amber"}`}>{a.od ? "Quá hạn" : relTime(a.due_date)}</span>
-                  </button>))}</div>)}
+            <motion.div variants={staggerParent} initial="initial" animate="animate" className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+              {courses.map((c) => <CourseCard key={c.id} course={c} role={user.role} onSelect={onSelectCourse} onEdit={onEditCourse} onDelete={onDeleteCourse} />)}
             </motion.div>
           )}
-
-          <motion.div variants={riseItem} className="card p-5 min-w-0">
-            {teacher ? (<>
-              <h3 className="font-bold flex items-center gap-2 mb-3"><CalendarClock className="w-5 h-5 text-brand" />Hạn nộp sắp tới</h3>
-              {o.upcoming.length === 0 ? <p className="text-sm text-mute py-6 text-center">Chưa có bài tập nào sắp đến hạn.</p> : (
-                <div className="space-y-1">{o.upcoming.map((a: any) => (
-                  <button key={a.id} onClick={() => onOpenAssignment(a.course_id, a.id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-surface-2 text-left transition-colors">
-                    <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate">{a.title}</div><div className="text-xs text-mute truncate">{a.course_name}</div></div><span className="chip chip-gray">{relTime(a.due_date)}</span>
-                  </button>))}</div>)}
-            </>) : (<>
-              <h3 className="font-bold flex items-center gap-2 mb-3"><Award className="w-5 h-5 text-emerald-500" />Kết quả gần đây</h3>
-              {o.recent_graded.length === 0 ? <p className="text-sm text-mute py-6 text-center">Chưa có bài nào được chấm.</p> : (
-                <div className="space-y-1">{o.recent_graded.map((g: any) => (
-                  <button key={g.assignment_id} onClick={() => onOpenAssignment(g.course_id, g.assignment_id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-surface-2 text-left transition-colors">
-                    <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate">{g.title}</div>{g.feedback && <div className="text-xs text-mute truncate">{g.feedback}</div>}</div><span className="chip chip-green">{g.grade}/10</span>
-                  </button>))}</div>)}
-            </>)}
-          </motion.div>
-        </div>
-      )}
-
-      {/* Courses */}
-      <section>
-        <div className="flex items-end justify-between mb-4">
-          <div><h2 className="text-xl font-extrabold">{teacher ? "Môn học của bạn" : "Môn học đang tham gia"}</h2><p className="text-sm text-mute">Chọn một môn để xem bài tập{teacher ? ", chấm bài và thống kê" : " và làm bài"}.</p></div>
-          <button onClick={teacher ? onCreateCourse : onJoinCourse} className="btn btn-soft btn-sm">{teacher ? <Plus className="w-4 h-4" /> : <KeyRound className="w-4 h-4" />}{teacher ? "Tạo môn" : "Nhập mã"}</button>
-        </div>
-        {loading && courses.length === 0 ? (
-          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-60 rounded-2xl" />)}</div>
-        ) : courses.length === 0 ? (
-          <EmptyState icon={<BookOpen className="w-8 h-8" />} title={teacher ? "Chưa có môn học nào" : "Bạn chưa tham gia môn nào"}
-            text={teacher ? "Tạo môn học đầu tiên để lấy mã mời và giao bài." : "Nhập mã mời từ giảng viên để vào lớp học."}
-            action={<button className="btn btn-primary" onClick={teacher ? onCreateCourse : onJoinCourse}>{teacher ? "Tạo môn học" : "Nhập mã tham gia"}</button>} />
-        ) : (
-          <motion.div variants={staggerParent} className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-            {courses.map((c) => <CourseCard key={c.id} course={c} role={user.role} onSelect={onSelectCourse} onEdit={onEditCourse} onDelete={onDeleteCourse} />)}
-          </motion.div>
-        )}
-      </section>
+        </Section>
+      </motion.div>
     </motion.div>
   );
 };

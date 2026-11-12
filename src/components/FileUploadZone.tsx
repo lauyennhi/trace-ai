@@ -226,7 +226,7 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       {/* Uploaded Files List */}
       {files.length > 0 && (
         <div className="space-y-2">
-          <div className="text-[11px] font-extrabold uppercase tracking-wider text-mute px-1">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-mute px-1">
             Danh sách file đã tải lên ({files.length}):
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">

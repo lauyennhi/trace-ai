@@ -5,11 +5,11 @@ import { Assignment, UserRole } from "../types";
 import { fmtDate, relTime, riseItem } from "./ui";
 
 interface Props {
-  assignment: Assignment; role: UserRole;
+  assignment: Assignment; role: UserRole; canManage?: boolean;
   onSelect: (id: string) => void; onEdit?: (a: Assignment) => void; onDelete?: (a: Assignment) => void;
 }
 
-export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, onSelect, onEdit, onDelete }) => {
+export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, canManage = true, onSelect, onEdit, onDelete }) => {
   const pastDue = new Date(a.due_date) < new Date();
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   const done = a.submission_status === "submitted" || a.submission_status === "late";
@@ -50,7 +50,7 @@ export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, onSelect,
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {role === "teacher" && (
+        {role === "teacher" && canManage && (
           <>
             <button onClick={stop(() => onEdit?.(a))} className="btn btn-ghost btn-icon" title="Sửa bài tập" aria-label="Sửa bài tập"><Pencil className="w-4 h-4" /></button>
             <button onClick={stop(() => onDelete?.(a))} className="btn btn-ghost btn-icon hover:!text-rose-500" title="Xóa bài tập" aria-label="Xóa bài tập"><Trash2 className="w-4 h-4" /></button>

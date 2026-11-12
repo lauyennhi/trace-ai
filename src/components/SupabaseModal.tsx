@@ -210,7 +210,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-extrabold text-white">Liên kết Supabase Database</h3>
+                <h3 className="text-sm font-medium text-white">Liên kết Supabase Database</h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-semibold">
                   PostgreSQL
                 </span>
@@ -305,11 +305,11 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                     <div className="text-xs font-bold text-ink flex items-center gap-2">
                       <span>Trạng thái kết nối:</span>
                       {isConnected ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Đã kết nối Supabase
                         </span>
                       ) : isConfigured ? (
-                        <span className="text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1">
+                        <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
                           <AlertTriangle className="w-3.5 h-3.5" /> Đã cấu hình, chờ tạo bảng
                         </span>
                       ) : (

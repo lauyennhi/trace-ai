@@ -196,6 +196,23 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_lookup ON public.chat_sessions(assi
 
 -- 7. Cột bổ sung cho đăng nhập, chấm điểm thủ công và thông báo
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS pwd TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
+CREATE TABLE IF NOT EXISTS public.settings (
+  id TEXT PRIMARY KEY,
+  allow_registration BOOLEAN DEFAULT TRUE,
+  teacher_self_register BOOLEAN DEFAULT TRUE,
+  permissions JSONB
+);
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT,
+  actor_name TEXT,
+  action TEXT,
+  target TEXT,
+  detail TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS allow_late BOOLEAN DEFAULT TRUE;
 ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 ALTER TABLE public.course_members ADD COLUMN IF NOT EXISTS student_avatar TEXT;

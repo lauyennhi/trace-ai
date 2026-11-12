@@ -83,11 +83,11 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
         <Avatar name={submission.student_name} src={submission.student_avatar} size={52} />
         <div className="flex-1 min-w-0">
           <div className="text-xs text-mute">Bài nộp của sinh viên</div>
-          <h2 className="text-xl font-extrabold truncate">{submission.student_name}</h2>
+          <h2 className="text-xl font-medium truncate">{submission.student_name}</h2>
           <div className="text-xs text-mute flex items-center gap-1.5 mt-0.5"><Clock className="w-3.5 h-3.5" />Nộp lúc {fmtDate(submission.submitted_at)}
             <span className={`chip ml-1 ${submission.status === "late" ? "chip-amber" : "chip-green"}`}>{submission.status === "late" ? "Nộp trễ" : "Đúng hạn"}</span></div>
         </div>
-        {result && <div className="text-right"><div className="text-xs text-mute">Process Score</div><div className="text-4xl font-extrabold gradient-text">{result.process_score}<span className="text-base text-mute">/100</span></div></div>}
+        {result && <div className="text-right"><div className="text-xs text-mute">Process Score</div><div className="text-4xl font-medium gradient-text">{result.process_score}<span className="text-base text-mute">/100</span></div></div>}
       </motion.div>
 
       <div className="grid lg:grid-cols-3 gap-5">
@@ -153,7 +153,7 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
             <h3 className="font-bold flex items-center gap-2"><Award className="w-5 h-5 text-amber-500" />Chấm điểm</h3>
             <p className="text-xs text-mute mb-4">Điểm chính thức của giảng viên (thang 10). Sinh viên sẽ nhận thông báo.</p>
             <label className="label">Điểm (0 - 10)</label>
-            <input className="input text-2xl font-extrabold text-center py-3" inputMode="decimal" placeholder="0.0" value={grade} onChange={(e) => setGrade(e.target.value)} />
+            <input className="input text-2xl font-medium text-center py-3" inputMode="decimal" placeholder="0.0" value={grade} onChange={(e) => setGrade(e.target.value)} />
             <div className="flex gap-1.5 mt-2">{[5, 6.5, 8, 9, 10].map((v) => <button key={v} type="button" onClick={() => setGrade(String(v))} className="flex-1 btn btn-ghost btn-sm !px-0">{v}</button>)}</div>
             <label className="label mt-4">Nhận xét</label>
             <textarea className="input resize-none" rows={5} placeholder="Nhận xét cho sinh viên về nội dung và quá trình tư duy…" value={feedback} onChange={(e) => setFeedback(e.target.value)} />

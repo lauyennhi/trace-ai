@@ -14,11 +14,14 @@ import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { SupabaseModal } from "./components/SupabaseModal";
 import { StudentWorkspaceView } from "./components/StudentWorkspaceView";
 import { TeacherSubmissionView } from "./components/TeacherSubmissionView";
-import { ToastProvider, useToast, Skeleton, pageVariants } from "./components/ui";
+import { ToastProvider, useToast, Skeleton, pageVariants, hasPerm } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CoursePage } from "./pages/CoursePage";
 import { AssignmentSubmissionsPage } from "./pages/AssignmentSubmissionsPage";
+import { AdminPage } from "./pages/AdminPage";
+import { CoursesPage, TodoPage } from "./pages/ListPages";
+import { SettingsModal } from "./components/SettingsModal";
 
 export default function App() {
   return (
@@ -41,6 +44,12 @@ function Shell() {
     try { return (localStorage.getItem("trace_theme") as "dark" | "light") || "light"; } catch { return "light"; }
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [expanded, setExpanded] = useState<boolean>(() => { try { return localStorage.getItem("trace_rail") === "1"; } catch { return false; } });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const toggleMenu = () => {
+    if (window.matchMedia("(min-width: 768px)").matches) setExpanded((v) => { try { localStorage.setItem("trace_rail", v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+    else setMobileOpen((v) => !v);
+  };
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(false);
@@ -108,8 +117,9 @@ function Shell() {
     if (!user) return;
     setMobileOpen(false);
     window.scrollTo({ top: 0 });
-    if (route.name === "home") { loadCourses(); loadOverview(); return; }
-    const teacher = user.role === "teacher";
+    if (route.name === "home" || route.name === "courses" || route.name === "todo") { loadCourses(); loadOverview(); return; }
+    if (route.name === "admin") return;
+    const teacher = user.role !== "student";
     if (route.name === "course") { setCourse(null); setStats(null); loadCourse(route.courseId, teacher); return; }
     if (route.name === "assignment" || route.name === "submission") {
       if (!course || course.id !== route.courseId) loadCourse(route.courseId, false);
@@ -199,10 +209,13 @@ function Shell() {
   if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg"><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }} className="w-10 h-10 rounded-full border-4 border-line border-t-brand" /></div>;
   if (!user) return <LoginPage onAuthed={(u) => { setUser(u); navigate("/"); }} />;
 
-  const teacher = user.role === "teacher";
-  const cid = route.name !== "home" ? route.courseId : null;
+  const manage = user.role !== "student";
+  const cid = "courseId" in route ? route.courseId : null;
   const goCourse = () => cid && navigate(`/course/${cid}`);
-  const crumbs: { label: string; onClick?: () => void }[] = [{ label: "Tổng quan", onClick: route.name === "home" ? undefined : () => navigate("/") }];
+  const crumbs: { label: string; onClick?: () => void }[] = [];
+  if (route.name === "courses") crumbs.push({ label: "Tất cả môn học" });
+  if (route.name === "todo") crumbs.push({ label: manage ? "Bài nộp cần chấm" : "Việc cần làm" });
+  if (route.name === "admin") crumbs.push({ label: "Quản trị hệ thống" });
   if (cid) crumbs.push({ label: course?.name || "Môn học", onClick: route.name === "course" ? undefined : goCourse });
   if (route.name === "assignment" || route.name === "submission") crumbs.push({ label: assignmentDetail?.assignment?.title || "Bài tập", onClick: route.name === "assignment" ? undefined : () => navigate(`/course/${route.courseId}/assignment/${(route as any).assignmentId}`) });
   if (route.name === "submission") crumbs.push({ label: subDetail?.submission?.student_name || "Bài nộp" });
@@ -215,27 +228,46 @@ function Shell() {
     leave: { title: "Rời khỏi lớp", itemType: "môn học", itemName: pending.payload.name, confirmLabel: "Rời lớp", warning: "Bạn có thể tham gia lại bằng mã mời. Bài nộp của bạn vẫn được giữ lại." },
     regen: { title: "Tạo mã mời mới", itemType: "mã mời của môn", itemName: pending.payload.name, confirmLabel: "Tạo mã mới", warning: "Mã cũ sẽ không còn hiệu lực. Sinh viên đã trong lớp không bị ảnh hưởng." },
   } as const)[pending.kind];
+  const todoCount = overview ? (manage ? overview.to_grade_count : overview.pending_count + overview.overdue_count) : 0;
+  const canCreateCourse = manage && hasPerm(user, "create_course");
+  const openCourse = (id: string, tab?: string) => navigate(`/course/${id}${tab ? "/" + tab : ""}`);
+  const pageKey = route.name === "course" ? `course-${route.courseId}` : path.split("?")[0];
 
   return (
     <div className="min-h-screen bg-bg text-ink antialiased">
-      <Sidebar currentUser={user} courses={courses} activeCourseId={cid} onGoHome={() => navigate("/")} onSelectCourse={(id) => navigate(`/course/${id}`)}
-        onOpenCreateCourse={() => setCourseModal({ open: true, course: null })} onOpenJoinCourse={() => setJoinOpen(true)} onOpenSupabase={() => setSupabaseOpen(true)}
-        onLogout={logout} isMobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
+      <Header user={user} crumbs={crumbs} theme={theme} onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")} onToggleMenu={toggleMenu} onGoHome={() => navigate("/")}
+        notifications={notifications} unread={unread} onOpenNotifications={readNotifications} onNotificationClick={notificationClick}
+        onCreateCourse={canCreateCourse ? () => setCourseModal({ open: true, course: null }) : undefined} onJoinCourse={() => setJoinOpen(true)}
+        onCreateUser={user.role === "admin" ? () => navigate("/admin/users") : undefined} onOpenSettings={() => setSettingsOpen(true)} onLogout={logout} />
+      <Sidebar user={user} courses={courses} expanded={expanded} mobileOpen={mobileOpen} routeName={route.name} activeCourseId={cid} todoCount={todoCount}
+        onNavigate={navigate} onOpenSettings={() => setSettingsOpen(true)} onCloseMobile={() => setMobileOpen(false)} />
 
-      <div className="md:pl-64 min-h-screen flex flex-col min-w-0">
-        <Header crumbs={crumbs} theme={theme} onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")} onToggleMobileMenu={() => setMobileOpen(true)}
-          notifications={notifications} unread={unread} onOpenNotifications={readNotifications} onNotificationClick={notificationClick} />
-
-        <main className="flex-1 w-full min-w-0 max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8 overflow-x-clip">
+      <div className={`pt-16 min-h-screen flex flex-col min-w-0 transition-[padding] duration-300 ${expanded ? "md:pl-72" : "md:pl-[72px]"}`}>
+        <main className="flex-1 w-full min-w-0 max-w-[88rem] mx-auto px-4 md:px-6 py-4 md:py-5 overflow-x-clip">
           <AnimatePresence mode="wait">
-            <motion.div key={route.name === "course" ? `course-${route.courseId}` : path.split("?")[0]} variants={pageVariants} initial="initial" animate="animate" exit="exit">
+            <motion.div key={pageKey} variants={pageVariants} initial="initial" animate="animate" exit="exit">
               {route.name === "home" && (
                 <DashboardPage user={user} courses={courses} overview={overview} loading={coursesLoading}
-                  onSelectCourse={(id) => navigate(`/course/${id}`)} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)}
+                  onSelectCourse={openCourse} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)}
                   onOpenSubmission={(c, a, s) => navigate(`/course/${c}/assignment/${a}/submission/${s}`)}
                   onCreateCourse={() => setCourseModal({ open: true, course: null })} onJoinCourse={() => setJoinOpen(true)}
-                  onEditCourse={(c) => setCourseModal({ open: true, course: c })} onDeleteCourse={(c) => setPending({ kind: "course", payload: c })} />
+                  onEditCourse={(c) => setCourseModal({ open: true, course: c })} onDeleteCourse={(c) => setPending({ kind: "course", payload: c })}
+                  onGoAdmin={() => navigate("/admin")} onGoCourses={() => navigate("/courses")} />
               )}
+
+              {route.name === "courses" && (
+                <CoursesPage user={user} courses={courses} loading={coursesLoading} onSelect={openCourse} onEdit={(c) => setCourseModal({ open: true, course: c })}
+                  onDelete={(c) => setPending({ kind: "course", payload: c })} onCreate={() => setCourseModal({ open: true, course: null })} onJoin={() => setJoinOpen(true)} />
+              )}
+
+              {route.name === "todo" && (
+                <TodoPage user={user} overview={overview} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)} onOpenSubmission={(c, a, s) => navigate(`/course/${c}/assignment/${a}/submission/${s}`)} />
+              )}
+
+              {route.name === "admin" && user.role === "admin" && (
+                <AdminPage me={user} tab={route.tab || "overview"} onTab={(t) => navigate(`/admin${t === "overview" ? "" : "/" + t}`)} onOpenSupabase={() => setSupabaseOpen(true)} />
+              )}
+              {route.name === "admin" && user.role !== "admin" && <div className="panel text-center text-ink-2">Bạn không có quyền truy cập khu vực quản trị.</div>}
 
               {route.name === "course" && (
                 <CoursePage user={user} course={course} stats={stats} tab={route.tab || "assignments"} onTab={(t) => navigate(`/course/${route.courseId}${t === "assignments" ? "" : "/" + t}`)}
@@ -250,13 +282,13 @@ function Shell() {
               {route.name === "assignment" && (
                 <div>
                   {back(`/course/${route.courseId}`)}
-                  {!assignmentDetail ? <div className="space-y-4"><Skeleton className="h-24 rounded-2xl" /><Skeleton className="h-96 rounded-2xl" /></div>
-                    : teacher ? (
+                  {!assignmentDetail ? <div className="space-y-4"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-96 rounded-3xl" /></div>
+                    : manage ? (
                       subList ? <AssignmentSubmissionsPage assignment={assignmentDetail.assignment} submissions={subList}
                         onOpen={(s) => navigate(`/course/${route.courseId}/assignment/${route.assignmentId}/submission/${s.id}`)}
                         onEdit={() => setAssignmentModal({ open: true, assignment: assignmentDetail.assignment })}
                         onCsv={() => downloadGradebookCSV(course?.name || "Mon_hoc", assignmentDetail.assignment.title, subList)}
-                        onSheets={exportSheets} exporting={exporting} sheetsUrl={sheetsUrl} /> : <Skeleton className="h-96 rounded-2xl" />
+                        onSheets={exportSheets} exporting={exporting} sheetsUrl={sheetsUrl} /> : <Skeleton className="h-96 rounded-3xl" />
                     ) : (
                       <StudentWorkspaceView key={assignmentDetail.assignment.id} assignment={assignmentDetail.assignment} courseName={assignmentDetail.course_name}
                         userName={user.name} userAvatar={user.avatar} submission={assignmentDetail.submission} chatSession={assignmentDetail.chat_session}
@@ -270,7 +302,7 @@ function Shell() {
               {route.name === "submission" && (
                 <div>
                   {back(`/course/${route.courseId}/assignment/${route.assignmentId}`)}
-                  {!subDetail ? <div className="space-y-4"><Skeleton className="h-24 rounded-2xl" /><Skeleton className="h-96 rounded-2xl" /></div> : (
+                  {!subDetail ? <div className="space-y-4"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-96 rounded-3xl" /></div> : (
                     <TeacherSubmissionView key={subDetail.submission.id} submission={subDetail.submission} assignment={subDetail.assignment} chatSession={subDetail.chat_session}
                       onGrade={async (grade, feedback) => { const s = await api<Submission>(`/api/submissions/${subDetail.submission.id}/grade`, { method: "PUT", body: { grade, feedback } }); setSubDetail({ ...subDetail, submission: s }); loadCourses(); loadOverview(); }}
                       onReevaluate={async () => { const s = await api<Submission>(`/api/submissions/${subDetail.submission.id}/reevaluate`, { method: "POST" }); setSubDetail({ ...subDetail, submission: s }); }} />
@@ -286,6 +318,7 @@ function Shell() {
       <JoinCourseModal isOpen={joinOpen} onClose={() => setJoinOpen(false)} onSubmit={joinCourse} />
       <AssignmentFormModal isOpen={assignmentModal.open} assignment={assignmentModal.assignment} onClose={() => setAssignmentModal({ open: false, assignment: null })} onSubmit={saveAssignment} />
       <SupabaseModal isOpen={supabaseOpen} onClose={() => setSupabaseOpen(false)} onDataChanged={loadCourses} />
+      <SettingsModal open={settingsOpen} user={user} onClose={() => setSettingsOpen(false)} onUpdated={setUser} />
       {pendingConfig && <DeleteConfirmModal isOpen={!!pending} {...pendingConfig} onClose={() => setPending(null)} onConfirm={confirmPending} />}
     </div>
   );

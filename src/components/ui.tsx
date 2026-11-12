@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, animate, useInView, type Variants } from "motion/react";
-import { X, CheckCircle2, AlertCircle, Info } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Info, BookOpen, FlaskConical, Calculator, Globe2, Music2, Palette, Code2, Brain, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 
 /* ---------- Motion presets ---------- */
 export const pageVariants: Variants = {
@@ -177,3 +177,62 @@ export function relTime(iso?: string): string {
 }
 export const fmtDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+
+
+/* ---------- Course themes (Classroom-style tonal colours) ---------- */
+const THEMES = [
+  { color: "#7c5cd6", icon: BookOpen }, { color: "#e5694f", icon: Calculator }, { color: "#1e9e5a", icon: FlaskConical },
+  { color: "#2b7de0", icon: Globe2 }, { color: "#d98a00", icon: Music2 }, { color: "#d1357d", icon: Palette },
+  { color: "#0e8f8f", icon: Code2 }, { color: "#5b6cff", icon: Brain },
+];
+export function courseTheme(id: string) {
+  const t = THEMES[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % THEMES.length];
+  return { ...t, bg: `color-mix(in srgb, ${t.color} 16%, var(--surface))`, soft: `color-mix(in srgb, ${t.color} 12%, var(--surface))` };
+}
+export const CourseArt: React.FC<{ id: string; className?: string }> = ({ id, className = "" }) => {
+  const t = courseTheme(id);
+  const Icon = t.icon;
+  return (
+    <div className={`absolute inset-0 overflow-hidden pointer-events-none ${className}`} aria-hidden>
+      <div className="absolute -right-6 -top-10 w-40 h-40 rounded-full" style={{ background: t.color, opacity: 0.13 }} />
+      <div className="absolute right-20 -bottom-12 w-28 h-28 rounded-[2rem] rotate-12" style={{ background: t.color, opacity: 0.1 }} />
+      <div className="absolute right-4 bottom-3 w-3 h-3 rounded-full" style={{ background: t.color, opacity: 0.5 }} />
+      <div className="absolute right-28 top-4 w-2 h-2 rounded-full" style={{ background: t.color, opacity: 0.4 }} />
+      <motion.div className="absolute right-6 top-1/2 -translate-y-1/2" animate={{ y: [0, -6, 0], rotate: [-4, 4, -4] }} transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}>
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "color-mix(in srgb, " + t.color + " 22%, var(--surface))", color: t.color }}>
+          <Icon className="w-9 h-9" strokeWidth={1.6} />
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+/* ---------- Collapsible section (Classroom home style) ---------- */
+export const Section: React.FC<{ title: string; storageKey?: string; action?: React.ReactNode; children: React.ReactNode; className?: string }> = ({ title, storageKey, action, children, className = "" }) => {
+  const [open, setOpen] = useState(() => {
+    try { return storageKey ? localStorage.getItem("sec_" + storageKey) !== "0" : true; } catch { return true; }
+  });
+  const toggle = () => { setOpen(!open); try { storageKey && localStorage.setItem("sec_" + storageKey, open ? "0" : "1"); } catch { /* ignore */ } };
+  return (
+    <section className={`panel ${className}`}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[1.65rem] leading-tight font-normal tracking-tight">{title}</h2>
+        <div className="flex items-center gap-1">
+          {action}
+          <button onClick={toggle} className="p-2 rounded-full text-ink-2 hover:bg-surface-2" aria-label={open ? "Thu gọn" : "Mở rộng"} aria-expanded={open}>
+            {open ? <ChevronsDownUp className="w-5 h-5" /> : <ChevronsUpDown className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
+            <div className="pt-4">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+};
+
+export const hasPerm = (user: { role: string; permissions?: string[] } | null, perm: string) => !!user && (user.role === "admin" || !!user.permissions?.includes(perm));

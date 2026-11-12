@@ -32,7 +32,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
           <motion.div key={k.label} variants={riseItem} className="card p-5 relative overflow-hidden">
             <div className={`absolute -right-5 -top-5 w-20 h-20 rounded-full bg-gradient-to-br ${k.tone} opacity-15`} />
             <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${k.tone} text-white flex items-center justify-center mb-3 shadow-lg`}><k.icon className="w-5 h-5" /></div>
-            <div className="text-3xl font-extrabold tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.value} suffix={k.suffix} />}</div>
+            <div className="text-3xl font-medium tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.value} suffix={k.suffix} />}</div>
             <div className="text-sm font-semibold mt-0.5">{k.label}</div>
             <div className="text-xs text-mute mt-1">{k.hint}</div>
           </motion.div>
@@ -65,7 +65,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart><Pie data={pie} innerRadius={52} outerRadius={74} paddingAngle={4} dataKey="value" cornerRadius={6} animationDuration={1000} stroke="none">{pie.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip contentStyle={tip} formatter={(v: any) => `${v}%`} /></PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><div className="text-2xl font-extrabold">{stats.submission_rate}%</div><div className="text-[11px] text-mute">đã nộp</div></div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><div className="text-2xl font-medium">{stats.submission_rate}%</div><div className="text-[11px] text-mute">đã nộp</div></div>
           </div>
           <div className="space-y-2 text-sm mt-2">
             {[["Đúng hạn", stats.on_time_rate, "#10b981"], ["Trễ hạn", stats.late_rate, "#f59e0b"], ["Chưa nộp", stats.not_submitted_rate, "#ef4444"]].map(([n, v, c]) => (

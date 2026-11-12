@@ -9,6 +9,7 @@ interface Props { onAuthed: (user: User) => void; }
 const DEMOS = [
   { label: "Giảng viên demo", email: "hung.nguyen@edu.vn", icon: GraduationCap, sub: "TS. Nguyễn Văn Hùng" },
   { label: "Sinh viên demo", email: "la.uyennhi@student.edu.vn", icon: BookOpen, sub: "Lã Uyển Nhi" },
+  { label: "Quản trị viên demo", email: "admin@trace.edu.vn", icon: ShieldCheck, sub: "Quản trị hệ thống" },
 ];
 
 export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
@@ -36,49 +37,49 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-bg overflow-hidden">
       {/* Brand panel */}
-      <div className="relative hidden lg:flex flex-col justify-between p-12 text-white overflow-hidden animated-gradient bg-gradient-to-br from-[#4338ca] via-[#7c3aed] to-[#db2777]">
-        <div className="blob blob-1 w-96 h-96 bg-sky-300 -top-24 -left-20" />
-        <div className="blob blob-2 w-[28rem] h-[28rem] bg-fuchsia-400 bottom-[-8rem] right-[-6rem]" />
+      <div className="relative hidden lg:flex flex-col justify-between p-12 text-ink overflow-hidden bg-[#e8f0fe] dark:bg-[#1b2433]">
+        <div className="blob blob-1 w-96 h-96 bg-[#a8c7fa] -top-24 -left-20 opacity-60" />
+        <div className="blob blob-2 w-[28rem] h-[28rem] bg-[#d3bffa] bottom-[-8rem] right-[-6rem] opacity-60" />
         <div className="absolute inset-0 dot-grid opacity-30" />
         <div className="relative flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center"><Sparkles className="w-6 h-6" /></div>
-          <span className="text-2xl font-extrabold tracking-tight">Trace</span>
+          <div className="w-11 h-11 rounded-xl bg-brand text-white dark:text-[#062e6f] flex items-center justify-center"><Sparkles className="w-6 h-6" /></div>
+          <span className="text-2xl font-normal tracking-tight">Trace</span>
         </div>
 
         <div className="relative space-y-8 max-w-lg">
-          <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }} className="text-5xl font-extrabold leading-[1.1] tracking-tight">
-            Chấm <span className="underline decoration-white/40 decoration-4 underline-offset-8">quá trình tư duy</span>, không chỉ kết quả.
+          <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }} className="text-5xl font-normal leading-[1.15] tracking-tight">
+            Chấm <span className="text-brand">quá trình tư duy</span>, không chỉ kết quả.
           </motion.h1>
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="text-lg text-white/80">
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="text-lg text-ink-2">
             Quản lý lớp học, giao bài và xem sinh viên đối thoại với AI như thế nào — phản biện, đào sâu hay chỉ xin đáp án.
           </motion.p>
 
           {/* floating mock chat */}
           <div className="relative h-52">
             <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0, y: [0, -6, 0] }} transition={{ delay: 0.5, y: { repeat: Infinity, duration: 5 } }}
-              className="absolute left-0 top-0 max-w-[16rem] rounded-2xl rounded-bl-md bg-white/95 text-[#1b1d3a] px-4 py-3 text-sm shadow-2xl">
+              className="absolute left-0 top-0 max-w-[16rem] rounded-2xl rounded-bl-md bg-surface text-ink border border-line px-4 py-3 text-sm shadow-2xl">
               Vì sao Demographic Parity lại gây thiệt thòi cho ứng viên giỏi?
             </motion.div>
             <motion.div initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0, y: [0, 6, 0] }} transition={{ delay: 1.1, y: { repeat: Infinity, duration: 6 } }}
-              className="absolute left-24 top-20 max-w-[16rem] rounded-2xl rounded-br-md bg-white/20 backdrop-blur border border-white/30 px-4 py-3 text-sm shadow-2xl">
+              className="absolute left-24 top-20 max-w-[16rem] rounded-2xl rounded-br-md bg-surface border border-line px-4 py-3 text-sm shadow-xl">
               Câu hỏi hay! Bạn thử nghĩ xem tỷ lệ tuyển ngang nhau có nghĩa là gì…
             </motion.div>
             <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1, rotate: [0, 3, 0] }} transition={{ delay: 1.6, rotate: { repeat: Infinity, duration: 7 } }}
-              className="absolute right-0 bottom-0 rounded-2xl bg-[#12141f]/80 backdrop-blur px-5 py-4 shadow-2xl border border-white/10">
-              <div className="text-[11px] uppercase tracking-wider text-white/60">Process Score</div>
-              <div className="text-4xl font-extrabold text-amber-300">92<span className="text-base text-white/50">/100</span></div>
+              className="absolute right-0 bottom-0 rounded-2xl bg-surface px-5 py-4 shadow-xl border border-line">
+              <div className="text-[11px] uppercase tracking-wider text-mute">Process Score</div>
+              <div className="text-4xl font-normal text-brand">92<span className="text-base text-mute">/100</span></div>
             </motion.div>
           </div>
 
           <div className="grid grid-cols-3 gap-3 text-sm">
             {[[Brain, "Chấm 5 tiêu chí tư duy"], [MessageSquareText, "Nhật ký chat minh bạch"], [ShieldCheck, "Chống nhờ AI làm hộ"]].map(([I, t]: any, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2 + i * 0.12 }} className="rounded-2xl bg-white/10 backdrop-blur border border-white/15 p-3">
+              <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2 + i * 0.12 }} className="rounded-2xl bg-surface/80 border border-line p-3">
                 <I className="w-5 h-5 mb-2" />{t}
               </motion.div>
             ))}
           </div>
         </div>
-        <div className="relative text-xs text-white/60">© Trace · Nền tảng đánh giá tư duy quá trình cho giáo dục Việt Nam</div>
+        <div className="relative text-xs text-mute">© Trace · Nền tảng đánh giá tư duy quá trình cho giáo dục Việt Nam</div>
       </div>
 
       {/* Form panel */}
@@ -86,10 +87,10 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
         <div className="blob blob-1 w-72 h-72 bg-indigo-300/40 dark:bg-indigo-500/20 -top-10 -right-10 lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand to-brand-2 flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
-            <span className="text-xl font-extrabold">Trace</span>
+            <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center"><Sparkles className="w-5 h-5 text-white dark:text-[#062e6f]" /></div>
+            <span className="text-xl font-medium">Trace</span>
           </div>
-          <h2 className="text-3xl font-extrabold tracking-tight">{mode === "login" ? "Chào mừng trở lại 👋" : "Tạo tài khoản mới"}</h2>
+          <h2 className="text-3xl font-normal tracking-tight">{mode === "login" ? "Chào mừng trở lại 👋" : "Tạo tài khoản mới"}</h2>
           <p className="text-ink-2 mt-2">{mode === "login" ? "Đăng nhập để vào lớp học của bạn." : "Chỉ mất chưa đến một phút."}</p>
 
           <form onSubmit={submit} className="mt-8 space-y-4">
@@ -134,10 +135,10 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
 
           <div className="mt-8">
             <div className="flex items-center gap-3 text-xs text-mute"><span className="h-px flex-1 bg-line" />Dùng thử nhanh với tài khoản demo<span className="h-px flex-1 bg-line" /></div>
-            <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="grid grid-cols-3 gap-3 mt-4">
               {DEMOS.map((d) => (
                 <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }} key={d.email} disabled={busy} onClick={() => submit(undefined, { email: d.email, password: "123456" })}
-                  className="card card-hover p-3.5 text-left">
+                  className="card card-hover p-3 text-left">
                   <d.icon className="w-5 h-5 text-brand mb-2" />
                   <div className="text-sm font-semibold">{d.label}</div>
                   <div className="text-xs text-mute truncate">{d.sub}</div>

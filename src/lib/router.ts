@@ -15,6 +15,9 @@ export function useHashRoute() {
 
 export type Route =
   | { name: "home" }
+  | { name: "courses" }
+  | { name: "todo" }
+  | { name: "admin"; tab?: string }
   | { name: "course"; courseId: string; tab?: string }
   | { name: "assignment"; courseId: string; assignmentId: string }
   | { name: "submission"; courseId: string; assignmentId: string; submissionId: string };
@@ -22,6 +25,9 @@ export type Route =
 export function parseRoute(path: string): Route {
   const [clean] = path.split("?");
   const p = clean.split("/").filter(Boolean);
+  if (p[0] === "courses") return { name: "courses" };
+  if (p[0] === "todo") return { name: "todo" };
+  if (p[0] === "admin") return { name: "admin", tab: p[1] };
   if (p[0] === "course" && p[1]) {
     if (p[2] === "assignment" && p[3]) {
       if (p[4] === "submission" && p[5]) return { name: "submission", courseId: p[1], assignmentId: p[3], submissionId: p[5] };

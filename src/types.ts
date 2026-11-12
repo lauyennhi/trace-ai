@@ -1,4 +1,4 @@
-export type UserRole = 'teacher' | 'student';
+export type UserRole = 'teacher' | 'student' | 'admin';
 
 export interface User {
   id: string;
@@ -6,6 +6,9 @@ export interface User {
   email: string;
   role: UserRole;
   avatar: string;
+  active?: boolean;
+  last_seen?: string;
+  permissions?: string[];
 }
 
 export interface Course {
@@ -24,6 +27,7 @@ export interface Course {
   assignments_count?: number;
   ungraded_count?: number;
   todo_count?: number;
+  next_due?: { id: string; title: string; due_date: string } | null;
 }
 
 export interface CourseMember {

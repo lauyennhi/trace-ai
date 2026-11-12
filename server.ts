@@ -51,6 +51,8 @@ function requireAuth(req: any, res: express.Response, next: express.NextFunction
   const uid = header.startsWith("Bearer ") ? readToken(header.slice(7)) : null;
   const user = uid ? db.users.find((u: any) => u.id === uid) : null;
   if (!user) return res.status(401).json({ success: false, message: "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại." });
+  if (user.active === false) return res.status(401).json({ success: false, message: "Tài khoản đã bị vô hiệu hóa." });
+  if (!user.last_seen || Date.now() - new Date(user.last_seen).getTime() > 5 * 60 * 1000) user.last_seen = new Date().toISOString();
   req.user = user;
   next();
 }
@@ -83,18 +85,38 @@ function getGenAI(): GoogleGenAI {
 
 // Mock Initial DB Setup in memory with file backup
 interface DB {
-  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student'; avatar: string; pwd?: string }>;
+  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student' | 'admin'; avatar: string; pwd?: string; active?: boolean; last_seen?: string }>;
   courses: Array<any>;
   course_members: Array<any>;
   assignments: Array<any>;
   submissions: Array<any>;
   chat_sessions: Array<any>;
   notifications: Array<any>;
+  audit_logs: Array<any>;
+  settings: any;
 }
+
+const DEFAULT_SETTINGS = {
+  allow_registration: true,
+  teacher_self_register: true,
+  permissions: {
+    teacher: { create_course: true, manage_assignments: true, grade: true, manage_members: true },
+    student: { join_course: true, use_ai_chat: true, submit: true },
+  } as Record<string, Record<string, boolean>>,
+};
 
 const initialDb: DB = {
   notifications: [],
+  audit_logs: [],
+  settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
   users: [
+    {
+      id: "u_admin_1",
+      name: "Quản trị viên Trace",
+      email: "admin@trace.edu.vn",
+      role: "admin",
+      avatar: "",
+    },
     {
       id: "u_teacher_1",
       name: "TS. Nguyễn Văn Hùng",
@@ -393,7 +415,9 @@ function ensureSeedCredentials() {
   for (const seed of initialDb.users as any[]) {
     const u = db.users.find((x: any) => x.id === seed.id);
     if (u && !u.pwd) u.pwd = seed.pwd;
+    if (!u && seed.role === "admin") db.users.push(JSON.parse(JSON.stringify(seed)));
   }
+  db.settings = { ...DEFAULT_SETTINGS, ...(db.settings || {}), permissions: { ...DEFAULT_SETTINGS.permissions, ...((db.settings || {}).permissions || {}) } };
 }
 
 async function initFirestore() {
@@ -516,6 +540,10 @@ async function loadFromFirestore() {
 
     const notifSnap = await firestoreDb.collection("notifications").get();
     db.notifications = notifSnap.docs.map((doc) => doc.data() as any);
+    const settingsDoc = await firestoreDb.collection("settings").doc("global").get();
+    if (settingsDoc.exists) db.settings = settingsDoc.data() as any;
+    const auditSnap = await firestoreDb.collection("audit_logs").orderBy("created_at", "desc").limit(300).get();
+    db.audit_logs = auditSnap.docs.map((doc) => doc.data() as any);
     ensureSeedCredentials();
     console.log("[Firestore] Collections synchronized and loaded into memory.");
   } catch (err: any) {
@@ -596,7 +624,7 @@ app.use(express.json({ limit: "10mb" }));
 
 // Supabase admin endpoints require a logged-in teacher
 app.use("/api/supabase", requireAuth, (req: any, res, next) =>
-  req.user?.role === "teacher" ? next() : res.status(403).json({ success: false, message: "Chỉ giảng viên mới được quản lý cơ sở dữ liệu." }));
+  req.user?.role === "admin" ? next() : res.status(403).json({ success: false, message: "Chỉ quản trị viên mới được quản lý cơ sở dữ liệu." }));
 
 // --- SUPABASE INTEGRATION API ENDPOINTS ---
 
@@ -822,9 +850,19 @@ app.post("/api/supabase/auto-setup", async (req, res) => {
 
 type AuthedRequest = express.Request & { user?: any };
 
-const publicUser = (u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar });
 const nowIso = () => new Date().toISOString();
 const uid = (p: string) => `${p}_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+const PERMISSION_KEYS = ["create_course", "manage_assignments", "grade", "manage_members", "join_course", "use_ai_chat", "submit"];
+const can = (user: any, perm: string) => user.role === "admin" || db.settings?.permissions?.[user.role]?.[perm] === true;
+const permsFor = (user: any) => PERMISSION_KEYS.filter((k) => can(user, k));
+const publicUser = (u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, active: u.active !== false, last_seen: u.last_seen, permissions: permsFor(u) });
+function audit(actor: any, action: string, target: string, detail = "") {
+  const log = { id: uid("log"), actor_id: actor?.id || "", actor_name: actor?.name || "Hệ thống", action, target, detail, created_at: nowIso() };
+  db.audit_logs.unshift(log);
+  if (db.audit_logs.length > 500) db.audit_logs.length = 500;
+  saveDocument("audit_logs", log.id, log);
+}
+const denied = (res: express.Response) => fail(res, 403, "Bạn chưa được cấp quyền thực hiện thao tác này. Hãy liên hệ quản trị viên.");
 const fail = (res: express.Response, code: number, message: string) => res.status(code).json({ success: false, message });
 
 function addNotification(userId: string, title: string, body: string, link?: string) {
@@ -842,6 +880,8 @@ app.post("/api/auth/login", (req, res) => {
   if (!user || !user.pwd || !verifyPassword(String(password), user.pwd)) {
     return fail(res, 401, "Email hoặc mật khẩu không đúng.");
   }
+  if (user.active === false) return fail(res, 403, "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.");
+  user.last_seen = nowIso();
   res.json({ success: true, data: { token: signToken(user.id), user: publicUser(user) } });
 });
 
@@ -851,6 +891,8 @@ app.post("/api/auth/register", (req, res) => {
   if (!/^\S+@\S+\.\S+$/.test(String(email))) return fail(res, 400, "Email không hợp lệ.");
   if (String(password).length < 6) return fail(res, 400, "Mật khẩu cần ít nhất 6 ký tự.");
   if (role !== "teacher" && role !== "student") return fail(res, 400, "Vai trò không hợp lệ.");
+  if (db.settings.allow_registration === false) return fail(res, 403, "Hệ thống đang đóng đăng ký tài khoản mới. Hãy liên hệ quản trị viên.");
+  if (role === "teacher" && db.settings.teacher_self_register === false) return fail(res, 403, "Tài khoản giảng viên cần được quản trị viên cấp. Hãy đăng ký sinh viên hoặc liên hệ quản trị viên.");
   const cleanEmail = String(email).trim().toLowerCase();
   if (db.users.some((u: any) => u.email.toLowerCase() === cleanEmail)) return fail(res, 409, "Email này đã được đăng ký.");
   const cleanName = String(name).trim().slice(0, 80);
@@ -864,12 +906,23 @@ app.post("/api/auth/register", (req, res) => {
   };
   db.users.push(user);
   saveDocument("users", user.id, user);
+  audit(user, "register", user.email, `Đăng ký tài khoản ${role}`);
   res.json({ success: true, data: { token: signToken(user.id), user: publicUser(user) } });
 });
 
 app.use("/api", requireAuth);
 
 app.get("/api/auth/me", (req: AuthedRequest, res) => res.json({ success: true, data: publicUser(req.user) }));
+
+app.put("/api/auth/password", (req: AuthedRequest, res) => {
+  const { current, next } = req.body || {};
+  if (!current || !next) return fail(res, 400, "Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.");
+  if (!verifyPassword(String(current), req.user.pwd || "")) return fail(res, 400, "Mật khẩu hiện tại không đúng.");
+  if (String(next).length < 6) return fail(res, 400, "Mật khẩu mới cần ít nhất 6 ký tự.");
+  req.user.pwd = hashPassword(String(next));
+  saveDocument("users", req.user.id, req.user);
+  res.json({ success: true, message: "Đã đổi mật khẩu." });
+});
 
 app.put("/api/auth/me", (req: AuthedRequest, res) => {
   const { name } = req.body || {};
@@ -880,14 +933,14 @@ app.put("/api/auth/me", (req: AuthedRequest, res) => {
 
 // ---- Helpers ----
 const findCourse = (id: string) => db.courses.find((c: any) => c.id === id);
-const isOwner = (course: any, user: any) => !!course && user.role === "teacher" && course.teacher_id === user.id;
+const isOwner = (course: any, user: any) => !!course && (user.role === "admin" || (user.role === "teacher" && course.teacher_id === user.id));
 const isMember = (courseId: string, user: any) => db.course_members.some((m: any) => m.course_id === courseId && m.student_id === user.id);
 const canViewCourse = (course: any, user: any) => isOwner(course, user) || (user.role === "student" && isMember(course.id, user));
 const gradedState = (s: any) => s.grade !== undefined && s.grade !== null;
 const isSubmitted = (s: any) => s.status === "submitted" || s.status === "late";
 
 function teacherOnly(req: AuthedRequest, res: express.Response): boolean {
-  if (req.user.role !== "teacher") { fail(res, 403, "Chức năng này chỉ dành cho giảng viên."); return false; }
+  if (req.user.role === "student") { fail(res, 403, "Chức năng này chỉ dành cho giảng viên."); return false; }
   return true;
 }
 
@@ -903,7 +956,7 @@ function courseWithCounts(course: any, user: any) {
     open_assignments_count: openAssignments.length,
     assignments_count: courseAssignments.length,
   };
-  if (user.role === "teacher") {
+  if (user.role !== "student") {
     const subs = db.submissions.filter((s: any) => courseAssignments.some((a: any) => a.id === s.assignment_id));
     base.ungraded_count = subs.filter((s: any) => isSubmitted(s) && !gradedState(s)).length;
   } else {
@@ -911,13 +964,20 @@ function courseWithCounts(course: any, user: any) {
     const mine = db.submissions.filter((s: any) => s.student_id === user.id && isSubmitted(s));
     base.todo_count = courseAssignments.filter((a: any) => !mine.some((s: any) => s.assignment_id === a.id) && new Date(a.due_date) > new Date()).length;
   }
+  const mineDone = user.role === "student" ? db.submissions.filter((s: any) => s.student_id === user.id && isSubmitted(s)) : [];
+  const next = courseAssignments
+    .filter((a: any) => new Date(a.due_date) > new Date() && !mineDone.some((s: any) => s.assignment_id === a.id))
+    .sort((a: any, b: any) => +new Date(a.due_date) - +new Date(b.due_date))[0];
+  base.next_due = next ? { id: next.id, title: next.title, due_date: next.due_date } : null;
   return base;
 }
 
 // ---- Courses ----
 app.get("/api/courses", (req: AuthedRequest, res) => {
   const user = req.user;
-  const list = user.role === "teacher"
+  const list = user.role === "admin"
+    ? db.courses
+    : user.role === "teacher"
     ? db.courses.filter((c: any) => c.teacher_id === user.id)
     : db.courses.filter((c: any) => isMember(c.id, user));
   res.json({ success: true, data: list.map((c: any) => courseWithCounts(c, user)) });
@@ -927,6 +987,7 @@ const COURSE_COLORS = ["from-indigo-500 to-violet-600", "from-sky-500 to-blue-60
 
 app.post("/api/courses", (req: AuthedRequest, res) => {
   if (!teacherOnly(req, res)) return;
+  if (!can(req.user, "create_course")) return denied(res);
   const { name, code, semester, description } = req.body || {};
   if (!name?.trim() || !code?.trim()) return fail(res, 400, "Tên môn học và Mã môn là bắt buộc.");
   let invite = generateInviteCode();
@@ -969,6 +1030,7 @@ app.post("/api/courses/:id/regenerate-code", (req: AuthedRequest, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Không tìm thấy môn học.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền.");
+  if (!can(req.user, "manage_members")) return denied(res);
   let invite = generateInviteCode();
   while (db.courses.some((c: any) => c.invite_code === invite)) invite = generateInviteCode();
   course.invite_code = invite;
@@ -981,6 +1043,7 @@ app.delete("/api/courses/:id", (req: AuthedRequest, res) => {
   if (!course) return fail(res, 404, "Không tìm thấy môn học để xóa.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền xóa môn học này.");
   const courseId = course.id;
+  audit(req.user, "course.delete", course.name, `Mã ${course.code}`);
   db.courses = db.courses.filter((c: any) => c.id !== courseId);
   deleteDocument("courses", courseId);
   const assignmentIds = db.assignments.filter((a: any) => a.course_id === courseId).map((a: any) => a.id);
@@ -1002,6 +1065,7 @@ function deleteAssignmentCascade(assignmentId: string) {
 
 app.post("/api/courses/join", (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới tham gia lớp bằng mã mời.");
+  if (!can(req.user, "join_course")) return denied(res);
   const { invite_code } = req.body || {};
   if (!invite_code) return fail(res, 400, "Vui lòng nhập mã mời.");
   const course = db.courses.find((c: any) => c.invite_code === String(invite_code).trim().toUpperCase());
@@ -1033,6 +1097,7 @@ app.delete("/api/courses/:id/members/:studentId", (req: AuthedRequest, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Không tìm thấy môn học.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền.");
+  if (!can(req.user, "manage_members")) return denied(res);
   const before = db.course_members.length;
   db.course_members = db.course_members.filter((m: any) => !(m.course_id === course.id && m.student_id === req.params.studentId));
   if (db.course_members.length === before) return fail(res, 404, "Sinh viên không thuộc lớp.");
@@ -1088,6 +1153,7 @@ app.post("/api/courses/:id/assignments", (req: AuthedRequest, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Không tìm thấy môn học.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền giao bài cho môn này.");
+  if (!can(req.user, "manage_assignments")) return denied(res);
   const input = sanitizeAssignmentInput(req.body);
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
   const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
@@ -1103,6 +1169,7 @@ app.put("/api/assignments/:id", (req: AuthedRequest, res) => {
   const a = db.assignments.find((x: any) => x.id === req.params.id);
   if (!a) return fail(res, 404, "Bài tập không tồn tại.");
   if (!isOwner(findCourse(a.course_id), req.user)) return fail(res, 403, "Bạn không có quyền sửa bài tập này.");
+  if (!can(req.user, "manage_assignments")) return denied(res);
   const input = sanitizeAssignmentInput({ ...a, ...req.body });
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
   Object.assign(a, input, { updated_at: nowIso() });
@@ -1114,6 +1181,7 @@ app.delete("/api/assignments/:id", (req: AuthedRequest, res) => {
   const a = db.assignments.find((x: any) => x.id === req.params.id);
   if (!a) return fail(res, 404, "Bài tập không tồn tại.");
   if (!isOwner(findCourse(a.course_id), req.user)) return fail(res, 403, "Bạn không có quyền xóa bài tập này.");
+  if (!can(req.user, "manage_assignments")) return denied(res);
   deleteAssignmentCascade(a.id);
   res.json({ success: true, message: "Đã xóa bài tập và các bài nộp liên quan." });
 });
@@ -1171,6 +1239,7 @@ app.put("/api/submissions/:id/grade", (req: AuthedRequest, res) => {
   if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
   const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
   if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền chấm bài này.");
+  if (!can(req.user, "grade")) return denied(res);
   const grade = Number(req.body?.grade);
   if (!Number.isFinite(grade) || grade < 0 || grade > 10) return fail(res, 400, "Điểm phải nằm trong khoảng 0 - 10.");
   sub.grade = Math.round(grade * 100) / 100;
@@ -1186,6 +1255,7 @@ app.post("/api/submissions/:id/reevaluate", async (req: AuthedRequest, res) => {
   if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
   const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
   if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền.");
+  if (!can(req.user, "grade")) return denied(res);
   const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
   if (!chat || !chat.messages.some((m: any) => m.role === "user")) return fail(res, 400, "Bài nộp này không có nhật ký chat để chấm.");
   try {
@@ -1297,6 +1367,7 @@ function chatRateLimited(userId: string): boolean {
 
 app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
+  if (!can(req.user, "use_ai_chat")) return denied(res);
   const { assignment_id, message_content } = req.body || {};
   if (!assignment_id || !message_content || typeof message_content !== "string") return fail(res, 400, "Thiếu thông tin tin nhắn.");
   if (message_content.length > 30000) return fail(res, 413, "Tin nhắn quá dài (tối đa 30.000 ký tự).");
@@ -1348,6 +1419,7 @@ Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài 
 // ---- Submit ----
 app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới nộp bài.");
+  if (!can(req.user, "submit")) return denied(res);
   const { assignment_id, submitted_files, submitted_text, notes } = req.body || {};
   const assignment = db.assignments.find((a: any) => a.id === assignment_id);
   if (!assignment || !isMember(assignment.course_id, req.user)) return fail(res, 404, "Không tìm thấy bài tập.");
@@ -1490,8 +1562,8 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
 app.get("/api/overview", (req: AuthedRequest, res) => {
   const user = req.user;
   const now = Date.now();
-  if (user.role === "teacher") {
-    const myCourses = db.courses.filter((c: any) => c.teacher_id === user.id);
+  if (user.role !== "student") {
+    const myCourses = user.role === "admin" ? db.courses : db.courses.filter((c: any) => c.teacher_id === user.id);
     const myAssignments = db.assignments.filter((a: any) => myCourses.some((c: any) => c.id === a.course_id));
     const toGrade = db.submissions
       .filter((s: any) => isSubmitted(s) && !gradedState(s) && myAssignments.some((a: any) => a.id === s.assignment_id))
@@ -1504,7 +1576,39 @@ app.get("/api/overview", (req: AuthedRequest, res) => {
     const students = new Set(db.course_members.filter((m: any) => myCourses.some((c: any) => c.id === m.course_id)).map((m: any) => m.student_id));
     const upcoming = myAssignments.filter((a: any) => new Date(a.due_date).getTime() > now).sort((a: any, b: any) => +new Date(a.due_date) - +new Date(b.due_date)).slice(0, 5)
       .map((a: any) => ({ id: a.id, course_id: a.course_id, title: a.title, due_date: a.due_date, course_name: myCourses.find((c: any) => c.id === a.course_id)?.name }));
-    return res.json({ success: true, data: { course_count: myCourses.length, student_count: students.size, assignment_count: myAssignments.length, to_grade_count: toGrade.length, to_grade: toGrade, upcoming } });
+    // "Recently due": assignments due in the last 30 days or the next 7 days, newest first
+    const recentDue = myAssignments
+      .filter((a: any) => { const t = new Date(a.due_date).getTime(); return t < now + 7 * 86400000 && t > now - 30 * 86400000; })
+      .sort((a: any, b: any) => +new Date(b.due_date) - +new Date(a.due_date)).slice(0, 5)
+      .map((a: any) => {
+        const subs = db.submissions.filter((s: any) => s.assignment_id === a.id && isSubmitted(s));
+        return {
+          id: a.id, course_id: a.course_id, title: a.title, due_date: a.due_date, mode: a.submission_mode,
+          course_name: myCourses.find((c: any) => c.id === a.course_id)?.name,
+          turned_in: subs.length, graded: subs.filter(gradedState).length,
+          assigned: db.course_members.filter((m: any) => m.course_id === a.course_id).length,
+        };
+      });
+    // Class insights computed from real data only
+    const insights: any[] = [];
+    for (const c of myCourses) {
+      const members = db.course_members.filter((m: any) => m.course_id === c.id);
+      if (members.length === 0) continue;
+      const past = db.assignments.filter((a: any) => a.course_id === c.id && new Date(a.due_date).getTime() < now)
+        .sort((a: any, b: any) => +new Date(b.due_date) - +new Date(a.due_date)).slice(0, 2);
+      if (past.length === 2) {
+        const missed = members.filter((m: any) => past.every((a: any) => !db.submissions.some((s: any) => s.assignment_id === a.id && s.student_id === m.student_id && isSubmitted(s)))).length;
+        if (missed > 0) insights.push({ kind: "missed", count: missed, text: `${missed} sinh viên chưa nộp 2 bài gần nhất`, course: c.name, course_id: c.id });
+      }
+      const low = members.filter((m: any) => {
+        const sc = db.submissions.filter((s: any) => s.student_id === m.student_id && s.process_score_result && db.assignments.some((a: any) => a.id === s.assignment_id && a.course_id === c.id)).map((s: any) => s.process_score_result.process_score);
+        return sc.length > 0 && sc.reduce((a: number, b: number) => a + b, 0) / sc.length < 60;
+      }).length;
+      if (low > 0) insights.push({ kind: "low", count: low, text: `${low} sinh viên có điểm tư duy trung bình dưới 60`, course: c.name, course_id: c.id });
+      const idle = members.filter((m: any) => { const u = db.users.find((x: any) => x.id === m.student_id); return !u?.last_seen || now - new Date(u.last_seen).getTime() > 7 * 86400000; }).length;
+      if (idle > 0) insights.push({ kind: "idle", count: idle, text: `${idle} sinh viên chưa truy cập trong 7 ngày qua`, course: c.name, course_id: c.id });
+    }
+    return res.json({ success: true, data: { course_count: myCourses.length, student_count: students.size, assignment_count: myAssignments.length, to_grade_count: toGrade.length, to_grade: toGrade, upcoming, recent_due: recentDue, insights: insights.slice(0, 4) } });
   }
   const myCourseIds = db.course_members.filter((m: any) => m.student_id === user.id).map((m: any) => m.course_id);
   const mySubs = db.submissions.filter((s: any) => s.student_id === user.id);
@@ -1542,6 +1646,150 @@ app.post("/api/notifications/read", (req: AuthedRequest, res) => {
   }
   res.json({ success: true });
 });
+
+// ---- Admin console ----
+function requireAdmin(req: AuthedRequest, res: express.Response, next: express.NextFunction) {
+  if (req.user?.role !== "admin") return fail(res, 403, "Chỉ quản trị viên mới truy cập được khu vực này.");
+  next();
+}
+app.use("/api/admin", requireAdmin);
+
+const adminUserRow = (u: any) => {
+  const courses = db.courses.filter((c: any) => c.teacher_id === u.id).length;
+  const enrolled = db.course_members.filter((m: any) => m.student_id === u.id).length;
+  return { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, active: u.active !== false, last_seen: u.last_seen, course_count: u.role === "teacher" ? courses : enrolled };
+};
+
+app.get("/api/admin/overview", (req: AuthedRequest, res) => {
+  const subs = db.submissions.filter(isSubmitted);
+  res.json({
+    success: true,
+    data: {
+      users: { total: db.users.length, admin: db.users.filter((u: any) => u.role === "admin").length, teacher: db.users.filter((u: any) => u.role === "teacher").length, student: db.users.filter((u: any) => u.role === "student").length, inactive: db.users.filter((u: any) => u.active === false).length },
+      courses: db.courses.length, assignments: db.assignments.length, submissions: subs.length,
+      ungraded: subs.filter((s: any) => !gradedState(s)).length,
+      ai_failed: subs.filter((s: any) => s.eval_status === "failed").length,
+      recent_audit: db.audit_logs.slice(0, 6),
+      storage: { firestore: !!firestoreDb, supabase: isSupabaseConfigured(), gemini: !!process.env.GEMINI_API_KEY },
+    },
+  });
+});
+
+app.get("/api/admin/users", (req, res) => res.json({ success: true, data: db.users.map(adminUserRow) }));
+
+app.post("/api/admin/users", (req: AuthedRequest, res) => {
+  const { name, email, password, role } = req.body || {};
+  if (!name?.trim() || !email?.trim() || !password) return fail(res, 400, "Vui lòng nhập họ tên, email và mật khẩu.");
+  if (!/^\S+@\S+\.\S+$/.test(String(email))) return fail(res, 400, "Email không hợp lệ.");
+  if (String(password).length < 6) return fail(res, 400, "Mật khẩu cần ít nhất 6 ký tự.");
+  if (!["admin", "teacher", "student"].includes(role)) return fail(res, 400, "Vai trò không hợp lệ.");
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (db.users.some((u: any) => u.email.toLowerCase() === cleanEmail)) return fail(res, 409, "Email này đã tồn tại.");
+  const user = { id: uid("u"), name: String(name).trim().slice(0, 80), email: cleanEmail, role, avatar: "", pwd: hashPassword(String(password)), active: true };
+  db.users.push(user);
+  saveDocument("users", user.id, user);
+  audit(req.user, "user.create", user.email, `Tạo tài khoản ${role}`);
+  res.json({ success: true, data: adminUserRow(user) });
+});
+
+app.put("/api/admin/users/:id", (req: AuthedRequest, res) => {
+  const u = db.users.find((x: any) => x.id === req.params.id);
+  if (!u) return fail(res, 404, "Không tìm thấy người dùng.");
+  const { role, active, name } = req.body || {};
+  const isSelf = u.id === req.user.id;
+  const otherAdmins = db.users.filter((x: any) => x.role === "admin" && x.active !== false && x.id !== u.id).length;
+  if (role !== undefined && role !== u.role) {
+    if (!["admin", "teacher", "student"].includes(role)) return fail(res, 400, "Vai trò không hợp lệ.");
+    if (isSelf) return fail(res, 400, "Bạn không thể tự đổi vai trò của chính mình.");
+    if (u.role === "admin" && otherAdmins === 0) return fail(res, 400, "Phải còn ít nhất một quản trị viên.");
+    if (u.role === "teacher" && db.courses.some((c: any) => c.teacher_id === u.id)) return fail(res, 400, "Giảng viên này đang phụ trách môn học. Hãy chuyển giao môn học trước khi đổi vai trò.");
+    audit(req.user, "user.role", u.email, `${u.role} → ${role}`);
+    u.role = role;
+  }
+  if (active !== undefined && (active !== false) !== (u.active !== false)) {
+    if (isSelf) return fail(res, 400, "Bạn không thể tự vô hiệu hóa tài khoản của mình.");
+    if (active === false && u.role === "admin" && otherAdmins === 0) return fail(res, 400, "Phải còn ít nhất một quản trị viên hoạt động.");
+    u.active = active !== false;
+    audit(req.user, u.active ? "user.enable" : "user.disable", u.email);
+  }
+  if (name !== undefined && String(name).trim()) u.name = String(name).trim().slice(0, 80);
+  saveDocument("users", u.id, u);
+  res.json({ success: true, data: adminUserRow(u) });
+});
+
+app.post("/api/admin/users/:id/reset-password", (req: AuthedRequest, res) => {
+  const u = db.users.find((x: any) => x.id === req.params.id);
+  if (!u) return fail(res, 404, "Không tìm thấy người dùng.");
+  const temp = crypto.randomBytes(5).toString("hex");
+  u.pwd = hashPassword(temp);
+  saveDocument("users", u.id, u);
+  audit(req.user, "user.reset_password", u.email);
+  res.json({ success: true, data: { temp_password: temp }, message: "Đã đặt lại mật khẩu." });
+});
+
+app.delete("/api/admin/users/:id", (req: AuthedRequest, res) => {
+  const u = db.users.find((x: any) => x.id === req.params.id);
+  if (!u) return fail(res, 404, "Không tìm thấy người dùng.");
+  if (u.id === req.user.id) return fail(res, 400, "Bạn không thể xóa chính mình.");
+  if (u.role === "admin" && db.users.filter((x: any) => x.role === "admin" && x.id !== u.id).length === 0) return fail(res, 400, "Phải còn ít nhất một quản trị viên.");
+  if (u.role === "teacher" && db.courses.some((c: any) => c.teacher_id === u.id)) return fail(res, 400, "Giảng viên này đang phụ trách môn học. Hãy chuyển giao môn học trước khi xóa.");
+  for (const m of db.course_members.filter((m: any) => m.student_id === u.id)) deleteDocument("course_members", `${m.course_id}_${m.student_id}`);
+  db.course_members = db.course_members.filter((m: any) => m.student_id !== u.id);
+  for (const sb of db.submissions.filter((x: any) => x.student_id === u.id)) deleteDocument("submissions", sb.id);
+  db.submissions = db.submissions.filter((x: any) => x.student_id !== u.id);
+  for (const cs of db.chat_sessions.filter((x: any) => x.student_id === u.id)) deleteDocument("chat_sessions", cs.id);
+  db.chat_sessions = db.chat_sessions.filter((x: any) => x.student_id !== u.id);
+  db.users = db.users.filter((x: any) => x.id !== u.id);
+  deleteDocument("users", u.id);
+  audit(req.user, "user.delete", u.email, `Vai trò ${u.role}`);
+  res.json({ success: true, message: "Đã xóa người dùng và dữ liệu liên quan." });
+});
+
+app.get("/api/admin/courses", (req, res) => {
+  res.json({
+    success: true,
+    data: db.courses.map((c: any) => ({
+      id: c.id, name: c.name, code: c.code, semester: c.semester, teacher_id: c.teacher_id, teacher_name: c.teacher_name, invite_code: c.invite_code,
+      member_count: db.course_members.filter((m: any) => m.course_id === c.id).length,
+      assignment_count: db.assignments.filter((a: any) => a.course_id === c.id).length,
+    })),
+  });
+});
+
+app.put("/api/admin/courses/:id/teacher", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  const teacher = db.users.find((u: any) => u.id === req.body?.teacher_id && u.role === "teacher" && u.active !== false);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!teacher) return fail(res, 400, "Giảng viên không hợp lệ.");
+  audit(req.user, "course.transfer", course.name, `${course.teacher_name} → ${teacher.name}`);
+  course.teacher_id = teacher.id;
+  course.teacher_name = teacher.name;
+  saveDocument("courses", course.id, course);
+  addNotification(teacher.id, "Bạn được giao phụ trách môn học", course.name, `/course/${course.id}`);
+  res.json({ success: true, data: course });
+});
+
+app.get("/api/admin/settings", (req, res) => res.json({ success: true, data: db.settings }));
+
+app.put("/api/admin/settings", (req: AuthedRequest, res) => {
+  const { allow_registration, teacher_self_register, permissions } = req.body || {};
+  const next = JSON.parse(JSON.stringify(db.settings));
+  if (typeof allow_registration === "boolean") next.allow_registration = allow_registration;
+  if (typeof teacher_self_register === "boolean") next.teacher_self_register = teacher_self_register;
+  if (permissions && typeof permissions === "object") {
+    for (const role of ["teacher", "student"]) {
+      for (const key of Object.keys(DEFAULT_SETTINGS.permissions[role])) {
+        if (typeof permissions[role]?.[key] === "boolean") next.permissions[role][key] = permissions[role][key];
+      }
+    }
+  }
+  db.settings = next;
+  saveDocument("settings", "global", { ...next });
+  audit(req.user, "settings.update", "Cài đặt hệ thống", JSON.stringify({ allow_registration: next.allow_registration, teacher_self_register: next.teacher_self_register }));
+  res.json({ success: true, data: next, message: "Đã lưu cấu hình phân quyền." });
+});
+
+app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.audit_logs.slice(0, 200) }));
 
 app.use("/api", (req, res) => fail(res, 404, "API không tồn tại."));
 
