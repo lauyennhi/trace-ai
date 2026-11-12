@@ -7,7 +7,7 @@ import React, { useEffect, useRef } from "react";
  */
 const COLORS = ["11,87,208", "124,77,255", "236,72,153", "56,189,248", "16,185,129"];
 
-export const InkTrail: React.FC<{ className?: string; strength?: number }> = ({ className = "", strength = 1 }) => {
+export const InkTrail: React.FC<{ className?: string; strength?: number; blur?: number }> = ({ className = "", strength = 1, blur = 12 }) => {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -86,5 +86,5 @@ export const InkTrail: React.FC<{ className?: string; strength?: number }> = ({ 
     };
   }, [strength]);
 
-  return <canvas ref={ref} aria-hidden className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} style={{ filter: "blur(12px) saturate(1.35)" }} />;
+  return <canvas ref={ref} aria-hidden className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} style={{ filter: `blur(${blur}px) saturate(1.1)` }} />;
 };

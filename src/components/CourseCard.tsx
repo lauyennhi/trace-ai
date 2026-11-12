@@ -6,10 +6,10 @@ import { CourseArt, courseTheme, relTime, riseItem } from "./ui";
 
 interface Props {
   course: Course; role: UserRole;
-  onSelect: (id: string, tab?: string) => void; onEdit?: (c: Course) => void; onDelete?: (c: Course) => void;
+  onSelect: (id: string, tab?: string) => void; onEdit?: (c: Course) => void; onDelete?: (c: Course) => void; large?: boolean; spot?: boolean;
 }
 
-export const CourseCard: React.FC<Props> = ({ course, role, onSelect, onEdit, onDelete }) => {
+export const CourseCard: React.FC<Props> = ({ course, role, onSelect, onEdit, onDelete, large, spot }) => {
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -27,13 +27,13 @@ export const CourseCard: React.FC<Props> = ({ course, role, onSelect, onEdit, on
   const iconBtn = "p-2.5 rounded-full text-ink-2 hover:bg-surface-2 transition-colors";
   return (
     <motion.article variants={riseItem} onClick={() => onSelect(course.id)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(course.id)}
-      className="group card card-hover cursor-pointer overflow-visible flex flex-col rounded-[1.5rem]" style={{ boxShadow: "var(--shadow-card)" }}>
-      <div className="relative h-[7.5rem] rounded-t-[1.5rem] px-5 pt-4" style={{ background: t.bg }}>
+      className={`group card card-hover cursor-pointer overflow-visible flex flex-col rounded-[1.5rem] ${spot ? "spotlight" : ""}`} style={{ boxShadow: "var(--shadow-card)" }}>
+      <div className={`relative ${large ? "h-[9.5rem] px-6 pt-5" : "h-[7.5rem] px-5 pt-4"} rounded-t-[1.5rem]`} style={{ background: t.bg }}>
         <CourseArt id={course.id} className="rounded-t-[1.5rem]" />
         <h3 className="relative text-[1.35rem] leading-snug font-normal line-clamp-2 pr-24 group-hover:underline underline-offset-4" style={{ color: "color-mix(in srgb, " + t.color + " 70%, var(--ink))" }}>{course.name}</h3>
-        <p className="relative text-sm mt-0.5 text-ink-2 truncate">{course.code} · {course.semester}</p>
+        <p className={`relative ${large ? "text-base mt-1.5" : "text-sm mt-0.5"} text-ink-2 truncate`}>{course.code} · {course.semester}</p>
       </div>
-      <div className="px-5 pt-4 pb-3 flex-1 min-h-[5.5rem]">
+      <div className={`${large ? "px-6 pt-5 pb-4 min-h-[6.5rem] text-base" : "px-5 pt-4 pb-3 min-h-[5.5rem]"} flex-1`}>
         {course.next_due ? (
           <>
             <div className="text-sm font-medium">Sắp đến hạn · <span className="text-ink-2 font-normal">{relTime(course.next_due.due_date)}</span></div>
