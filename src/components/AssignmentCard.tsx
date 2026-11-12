@@ -1,141 +1,63 @@
 import React from "react";
-import { Assignment, UserRole, SubmissionStatus } from "../types";
-import { Clock, Bot, FileText, Sparkles, ChevronRight, CheckCircle2, AlertTriangle } from "lucide-react";
+import { motion } from "motion/react";
+import { Clock, Bot, FileText, Sparkles, CheckCircle2, AlertTriangle, ChevronRight, Pencil, Trash2, Award, Users } from "lucide-react";
+import { Assignment, UserRole } from "../types";
+import { fmtDate, relTime, riseItem } from "./ui";
 
-interface AssignmentCardProps {
-  assignment: Assignment;
-  role: UserRole;
-  onSelect: (assignmentId: string) => void;
+interface Props {
+  assignment: Assignment; role: UserRole;
+  onSelect: (id: string) => void; onEdit?: (a: Assignment) => void; onDelete?: (a: Assignment) => void;
 }
 
-export const AssignmentCard: React.FC<AssignmentCardProps> = ({ assignment, role, onSelect }) => {
-  const isPastDue = new Date(assignment.due_date) < new Date();
-  
-  // Format due date in Vietnamese locale
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleString("vi-VN", {
-      weekday: "short",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, onSelect, onEdit, onDelete }) => {
+  const pastDue = new Date(a.due_date) < new Date();
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  const done = a.submission_status === "submitted" || a.submission_status === "late";
 
-  const renderStatusBadge = () => {
+  const status = () => {
     if (role === "teacher") {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-          <Clock className="w-3.5 h-3.5 text-zinc-400" />
-          Hạn: {formatDate(assignment.due_date)}
-        </span>
+        <span className="chip chip-gray"><Users className="w-3 h-3" />{a.submitted_count ?? 0}/{a.member_count ?? 0} đã nộp</span>
       );
     }
-
-    const status = assignment.submission_status || (isPastDue ? "late" : "not_submitted");
-
-    switch (status) {
-      case "submitted":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            Đã nộp bài
-          </span>
-        );
-      case "draft":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            Đang làm (Nháp)
-          </span>
-        );
-      case "late":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            Trễ hạn
-          </span>
-        );
-      case "not_submitted":
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            <Clock className="w-3.5 h-3.5 text-rose-500" />
-            Chưa làm
-          </span>
-        );
-    }
+    if (done) return <span className={`chip ${a.submission_status === "late" ? "chip-amber" : "chip-green"}`}><CheckCircle2 className="w-3 h-3" />{a.submission_status === "late" ? "Đã nộp trễ" : "Đã nộp"}</span>;
+    if (a.submission_status === "draft") return <span className="chip chip-brand"><Clock className="w-3 h-3" />Đang làm nháp</span>;
+    if (pastDue) return <span className="chip chip-rose"><AlertTriangle className="w-3 h-3" />Quá hạn</span>;
+    return <span className="chip chip-amber"><Clock className="w-3 h-3" />Chưa làm</span>;
   };
 
+  const ModeIcon = a.submission_mode === "file_only" ? FileText : Bot;
+  const modeLabel = a.submission_mode === "file_only" ? "Chỉ nộp file" : a.submission_mode === "ai_chat_only" ? "AI Chat" : "AI Chat + File";
+
   return (
-    <div
-      onClick={() => onSelect(assignment.id)}
-      className="group bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 p-5 shadow-xs transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4"
-    >
-      <div className="flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {renderStatusBadge()}
-
-          {/* Submission mode badge */}
-          {assignment.submission_mode === "both" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold">
-              <Bot className="w-3 h-3 text-zinc-500" />
-              AI Chat + File
-            </span>
-          )}
-          {assignment.submission_mode === "ai_chat_only" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold">
-              <Bot className="w-3 h-3 text-zinc-500" />
-              Làm qua AI Chat
-            </span>
-          )}
-          {assignment.submission_mode === "file_only" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold">
-              <FileText className="w-3 h-3 text-zinc-500" />
-              Chỉ nộp file
-            </span>
-          )}
-
-          {/* Socratic indicator */}
-          {assignment.submission_mode !== "file_only" && assignment.ai_submode === "socratic" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[11px] font-bold">
-              <Sparkles className="w-3 h-3 text-amber-500" />
-              Ghi nhận tư duy AI Socratic
-            </span>
-          )}
+    <motion.div variants={riseItem} onClick={() => onSelect(a.id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(a.id)}
+      className="group card card-hover cursor-pointer p-5 flex flex-col md:flex-row md:items-center gap-4">
+      <div className={`hidden md:flex w-12 h-12 rounded-2xl items-center justify-center shrink-0 ${done ? "bg-[#e7f8ef] text-[#0f8a55] dark:bg-[#0e2a1f]" : pastDue && role === "student" ? "bg-[#ffe9ec] text-[#d6264f] dark:bg-[#3a1320]" : "bg-brand-soft text-brand"}`}>
+        <ModeIcon className="w-6 h-6" />
+      </div>
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {status()}
+          <span className="chip chip-gray"><ModeIcon className="w-3 h-3" />{modeLabel}</span>
+          {a.submission_mode !== "file_only" && a.ai_submode === "socratic" && <span className="chip chip-brand"><Sparkles className="w-3 h-3" />Socratic</span>}
+          {role === "teacher" && (a.ungraded_count || 0) > 0 && <span className="chip chip-rose">{a.ungraded_count} chờ chấm</span>}
+          {role === "student" && a.my_grade !== undefined && <span className="chip chip-green"><Award className="w-3 h-3" />{a.my_grade}/10</span>}
+          {role === "student" && a.my_process_score !== undefined && <span className="chip chip-brand">Tư duy {a.my_process_score}/100</span>}
         </div>
-
-        <h4 className="text-base font-extrabold text-zinc-900 dark:text-zinc-100 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
-          {assignment.title}
-        </h4>
-
-        {assignment.description && (
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2 leading-relaxed">
-            {assignment.description}
-          </p>
+        <h4 className="text-base font-bold group-hover:text-brand transition-colors">{a.title}</h4>
+        <p className="text-xs text-mute flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />Hạn {fmtDate(a.due_date)} · <span className={!pastDue && new Date(a.due_date).getTime() - Date.now() < 86400000 ? "text-amber-600 font-semibold" : ""}>{relTime(a.due_date)}</span>
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {role === "teacher" && (
+          <>
+            <button onClick={stop(() => onEdit?.(a))} className="btn btn-ghost btn-icon" title="Sửa bài tập" aria-label="Sửa bài tập"><Pencil className="w-4 h-4" /></button>
+            <button onClick={stop(() => onDelete?.(a))} className="btn btn-ghost btn-icon hover:!text-rose-500" title="Xóa bài tập" aria-label="Xóa bài tập"><Trash2 className="w-4 h-4" /></button>
+          </>
         )}
-
-        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center gap-3">
-          <span>Hạn nộp: <strong className="text-zinc-800 dark:text-zinc-200">{formatDate(assignment.due_date)}</strong></span>
-          {assignment.attachments?.length > 0 && (
-            <span>• {assignment.attachments.length} tài liệu đính kèm</span>
-          )}
-          {role === "student" && assignment.my_process_score !== undefined && (
-            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded font-bold">
-              Điểm quá trình: {assignment.my_process_score}/100
-            </span>
-          )}
-        </div>
+        <span className="btn btn-soft btn-sm">{role === "teacher" ? "Bài nộp" : done ? "Xem lại" : "Làm bài"}<ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" /></span>
       </div>
-
-      <div className="flex items-center justify-end gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-zinc-100 dark:border-zinc-800">
-        <button className="px-4 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 text-xs font-bold transition-all flex items-center gap-1.5 hover:bg-zinc-800 dark:hover:bg-white shadow-xs">
-          <span>{role === "teacher" ? "Quản lý bài nộp" : "Làm bài tập"}</span>
-          <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-      </div>
-    </div>
+    </motion.div>
   );
 };

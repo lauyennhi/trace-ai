@@ -1,184 +1,119 @@
 import React from "react";
+import { motion } from "motion/react";
+import { Award, Users, CheckCircle2, BarChart3, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from "recharts";
 import { ClassStats } from "../types";
-import { Award, BarChart3, AlertCircle, Sparkles, CheckCircle2, Clock, Users, HelpCircle } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie,
-} from "recharts";
+import { AnimatedNumber, Avatar, Bar as ProgressBar, EmptyState, riseItem, staggerParent } from "./ui";
 
-interface CourseStatsViewProps {
-  stats: ClassStats;
-}
+const COLORS = ["#10b981", "#5b5bf0", "#f59e0b", "#f97316", "#ef4444"];
+const tip = { backgroundColor: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, fontSize: 12, color: "var(--ink)", boxShadow: "var(--shadow-card)" };
 
-export const CourseStatsView: React.FC<CourseStatsViewProps> = ({ stats }) => {
-  const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"];
-
-  const submissionPieData = [
+export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
+  if (stats.total_students === 0 || stats.total_assignments === 0) {
+    return <EmptyState icon={<BarChart3 className="w-8 h-8" />} title="Chưa đủ dữ liệu để thống kê"
+      text={stats.total_students === 0 ? "Chia sẻ mã mời để sinh viên tham gia lớp." : "Hãy giao bài tập đầu tiên để bắt đầu theo dõi."} />;
+  }
+  const pie = [
     { name: "Đúng hạn", value: stats.on_time_rate, color: "#10b981" },
-    { name: "Trễ hạn", value: stats.late_rate, color: "#f97316" },
+    { name: "Trễ hạn", value: stats.late_rate, color: "#f59e0b" },
     { name: "Chưa nộp", value: stats.not_submitted_rate, color: "#ef4444" },
+  ].filter((d) => d.value > 0);
+  const hasScores = stats.evaluated_count > 0;
+  const kpis = [
+    { label: "Sinh viên", value: stats.total_students, suffix: "", icon: Users, tone: "from-sky-500 to-indigo-500", hint: `${stats.total_assignments} bài tập đã giao` },
+    { label: "Tỷ lệ nộp bài", value: stats.submission_rate, suffix: "%", icon: CheckCircle2, tone: "from-emerald-500 to-teal-500", hint: `Đúng hạn ${stats.on_time_rate}% · Trễ ${stats.late_rate}%` },
+    { label: "Process Score TB", value: stats.average_process_score ?? 0, suffix: "", icon: Award, tone: "from-amber-500 to-orange-500", hint: hasScores ? `Từ ${stats.evaluated_count} bài đã chấm` : "Chưa có bài nào được chấm", none: !hasScores },
+    { label: "Chưa nộp", value: stats.not_submitted_rate, suffix: "%", icon: AlertTriangle, tone: "from-rose-500 to-pink-500", hint: "Trên tổng số bài được giao" },
   ];
-
   return (
-    <div className="space-y-6">
-      {/* Top Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <span>Tổng số sinh viên</span>
-            <Users className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.total_students} sinh viên</div>
-          <div className="text-[11px] text-slate-500">Đã tham gia vào lớp học</div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <span>Tỷ lệ nộp đúng hạn</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-2xl font-extrabold text-emerald-600">{stats.on_time_rate}%</div>
-          <div className="text-[11px] text-slate-500">
-            Trễ hạn: {stats.late_rate}% • Chưa nộp: {stats.not_submitted_rate}%
-          </div>
-        </div>
-
-        <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-md space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
-            <span>Process Score Trung Bình</span>
-            <Award className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-2xl font-black text-amber-400">{stats.average_process_score}/100</div>
-          <div className="text-[11px] text-slate-400">Đánh giá tư duy qua AI Chat</div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <span>Tỷ lệ hoàn thành bài</span>
-            <BarChart3 className="w-4 h-4 text-blue-500" />
-          </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.submission_rate}%</div>
-          <div className="text-[11px] text-slate-500">Trên tổng số bài tập đã giao</div>
-        </div>
+    <motion.div variants={staggerParent} initial="initial" animate="animate" className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpis.map((k) => (
+          <motion.div key={k.label} variants={riseItem} className="card p-5 relative overflow-hidden">
+            <div className={`absolute -right-5 -top-5 w-20 h-20 rounded-full bg-gradient-to-br ${k.tone} opacity-15`} />
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${k.tone} text-white flex items-center justify-center mb-3 shadow-lg`}><k.icon className="w-5 h-5" /></div>
+            <div className="text-3xl font-extrabold tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.value} suffix={k.suffix} />}</div>
+            <div className="text-sm font-semibold mt-0.5">{k.label}</div>
+            <div className="text-xs text-mute mt-1">{k.hint}</div>
+          </motion.div>
+        ))}
       </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Process Score Distribution Bar Chart */}
-        <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-amber-600" />
-                Phân bố Điểm Quá Trình (Process Score) Toàn Lớp
-              </h3>
-              <p className="text-xs text-slate-500">Thống kê số lượng sinh viên theo các dải điểm tư duy</p>
+      <div className="grid lg:grid-cols-3 gap-6">
+        <motion.div variants={riseItem} className="card p-6 lg:col-span-2">
+          <h3 className="font-bold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-brand" />Phân bố Process Score</h3>
+          <p className="text-xs text-mute mb-4">Số bài nộp theo dải điểm tư duy (chỉ tính bài đã được AI chấm)</p>
+          {hasScores ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.score_distribution} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="var(--line)" />
+                  <XAxis dataKey="range" tick={{ fontSize: 12, fill: "var(--mute)" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "var(--mute)" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tip} cursor={{ fill: "var(--surface-2)" }} formatter={(v: any, _n: any, p: any) => [`${v} bài`, p.payload.label]} labelFormatter={(l) => `Điểm ${l}`} />
+                  <Bar dataKey="count" radius={[10, 10, 4, 4]} animationDuration={1000}>{stats.score_distribution.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}</Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-          </div>
+          ) : <p className="h-64 flex items-center justify-center text-sm text-mute">Chưa có bài nào được chấm quá trình.</p>}
+        </motion.div>
 
-          <div className="h-64 w-full pt-4">
+        <motion.div variants={riseItem} className="card p-6">
+          <h3 className="font-bold">Tiến độ nộp bài</h3>
+          <p className="text-xs text-mute">Toàn bộ bài tập × sinh viên</p>
+          <div className="h-44 relative">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.score_distribution} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                <XAxis dataKey="range" tick={{ fontSize: 10, fill: "#475569" }} interval={0} angle={-10} textAnchor="end" />
-                <YAxis tick={{ fontSize: 11, fill: "#475569" }} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "12px", border: "none", color: "#fff", fontSize: "12px" }}
-                />
-                <Bar dataKey="count" name="Số sinh viên" radius={[8, 8, 0, 0]}>
-                  {stats.score_distribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
+              <PieChart><Pie data={pie} innerRadius={52} outerRadius={74} paddingAngle={4} dataKey="value" cornerRadius={6} animationDuration={1000} stroke="none">{pie.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip contentStyle={tip} formatter={(v: any) => `${v}%`} /></PieChart>
             </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><div className="text-2xl font-extrabold">{stats.submission_rate}%</div><div className="text-[11px] text-mute">đã nộp</div></div>
           </div>
-        </div>
-
-        {/* Submission Status Pie Chart */}
-        <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-200/90 shadow-xs space-y-4 flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Tỷ lệ Nộp bài</h3>
-            <p className="text-xs text-slate-500">Tiến độ nộp bài hiện tại của cả lớp</p>
-          </div>
-
-          <div className="h-48 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={submissionPieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={45}
-                  outerRadius={70}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {submissionPieData.map((entry, index) => (
-                    <Cell key={`pie-cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", color: "#fff", fontSize: "12px" }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="space-y-1.5 text-xs">
-            {submissionPieData.map((d, i) => (
-              <div key={i} className="flex items-center justify-between text-slate-700">
-                <span className="flex items-center gap-2 font-medium">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }}></span>
-                  {d.name}
-                </span>
-                <strong className="text-slate-900">{d.value}%</strong>
-              </div>
+          <div className="space-y-2 text-sm mt-2">
+            {[["Đúng hạn", stats.on_time_rate, "#10b981"], ["Trễ hạn", stats.late_rate, "#f59e0b"], ["Chưa nộp", stats.not_submitted_rate, "#ef4444"]].map(([n, v, c]) => (
+              <div key={n as string} className="flex items-center justify-between"><span className="flex items-center gap-2 text-ink-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c as string }} />{n}</span><strong>{v}%</strong></div>
             ))}
           </div>
-        </div>
+        </motion.div>
       </div>
 
-      {/* Low Process Score Assignments & AI Recommendations */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              Gợi ý Cải thiện Cách Ra Đề cho Giảng viên
-            </h3>
-            <p className="text-xs text-slate-500">
-              Danh sách bài tập có Điểm Quá Trình thấp nhất & khuyến nghị từ Gemini để kích thích tư duy tốt hơn
-            </p>
-          </div>
-        </div>
-
+      <motion.div variants={riseItem} className="card p-6">
+        <h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-500" />Hiệu quả từng bài tập & gợi ý ra đề</h3>
+        <p className="text-xs text-mute mb-4">Sắp xếp từ điểm quá trình thấp nhất — những bài này sinh viên có xu hướng xin đáp án</p>
         <div className="space-y-3">
-          {stats.low_process_score_assignments?.map((item, idx) => (
-            <div
-              key={idx}
-              className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
-            >
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-900">{item.title}</span>
-                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-900">
-                    Process Score TB: {item.avg_score}/100
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed flex items-start gap-1.5 pt-1">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <span><strong>Gợi ý cải thiện:</strong> {item.recommendation}</span>
-                </p>
+          {stats.per_assignment.map((a) => (
+            <div key={a.assignment_id} className="rounded-2xl border border-line p-4 bg-surface-2/50">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-sm">{a.title}</span>
+                <span className="text-xs text-mute">{a.submitted}/{a.total} đã nộp</span>
               </div>
+              <div className="flex items-center gap-3 mt-3">
+                <ProgressBar value={a.avg_score ?? 0} className="flex-1" from={a.avg_score !== null && a.avg_score < 75 ? "#f59e0b" : "var(--brand)"} to={a.avg_score !== null && a.avg_score < 75 ? "#ef4444" : "var(--brand-2)"} />
+                <span className="text-sm font-bold w-16 text-right">{a.avg_score === null ? "—" : `${a.avg_score}/100`}</span>
+              </div>
+              <p className="text-xs text-ink-2 mt-2.5 flex gap-1.5"><TrendingUp className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand" />{a.recommendation}</p>
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </motion.div>
+
+      <motion.div variants={riseItem} className="card overflow-hidden">
+        <div className="p-6 pb-3"><h3 className="font-bold">Theo dõi từng sinh viên</h3><p className="text-xs text-mute">Sinh viên cần chú ý được đánh dấu để bạn hỗ trợ sớm</p></div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-mute border-y border-line bg-surface-2"><th className="py-2.5 px-6 font-semibold">Sinh viên</th><th className="px-3 font-semibold">Đã nộp</th><th className="px-3 font-semibold">Trễ</th><th className="px-3 font-semibold">Tư duy TB</th><th className="px-6 font-semibold text-right">Điểm TB</th></tr></thead>
+            <tbody className="divide-y divide-line">
+              {stats.students.map((s) => (
+                <tr key={s.student_id} className="hover:bg-surface-2/60 transition-colors">
+                  <td className="py-3 px-6"><div className="flex items-center gap-3"><Avatar name={s.student_name} src={s.student_avatar} size={32} /><div><div className="font-semibold flex items-center gap-2">{s.student_name}{s.needs_attention && <span className="chip chip-rose">Cần chú ý</span>}</div><div className="text-xs text-mute">{s.student_email}</div></div></div></td>
+                  <td className="px-3">{s.submitted}/{s.total}</td>
+                  <td className="px-3">{s.late || "—"}</td>
+                  <td className="px-3">{s.avg_process_score === null ? "—" : <span className="chip chip-brand">{s.avg_process_score}/100</span>}</td>
+                  <td className="px-6 text-right font-semibold">{s.avg_grade === null ? "—" : s.avg_grade}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 };

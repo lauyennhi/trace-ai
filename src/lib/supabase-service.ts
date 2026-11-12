@@ -194,6 +194,27 @@ CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON public.submissions(assi
 CREATE INDEX IF NOT EXISTS idx_submissions_student ON public.submissions(student_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_lookup ON public.chat_sessions(assignment_id, student_id);
 
+-- 7. Cột bổ sung cho đăng nhập, chấm điểm thủ công và thông báo
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS pwd TEXT;
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS allow_late BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+ALTER TABLE public.course_members ADD COLUMN IF NOT EXISTS student_avatar TEXT;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS grade NUMERIC;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS eval_status TEXT;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS eval_error TEXT;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS draft_saved_at TIMESTAMPTZ;
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT,
+  body TEXT,
+  link TEXT,
+  read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;

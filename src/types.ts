@@ -16,12 +16,14 @@ export interface Course {
   teacher_name: string;
   semester: string;
   description: string;
-  invite_code: string;
+  invite_code?: string;
   accent_color: string; // Hex or tailwind class for card visual differentiation
   created_at: string;
   member_count?: number;
   open_assignments_count?: number;
+  assignments_count?: number;
   ungraded_count?: number;
+  todo_count?: number;
 }
 
 export interface CourseMember {
@@ -54,7 +56,12 @@ export interface Assignment {
   attachments: AssignmentAttachment[];
   submission_mode: SubmissionMode;
   ai_submode: AISubmode;
+  allow_late?: boolean;
   created_at: string;
+  submitted_count?: number;
+  ungraded_count?: number;
+  member_count?: number;
+  my_grade?: number;
   // Computed for current student
   submission_status?: SubmissionStatus;
   submitted_at?: string;
@@ -100,6 +107,12 @@ export interface Submission {
   process_score_result?: ProcessScoreResult;
   status: SubmissionStatus;
   notes?: string;
+  grade?: number;
+  feedback?: string;
+  graded_at?: string;
+  eval_status?: 'ok' | 'failed' | 'skipped';
+  eval_error?: string;
+  draft_saved_at?: string;
 }
 
 export interface ChatMessage {
@@ -117,21 +130,45 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+export interface StudentStat {
+  student_id: string;
+  student_name: string;
+  student_email: string;
+  student_avatar?: string;
+  submitted: number;
+  total: number;
+  late: number;
+  avg_process_score: number | null;
+  avg_grade: number | null;
+  needs_attention: boolean;
+}
+
 export interface ClassStats {
   total_students: number;
-  submission_rate: number; // 0-100
-  on_time_rate: number; // 0-100
-  late_rate: number; // 0-100
-  not_submitted_rate: number; // 0-100
-  average_process_score: number;
-  score_distribution: {
-    range: string;
-    count: number;
-  }[];
-  low_process_score_assignments: {
+  total_assignments: number;
+  submission_rate: number;
+  on_time_rate: number;
+  late_rate: number;
+  not_submitted_rate: number;
+  average_process_score: number | null;
+  evaluated_count: number;
+  score_distribution: { range: string; label: string; count: number }[];
+  per_assignment: {
     assignment_id: string;
     title: string;
-    avg_score: number;
+    submitted: number;
+    total: number;
+    avg_score: number | null;
     recommendation: string;
   }[];
+  students: StudentStat[];
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  link: string;
+  read: boolean;
+  created_at: string;
 }

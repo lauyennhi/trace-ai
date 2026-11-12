@@ -1,3 +1,4 @@
+import { authFetch } from "../lib/api";
 import React, { useState, useEffect } from "react";
 import { 
   X, 
@@ -51,7 +52,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
   const fetchStatus = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/supabase/status");
+      const res = await authFetch("/api/supabase/status");
       const data = await res.json();
       if (data.success) {
         setStatus(data.data);
@@ -65,7 +66,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
 
   const fetchSchema = async () => {
     try {
-      const res = await fetch("/api/supabase/schema");
+      const res = await authFetch("/api/supabase/schema");
       const data = await res.json();
       if (data.success && data.sql) {
         setSchemaSql(data.sql);
@@ -94,7 +95,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
     setSyncing(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/supabase/sync", { method: "POST" });
+      const res = await authFetch("/api/supabase/sync", { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setMessage({
@@ -119,7 +120,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
     setPulling(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/supabase/pull", { method: "POST" });
+      const res = await authFetch("/api/supabase/pull", { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setMessage({
@@ -158,7 +159,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
     });
 
     try {
-      const res = await fetch("/api/supabase/auto-setup", {
+      const res = await authFetch("/api/supabase/auto-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ db_password: dbPassword.trim() }),
@@ -198,11 +199,11 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
     : "https://supabase.com/dashboard";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/70 backdrop-blur-xs">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200 text-zinc-900 dark:text-zinc-100">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#0b0c1f]/50 backdrop-blur-sm">
+      <div className="bg-surface rounded-2xl shadow-2xl border border-line w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200 text-ink">
         
         {/* Header */}
-        <div className="px-6 py-4 bg-zinc-950 text-white flex items-center justify-between border-b border-zinc-800">
+        <div className="px-6 py-4 bg-surface-2 text-ink flex items-center justify-between border-b border-line">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               <Database className="w-5 h-5" />
@@ -214,27 +215,27 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                   PostgreSQL
                 </span>
               </div>
-              <p className="text-[11px] text-zinc-400 font-normal">
+              <p className="text-[11px] text-mute font-normal">
                 Đồng bộ hóa dữ liệu môn học, bài tập và phiên chat AI với tài khoản Supabase của bạn
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+            className="text-mute hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-4 bg-zinc-50 dark:bg-zinc-900/50">
+        <div className="px-6 border-b border-line flex items-center gap-4 bg-surface-2">
           <button
             onClick={() => setActiveTab("overview")}
             className={`py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === "overview"
                 ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
-                : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                : "border-transparent text-mute hover:text-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
             <Server className="w-4 h-4" />
@@ -246,7 +247,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             className={`py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === "sql"
                 ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
-                : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                : "border-transparent text-mute hover:text-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
             <Terminal className="w-4 h-4" />
@@ -258,7 +259,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             className={`py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === "guide"
                 ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
-                : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                : "border-transparent text-mute hover:text-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
@@ -289,7 +290,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
           {activeTab === "overview" && (
             <div className="space-y-5">
               {/* Status Card */}
-              <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="p-4 rounded-xl border border-line bg-surface-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-3 h-3 rounded-full ${
@@ -301,7 +302,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                     }`}
                   />
                   <div>
-                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    <div className="text-xs font-bold text-ink flex items-center gap-2">
                       <span>Trạng thái kết nối:</span>
                       {isConnected ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">
@@ -312,10 +313,10 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                           <AlertTriangle className="w-3.5 h-3.5" /> Đã cấu hình, chờ tạo bảng
                         </span>
                       ) : (
-                        <span className="text-zinc-500 font-medium">Chưa cấu hình biến môi trường</span>
+                        <span className="text-mute font-medium">Chưa cấu hình biến môi trường</span>
                       )}
                     </div>
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-mono mt-0.5">
+                    <div className="text-[11px] text-mute font-mono mt-0.5">
                       URL: {status?.url || "Chưa có SUPABASE_URL"}
                     </div>
                   </div>
@@ -324,7 +325,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                 <button
                   onClick={fetchStatus}
                   disabled={loading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-600 transition-colors disabled:opacity-50 shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-700 text-ink-2 border border-zinc-200 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-600 transition-colors disabled:opacity-50 shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
                   <span>Kiểm tra lại</span>
@@ -352,19 +353,19 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                     </a>
                   </div>
 
-                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  <p className="text-[11px] text-ink-2 leading-relaxed">
                     Nhập <strong>mật khẩu Database</strong> của bạn trên Supabase để hệ thống tự động kết nối qua cổng PostgreSQL bảo mật, tạo 6 bảng và tự động đồng bộ toàn bộ dữ liệu ngay lập tức.
                   </p>
 
                   <form onSubmit={handleAutoSetup} className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
-                      <Key className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                      <Key className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-mute" />
                       <input
                         type="password"
                         value={dbPassword}
                         onChange={(e) => setDbPassword(e.target.value)}
                         placeholder="Nhập mật khẩu Database của Supabase..."
-                        className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400"
+                        className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-line bg-surface focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-ink placeholder:text-mute"
                       />
                     </div>
 
@@ -378,7 +379,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                     </button>
                   </form>
 
-                  <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
+                  <div className="flex items-center justify-between text-[10px] text-mute">
                     <span>* Mật khẩu bạn đã đặt khi tạo dự án trên Supabase.</span>
                     <a
                       href={databaseSettingsUrl}
@@ -396,7 +397,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
               {/* Table Status Overview */}
               {status?.tableStatus && (
                 <div className="space-y-2">
-                  <div className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                  <div className="text-xs font-bold text-ink-2">
                     Trạng thái các bảng cơ sở dữ liệu trên Supabase:
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -406,7 +407,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                         className={`p-2.5 rounded-lg border text-xs font-mono flex items-center justify-between ${
                           ok
                             ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                            : "bg-zinc-100 dark:bg-zinc-800/40 border-zinc-200 dark:border-zinc-700 text-zinc-500"
+                            : "bg-surface-2 border-line text-mute"
                         }`}
                       >
                         <span className="font-bold">{tbl}</span>
@@ -422,11 +423,11 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
               )}
 
               {/* Action Buttons */}
-              <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 space-y-3">
-                <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-surface-2 border border-line space-y-3">
+                <div className="text-xs font-bold text-ink flex items-center justify-between">
                   <span>Hành động đồng bộ dữ liệu</span>
                   {status?.counts && (
-                    <span className="text-[11px] font-normal text-zinc-500 dark:text-zinc-400">
+                    <span className="text-[11px] font-normal text-mute">
                       Hiện có: {status.counts.courses} môn học, {status.counts.assignments} bài tập
                     </span>
                   )}
@@ -446,7 +447,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                   <button
                     onClick={handlePullFromSupabase}
                     disabled={pulling || !isConfigured}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-900 dark:text-zinc-100 font-bold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-ink font-bold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <DownloadCloud className={`w-4 h-4 ${pulling ? "animate-bounce" : ""}`} />
                     <span>{pulling ? "Đang tải..." : "Kéo dữ liệu từ Supabase (Pull Data)"}</span>
@@ -466,10 +467,10 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                  <div className="text-xs font-bold text-ink">
                     PostgreSQL Schema cho Supabase
                   </div>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  <p className="text-[11px] text-mute">
                     Sao chép mã này và dán vào <strong>SQL Editor</strong> của Supabase rồi bấm <strong>Run</strong>.
                   </p>
                 </div>
@@ -492,9 +493,9 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
 
           {/* TAB 3: GUIDE */}
           {activeTab === "guide" && (
-            <div className="space-y-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
-              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-700 space-y-3">
-                <div className="font-bold text-zinc-900 dark:text-zinc-100 text-sm flex items-center gap-2">
+            <div className="space-y-4 text-xs leading-relaxed text-ink-2">
+              <div className="p-4 rounded-xl bg-surface-2 border border-line space-y-3">
+                <div className="font-bold text-ink text-sm flex items-center gap-2">
                   <span>3 Bước liên kết dự án Supabase:</span>
                 </div>
 
@@ -504,8 +505,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                       1
                     </span>
                     <div>
-                      <strong className="text-zinc-900 dark:text-zinc-100">Lấy thông tin API từ Supabase:</strong>
-                      <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      <strong className="text-ink">Lấy thông tin API từ Supabase:</strong>
+                      <p className="text-mute mt-0.5">
                         Truy cập <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-emerald-600 dark:text-emerald-400 underline inline-flex items-center gap-0.5">Supabase Dashboard <ArrowUpRight className="w-3 h-3" /></a> &gt; Chọn dự án &gt; <strong>Project Settings</strong> &gt; <strong>API</strong>.
                       </p>
                     </div>
@@ -516,11 +517,11 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                       2
                     </span>
                     <div>
-                      <strong className="text-zinc-900 dark:text-zinc-100">Khai báo biến môi trường:</strong>
-                      <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      <strong className="text-ink">Khai báo biến môi trường:</strong>
+                      <p className="text-mute mt-0.5">
                         Trong menu <strong>Settings</strong> của AI Studio (hoặc tệp môi trường), thiết lập 2 biến:
                       </p>
-                      <ul className="list-disc pl-5 mt-1 text-zinc-600 dark:text-zinc-300 font-mono text-[11px] space-y-0.5">
+                      <ul className="list-disc pl-5 mt-1 text-ink-2 font-mono text-[11px] space-y-0.5">
                         <li><code>SUPABASE_URL=https://[YOUR_PROJECT_REF].supabase.co</code></li>
                         <li><code>SUPABASE_ANON_KEY=[YOUR_ANON_PUBLIC_KEY]</code></li>
                       </ul>
@@ -532,8 +533,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                       3
                     </span>
                     <div>
-                      <strong className="text-zinc-900 dark:text-zinc-100">Tạo bảng tự động:</strong>
-                      <p className="text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      <strong className="text-ink">Tạo bảng tự động:</strong>
+                      <p className="text-mute mt-0.5">
                         Chuyển sang tab <strong>SQL Schema</strong>, bấm nút <strong>"Sao chép SQL"</strong> và chạy mã này trong <strong>SQL Editor</strong> của Supabase. Toàn bộ 6 bảng và các chính sách bảo mật RLS sẽ được khởi tạo tự động!
                       </p>
                     </div>
@@ -546,15 +547,15 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between">
-          <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
+        <div className="p-4 border-t border-line bg-surface-2 flex items-center justify-between">
+          <div className="text-[11px] text-mute flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5 text-emerald-500" />
             <span>Hỗ trợ tự động lưu đồng thời cả Supabase &amp; Firestore</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 text-xs font-bold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-xl transition-colors"
+            className="px-5 py-2 text-xs font-bold text-ink-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-xl transition-colors"
           >
             Đóng
           </button>

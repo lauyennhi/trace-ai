@@ -179,12 +179,12 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => !disabled && fileInputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 select-none ${
+        className={`relative border-2 border-dashed rounded-2xl p-7 text-center cursor-pointer transition-all duration-200 select-none ${
           disabled
-            ? "opacity-60 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800/40 border-zinc-300 dark:border-zinc-700"
+            ? "opacity-60 cursor-not-allowed bg-surface-2 border-line"
             : isDragging
-            ? "border-emerald-500 bg-emerald-500/10 scale-[1.01]"
-            : "border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:border-zinc-400 dark:hover:border-zinc-600"
+            ? "border-brand bg-brand-soft scale-[1.01]"
+            : "border-line bg-surface-2 hover:bg-surface-2/60 hover:border-brand/40"
         }`}
       >
         <input
@@ -201,16 +201,16 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           <div
             className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${
               isDragging
-                ? "bg-emerald-500 text-white"
-                : "bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shadow-xs border border-zinc-200 dark:border-zinc-700"
+                ? "bg-brand text-white"
+                : "bg-surface text-ink-2 shadow-xs border border-line"
             }`}
           >
             <Upload className="w-6 h-6" />
           </div>
 
           <div className="space-y-0.5">
-            <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{label}</p>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{sublabel}</p>
+            <p className="text-xs font-bold text-ink">{label}</p>
+            <p className="text-[11px] text-mute">{sublabel}</p>
           </div>
         </div>
       </div>
@@ -226,22 +226,22 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       {/* Uploaded Files List */}
       {files.length > 0 && (
         <div className="space-y-2">
-          <div className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 px-1">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-mute px-1">
             Danh sách file đã tải lên ({files.length}):
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
             {files.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs group hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors"
+                className="flex items-center justify-between p-3 rounded-xl bg-surface border border-line shadow-2xs group hover:border-brand/40 transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                  <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold shrink-0">
+                  <div className="p-2 rounded-lg bg-surface-2 text-ink-2 font-bold shrink-0">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">{file.name}</p>
-                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                    <p className="text-xs font-bold text-ink truncate">{file.name}</p>
+                    <p className="text-[10px] text-mute">
                       {file.size} • <span className="uppercase">{file.type}</span>
                       {file.textContent ? " • Đã trích xuất văn bản" : ""}
                     </p>
@@ -255,7 +255,7 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
                       download={file.name}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                      className="p-1.5 text-mute hover:text-ink rounded-lg hover:bg-surface-2 transition-colors"
                       title="Tải về / Xem file"
                     >
                       <Download className="w-3.5 h-3.5" />

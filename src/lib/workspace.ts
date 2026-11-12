@@ -93,31 +93,41 @@ export const getAccessToken = async (): Promise<string | null> => {
   return null;
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  submitted: "Đã nộp đúng hạn",
+  late: "Nộp trễ",
+  not_submitted: "Chưa nộp",
+  draft: "Chưa nộp",
+};
+
+/** Single source of truth for gradebook exports (CSV + Google Sheets). */
+const GRADEBOOK_HEADERS = [
+  "Họ và tên sinh viên", "Email", "Trạng thái", "Ngày nộp", "Điểm giảng viên (/10)", "Nhận xét giảng viên",
+  "Process Score (/100)", "Tư duy phản biện", "Đào sâu vấn đề", "Nhận xét của AI",
+];
+const gradebookRows = (submissions: any[]): (string | number)[][] =>
+  submissions.map((s) => [
+    s.student_name || "Sinh viên",
+    s.student_email || "",
+    STATUS_LABEL[s.status] || "Chưa nộp",
+    s.submitted_at ? new Date(s.submitted_at).toLocaleString("vi-VN") : "",
+    s.grade ?? "",
+    s.feedback || "",
+    s.process_score_result?.process_score ?? "",
+    s.process_score_result?.tieu_chi?.tu_duy_phan_bien ?? "",
+    s.process_score_result?.tieu_chi?.dao_sau_van_de ?? "",
+    s.process_score_result?.nhan_xet_ngan || "",
+  ]);
+
 // 0. Fallback: Export CSV directly for instant local download
 export const downloadGradebookCSV = (
   courseName: string,
   assignmentTitle: string,
   submissions: any[]
 ) => {
-  const headers = [
-    "Họ và tên sinh viên",
-    "Trạng thái",
-    "Ngày nộp",
-    "Process Score (/100)",
-    "Tư duy phản biện",
-    "Đào sâu vấn đề",
-    "Đánh giá chung của AI",
-  ];
-
-  const rows = submissions.map((s) => [
-    `"${(s.student_name || "Sinh viên").replace(/"/g, '""')}"`,
-    `"${(s.status === "evaluated" ? "Đã chấm AI" : s.status === "submitted" ? "Đã nộp bài" : "Chưa hoàn thành").replace(/"/g, '""')}"`,
-    `"${s.submitted_at ? new Date(s.submitted_at).toLocaleString("vi-VN") : "N/A"}"`,
-    s.process_score ?? "N/A",
-    s.process_score_result?.tieu_chi?.tu_duy_phan_bien ?? "N/A",
-    s.process_score_result?.tieu_chi?.dao_sau_van_de ?? "N/A",
-    `"${(s.process_score_result?.nhan_xet_ngan || "Chưa có nhận xét").replace(/"/g, '""')}"`,
-  ]);
+  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const headers = GRADEBOOK_HEADERS.map(esc);
+  const rows = gradebookRows(submissions).map((r) => r.map(esc));
 
   const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -161,21 +171,10 @@ export const exportSubmissionsToSheets = async (
   const spreadsheetUrl = sheetData.spreadsheetUrl;
 
   // Step 2: Populate rows
-  const rows = [
-    ["Họ và tên sinh viên", "Trạng thái", "Ngày nộp", "Process Score (/100)", "Tư duy phản biện", "Đào sâu vấn đề", "Đánh giá chung của AI"],
-    ...submissions.map((s) => [
-      s.student_name || "Sinh viên",
-      s.status === "evaluated" ? "Đã chấm AI" : s.status === "submitted" ? "Đã nộp bài" : "Chưa hoàn thành",
-      s.submitted_at ? new Date(s.submitted_at).toLocaleString("vi-VN") : "N/A",
-      s.process_score ?? "N/A",
-      s.process_score_result?.tieu_chi?.tu_duy_phan_bien ?? "N/A",
-      s.process_score_result?.tieu_chi?.dao_sau_van_de ?? "N/A",
-      s.process_score_result?.nhan_xet_chung || "Chưa có nhận xét",
-    ]),
-  ];
+  const rows = [GRADEBOOK_HEADERS, ...gradebookRows(submissions)];
 
   const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:G${rows.length}?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:J${rows.length}?valueInputOption=USER_ENTERED`,
     {
       method: "PUT",
       headers: {

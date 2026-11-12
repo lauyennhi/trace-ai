@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -12,6 +13,52 @@ import {
   runAutoSetupSql,
   getSupabaseProjectRef
 } from "./src/lib/supabase-service.ts";
+
+
+// --- Auth helpers (scrypt password hashing + HMAC signed tokens) ---
+const AUTH_SECRET = process.env.AUTH_SECRET || "trace-dev-secret-change-me";
+if (!process.env.AUTH_SECRET) console.warn("[Auth] AUTH_SECRET is not set. Using an insecure development secret.");
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+function hashPassword(pw: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  return `${salt}:${crypto.scryptSync(pw, salt, 32).toString("hex")}`;
+}
+function verifyPassword(pw: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const a = Buffer.from(hash, "hex");
+  const b = crypto.scryptSync(pw, salt, 32);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function signToken(userId: string): string {
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + 7 * 24 * 3600 * 1000 })).toString("base64url");
+  const sig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+function readToken(token: string): string | null {
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig) return null;
+  const expected = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString());
+    return data.exp > Date.now() ? data.uid : null;
+  } catch { return null; }
+}
+function requireAuth(req: any, res: express.Response, next: express.NextFunction) {
+  const header = String(req.headers.authorization || "");
+  const uid = header.startsWith("Bearer ") ? readToken(header.slice(7)) : null;
+  const user = uid ? db.users.find((u: any) => u.id === uid) : null;
+  if (!user) return res.status(401).json({ success: false, message: "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại." });
+  req.user = user;
+  next();
+}
+
+// Never let a background gRPC/credential failure take the whole server down
+process.on("unhandledRejection", (reason: any) => {
+  console.warn("[Server] Unhandled rejection ignored:", reason?.message || reason);
+});
 
 const _dirname = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 
@@ -36,15 +83,17 @@ function getGenAI(): GoogleGenAI {
 
 // Mock Initial DB Setup in memory with file backup
 interface DB {
-  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student'; avatar: string }>;
+  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student'; avatar: string; pwd?: string }>;
   courses: Array<any>;
   course_members: Array<any>;
   assignments: Array<any>;
   submissions: Array<any>;
   chat_sessions: Array<any>;
+  notifications: Array<any>;
 }
 
 const initialDb: DB = {
+  notifications: [],
   users: [
     {
       id: "u_teacher_1",
@@ -78,7 +127,7 @@ const initialDb: DB = {
       semester: "Học kỳ I (2025-2026)",
       description: "Học cách đặt câu hỏi, phân tích giải thuật và phản biện cùng Trợ lý AI để làm chủ tri thức.",
       invite_code: "AI2025",
-      accent_color: "from-zinc-700 to-zinc-900",
+      accent_color: "from-indigo-500 to-violet-600",
       created_at: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
     },
     {
@@ -90,7 +139,7 @@ const initialDb: DB = {
       semester: "Học kỳ I (2025-2026)",
       description: "Đánh giá tác động của AI trong đời sống, hiện tượng thiên vị dữ liệu và xây dựng giải pháp trách nhiệm.",
       invite_code: "ETH999",
-      accent_color: "from-zinc-800 to-zinc-950",
+      accent_color: "from-sky-500 to-blue-600",
       created_at: new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString(),
     },
     {
@@ -102,7 +151,7 @@ const initialDb: DB = {
       semester: "Học kỳ I (2025-2026)",
       description: "Xây dựng ứng dụng Web Full-stack với React, Express, REST API và tích hợp mô hình ngôn ngữ lớn.",
       invite_code: "WEB2025",
-      accent_color: "from-zinc-700 to-zinc-800",
+      accent_color: "from-emerald-500 to-teal-600",
       created_at: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
     }
   ],
@@ -336,7 +385,16 @@ Kết quả là Gradient triệt tiêu gần như bằng 0, khiến mạng khôn
   ]
 };
 
+// Demo accounts (password: 123456)
+for (const u of initialDb.users) u.pwd = hashPassword("123456");
+
 let db: DB = JSON.parse(JSON.stringify(initialDb));
+function ensureSeedCredentials() {
+  for (const seed of initialDb.users as any[]) {
+    const u = db.users.find((x: any) => x.id === seed.id);
+    if (u && !u.pwd) u.pwd = seed.pwd;
+  }
+}
 
 async function initFirestore() {
   try {
@@ -353,7 +411,10 @@ async function initFirestore() {
 
       // Verify if Cloud Firestore API is actually enabled & accessible in this GCP project
       try {
-        await testDb.collection("users").limit(1).get();
+        await Promise.race([
+          testDb.collection("users").limit(1).get(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("Firestore check timed out")), 6000)),
+        ]);
         firestoreDb = testDb;
         console.log(`[Firestore] Connected successfully with database: ${dbId || 'default'}`);
         await loadFromFirestore();
@@ -453,6 +514,9 @@ async function loadFromFirestore() {
       db.chat_sessions = [...initialDb.chat_sessions];
     }
 
+    const notifSnap = await firestoreDb.collection("notifications").get();
+    db.notifications = notifSnap.docs.map((doc) => doc.data() as any);
+    ensureSeedCredentials();
     console.log("[Firestore] Collections synchronized and loaded into memory.");
   } catch (err: any) {
     firestoreDb = null;
@@ -529,6 +593,10 @@ function generateInviteCode(): string {
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+
+// Supabase admin endpoints require a logged-in teacher
+app.use("/api/supabase", requireAuth, (req: any, res, next) =>
+  req.user?.role === "teacher" ? next() : res.status(403).json({ success: false, message: "Chỉ giảng viên mới được quản lý cơ sở dữ liệu." }));
 
 // --- SUPABASE INTEGRATION API ENDPOINTS ---
 
@@ -752,712 +820,731 @@ app.post("/api/supabase/auto-setup", async (req, res) => {
 
 // --- API ENDPOINTS ---
 
-// 1. Get current available users
-app.get("/api/users", (req, res) => {
-  res.json({ success: true, data: db.users });
+type AuthedRequest = express.Request & { user?: any };
+
+const publicUser = (u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar });
+const nowIso = () => new Date().toISOString();
+const uid = (p: string) => `${p}_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+const fail = (res: express.Response, code: number, message: string) => res.status(code).json({ success: false, message });
+
+function addNotification(userId: string, title: string, body: string, link?: string) {
+  const n = { id: uid("n"), user_id: userId, title, body, link: link || "", read: false, created_at: nowIso() };
+  db.notifications.unshift(n);
+  if (db.notifications.length > 500) db.notifications.length = 500;
+  saveDocument("notifications", n.id, n);
+}
+
+// ---- Auth ----
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return fail(res, 400, "Vui lòng nhập email và mật khẩu.");
+  const user = db.users.find((u: any) => u.email.toLowerCase() === String(email).trim().toLowerCase());
+  if (!user || !user.pwd || !verifyPassword(String(password), user.pwd)) {
+    return fail(res, 401, "Email hoặc mật khẩu không đúng.");
+  }
+  res.json({ success: true, data: { token: signToken(user.id), user: publicUser(user) } });
 });
 
-// 2. Get courses for a user based on role
-app.get("/api/courses", (req, res) => {
-  const role = req.query.role as string || "teacher";
-  const userId = req.query.userId as string || (role === "teacher" ? "u_teacher_1" : "u_student_1");
-
-  if (role === "teacher") {
-    const teacherCourses = db.courses.filter((c) => c.teacher_id === userId).map((course) => {
-      const courseAssignments = db.assignments.filter((a) => a.course_id === course.id);
-      const openAssignments = courseAssignments.filter((a) => new Date(a.due_date) > new Date());
-      const allSubmissions = db.submissions.filter((s) => courseAssignments.some((a) => a.id === s.assignment_id));
-      const ungradedCount = allSubmissions.filter((s) => !s.process_score_result).length;
-      const membersCount = db.course_members.filter((m) => m.course_id === course.id).length;
-
-      return {
-        ...course,
-        member_count: membersCount,
-        open_assignments_count: openAssignments.length,
-        ungraded_count: ungradedCount,
-      };
-    });
-    return res.json({ success: true, data: teacherCourses });
-  } else {
-    // Student courses
-    const memberCourseIds = db.course_members.filter((m) => m.student_id === userId).map((m) => m.course_id);
-    const studentCourses = db.courses.filter((c) => memberCourseIds.includes(c.id)).map((course) => {
-      const courseAssignments = db.assignments.filter((a) => a.course_id === course.id);
-      const openAssignments = courseAssignments.filter((a) => new Date(a.due_date) > new Date());
-      const membersCount = db.course_members.filter((m) => m.course_id === course.id).length;
-
-      return {
-        ...course,
-        member_count: membersCount,
-        open_assignments_count: openAssignments.length,
-      };
-    });
-    return res.json({ success: true, data: studentCourses });
-  }
-});
-
-// 3. Create a course (Teacher)
-app.post("/api/courses", (req, res) => {
-  const { name, code, semester, description, teacher_id } = req.body;
-  if (!name || !code) {
-    return res.status(400).json({ success: false, message: "Tên môn học và Mã môn là bắt buộc." });
-  }
-
-  const teacher = db.users.find((u) => u.id === teacher_id) || db.users[0];
-  const colors = [
-    "from-blue-600 to-indigo-700",
-    "from-emerald-600 to-teal-700",
-    "from-purple-600 to-indigo-800",
-    "from-amber-600 to-rose-700",
-    "from-cyan-600 to-blue-700"
-  ];
-  const randomColor = colors[Math.floor(Math.random() * colors.length)];
-
-  const newCourse = {
-    id: "c_" + Date.now(),
-    name,
-    code,
-    teacher_id: teacher.id,
-    teacher_name: teacher.name,
-    semester: semester || "Học kỳ I (2025-2026)",
-    description: description || "",
-    invite_code: generateInviteCode(),
-    accent_color: randomColor,
-    created_at: new Date().toISOString(),
+app.post("/api/auth/register", (req, res) => {
+  const { name, email, password, role } = req.body || {};
+  if (!name || !email || !password) return fail(res, 400, "Vui lòng điền đầy đủ họ tên, email và mật khẩu.");
+  if (!/^\S+@\S+\.\S+$/.test(String(email))) return fail(res, 400, "Email không hợp lệ.");
+  if (String(password).length < 6) return fail(res, 400, "Mật khẩu cần ít nhất 6 ký tự.");
+  if (role !== "teacher" && role !== "student") return fail(res, 400, "Vai trò không hợp lệ.");
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (db.users.some((u: any) => u.email.toLowerCase() === cleanEmail)) return fail(res, 409, "Email này đã được đăng ký.");
+  const cleanName = String(name).trim().slice(0, 80);
+  const user = {
+    id: uid("u"),
+    name: cleanName,
+    email: cleanEmail,
+    role,
+    avatar: `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(cleanName)}&backgroundType=gradientLinear`,
+    pwd: hashPassword(String(password)),
   };
-
-  db.courses.unshift(newCourse);
-  saveDocument("courses", newCourse.id, newCourse);
-  res.json({ success: true, data: newCourse });
+  db.users.push(user);
+  saveDocument("users", user.id, user);
+  res.json({ success: true, data: { token: signToken(user.id), user: publicUser(user) } });
 });
 
-// 3.1. Update Course (Teacher)
-app.put("/api/courses/:id", (req, res) => {
-  const courseId = req.params.id;
-  const { name, code, semester, description } = req.body;
-  const courseIndex = db.courses.findIndex((c) => c.id === courseId);
+app.use("/api", requireAuth);
 
-  if (courseIndex === -1) {
-    return res.status(404).json({ success: false, message: "Không tìm thấy môn học để chỉnh sửa." });
+app.get("/api/auth/me", (req: AuthedRequest, res) => res.json({ success: true, data: publicUser(req.user) }));
+
+app.put("/api/auth/me", (req: AuthedRequest, res) => {
+  const { name } = req.body || {};
+  if (name && String(name).trim()) req.user.name = String(name).trim().slice(0, 80);
+  saveDocument("users", req.user.id, req.user);
+  res.json({ success: true, data: publicUser(req.user) });
+});
+
+// ---- Helpers ----
+const findCourse = (id: string) => db.courses.find((c: any) => c.id === id);
+const isOwner = (course: any, user: any) => !!course && user.role === "teacher" && course.teacher_id === user.id;
+const isMember = (courseId: string, user: any) => db.course_members.some((m: any) => m.course_id === courseId && m.student_id === user.id);
+const canViewCourse = (course: any, user: any) => isOwner(course, user) || (user.role === "student" && isMember(course.id, user));
+const gradedState = (s: any) => s.grade !== undefined && s.grade !== null;
+const isSubmitted = (s: any) => s.status === "submitted" || s.status === "late";
+
+function teacherOnly(req: AuthedRequest, res: express.Response): boolean {
+  if (req.user.role !== "teacher") { fail(res, 403, "Chức năng này chỉ dành cho giảng viên."); return false; }
+  return true;
+}
+
+function courseWithCounts(course: any, user: any) {
+  const courseAssignments = db.assignments.filter((a: any) => a.course_id === course.id);
+  const openAssignments = courseAssignments.filter((a: any) => new Date(a.due_date) > new Date());
+  const base: any = {
+    ...course,
+    accent_color: !course.accent_color || /zinc|slate|gray/.test(course.accent_color)
+      ? COURSE_COLORS[[...course.id].reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % COURSE_COLORS.length]
+      : course.accent_color,
+    member_count: db.course_members.filter((m: any) => m.course_id === course.id).length,
+    open_assignments_count: openAssignments.length,
+    assignments_count: courseAssignments.length,
+  };
+  if (user.role === "teacher") {
+    const subs = db.submissions.filter((s: any) => courseAssignments.some((a: any) => a.id === s.assignment_id));
+    base.ungraded_count = subs.filter((s: any) => isSubmitted(s) && !gradedState(s)).length;
+  } else {
+    delete base.invite_code;
+    const mine = db.submissions.filter((s: any) => s.student_id === user.id && isSubmitted(s));
+    base.todo_count = courseAssignments.filter((a: any) => !mine.some((s: any) => s.assignment_id === a.id) && new Date(a.due_date) > new Date()).length;
   }
+  return base;
+}
 
-  if (!name || !code) {
-    return res.status(400).json({ success: false, message: "Tên môn học và Mã môn là bắt buộc." });
-  }
+// ---- Courses ----
+app.get("/api/courses", (req: AuthedRequest, res) => {
+  const user = req.user;
+  const list = user.role === "teacher"
+    ? db.courses.filter((c: any) => c.teacher_id === user.id)
+    : db.courses.filter((c: any) => isMember(c.id, user));
+  res.json({ success: true, data: list.map((c: any) => courseWithCounts(c, user)) });
+});
 
-  const updatedCourse = {
-    ...db.courses[courseIndex],
+const COURSE_COLORS = ["from-indigo-500 to-violet-600", "from-sky-500 to-blue-600", "from-emerald-500 to-teal-600", "from-rose-500 to-pink-600", "from-amber-500 to-orange-600", "from-fuchsia-500 to-purple-600"];
+
+app.post("/api/courses", (req: AuthedRequest, res) => {
+  if (!teacherOnly(req, res)) return;
+  const { name, code, semester, description } = req.body || {};
+  if (!name?.trim() || !code?.trim()) return fail(res, 400, "Tên môn học và Mã môn là bắt buộc.");
+  let invite = generateInviteCode();
+  while (db.courses.some((c: any) => c.invite_code === invite)) invite = generateInviteCode();
+  const newCourse = {
+    id: uid("c"),
     name: name.trim(),
     code: code.trim().toUpperCase(),
-    semester: semester || db.courses[courseIndex].semester,
-    description: description !== undefined ? description.trim() : db.courses[courseIndex].description,
-    updated_at: new Date().toISOString(),
-  };
-
-  db.courses[courseIndex] = updatedCourse;
-  saveDocument("courses", courseId, updatedCourse);
-
-  res.json({ success: true, data: updatedCourse, message: "Cập nhật thông tin môn học thành công!" });
-});
-
-// 3.2. Delete Course (Teacher)
-app.delete("/api/courses/:id", (req, res) => {
-  const courseId = req.params.id;
-  const courseIndex = db.courses.findIndex((c) => c.id === courseId);
-
-  if (courseIndex === -1) {
-    return res.status(404).json({ success: false, message: "Không tìm thấy môn học để xóa." });
-  }
-
-  const courseToDelete = db.courses[courseIndex];
-  db.courses.splice(courseIndex, 1);
-  deleteDocument("courses", courseId);
-
-  // Clean up assignments belonging to this course
-  const courseAssignments = db.assignments.filter((a) => a.course_id === courseId);
-  const assignmentIds = courseAssignments.map((a) => a.id);
-
-  db.assignments = db.assignments.filter((a) => a.course_id !== courseId);
-  for (const a of courseAssignments) {
-    deleteDocument("assignments", a.id);
-  }
-
-  // Clean up submissions belonging to those assignments
-  const submissionsToDelete = db.submissions.filter((s) => assignmentIds.includes(s.assignment_id));
-  db.submissions = db.submissions.filter((s) => !assignmentIds.includes(s.assignment_id));
-  for (const s of submissionsToDelete) {
-    deleteDocument("submissions", s.id);
-  }
-
-  // Clean up chat sessions
-  const chatsToDelete = db.chat_sessions.filter((cs) => assignmentIds.includes(cs.assignment_id));
-  db.chat_sessions = db.chat_sessions.filter((cs) => !assignmentIds.includes(cs.assignment_id));
-  for (const cs of chatsToDelete) {
-    deleteDocument("chat_sessions", cs.id);
-  }
-
-  // Clean up course members
-  const membersToDelete = db.course_members.filter((m) => m.course_id === courseId);
-  db.course_members = db.course_members.filter((m) => m.course_id !== courseId);
-  for (const m of membersToDelete) {
-    deleteDocument("course_members", `${courseId}_${m.student_id}`);
-  }
-
-  res.json({ success: true, message: `Đã xóa môn học "${courseToDelete.name}" và các dữ liệu liên quan thành công.` });
-});
-
-// 4. Join course via invite code (Student)
-app.post("/api/courses/join", (req, res) => {
-  const { invite_code, student_id } = req.body;
-  if (!invite_code) {
-    return res.status(400).json({ success: false, message: "Vui lòng nhập mã mời." });
-  }
-
-  const cleanCode = invite_code.trim().toUpperCase();
-  const course = db.courses.find((c) => c.invite_code === cleanCode);
-
-  if (!course) {
-    return res.status(404).json({ success: false, message: "Không tìm thấy môn học với mã mời này." });
-  }
-
-  const student = db.users.find((u) => u.id === student_id) || db.users[1];
-
-  const existingMember = db.course_members.find((m) => m.course_id === course.id && m.student_id === student.id);
-  if (existingMember) {
-    return res.status(400).json({ success: false, message: "Bạn đã tham gia môn học này rồi!" });
-  }
-
-  const newMember = {
-    course_id: course.id,
-    student_id: student.id,
-    student_name: student.name,
-    student_email: student.email,
-    joined_at: new Date().toISOString(),
-  };
-  db.course_members.push(newMember);
-  saveDocument("course_members", `${course.id}_${student.id}`, newMember);
-
-  res.json({ success: true, data: course, message: `Tham gia môn học "${course.name}" thành công!` });
-});
-
-// 5. Get Course Detail with Members and Assignments
-app.get("/api/courses/:id", (req, res) => {
-  const courseId = req.params.id;
-  const course = db.courses.find((c) => c.id === courseId);
-  if (!course) {
-    return res.status(404).json({ success: false, message: "Môn học không tồn tại." });
-  }
-
-  const studentId = req.query.studentId as string;
-  const members = db.course_members.filter((m) => m.course_id === courseId);
-  const assignments = db.assignments
-    .filter((a) => a.course_id === courseId)
-    .map((a) => {
-      let submissionStatus = "not_submitted";
-      let submittedAt = undefined;
-      let processScore = undefined;
-
-      if (studentId) {
-        const sub = db.submissions.find((s) => s.assignment_id === a.id && s.student_id === studentId);
-        if (sub) {
-          submissionStatus = sub.status;
-          submittedAt = sub.submitted_at;
-          processScore = sub.process_score_result?.process_score;
-        } else if (new Date(a.due_date) < new Date()) {
-          submissionStatus = "late";
-        }
-      }
-
-      return {
-        ...a,
-        submission_status: submissionStatus,
-        submitted_at: submittedAt,
-        my_process_score: processScore,
-      };
-    })
-    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
-
-  res.json({
-    success: true,
-    data: {
-      ...course,
-      members,
-      assignments,
-    },
-  });
-});
-
-// 6. Create Assignment in Course (Teacher)
-app.post("/api/courses/:id/assignments", (req, res) => {
-  const course_id = req.params.id;
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode } = req.body;
-
-  if (!title || !due_date) {
-    return res.status(400).json({ success: false, message: "Tiêu đề và hạn nộp là bắt buộc." });
-  }
-
-  const newAssignment = {
-    id: "a_" + Date.now(),
-    course_id,
-    title,
+    teacher_id: req.user.id,
+    teacher_name: req.user.name,
+    semester: semester || "Học kỳ I (2025-2026)",
     description: description || "",
-    rubric: rubric || "",
-    due_date,
-    attachments: attachments || [],
-    submission_mode: submission_mode || "both",
-    ai_submode: ai_submode || "socratic",
-    created_at: new Date().toISOString(),
+    invite_code: invite,
+    accent_color: COURSE_COLORS[db.courses.length % COURSE_COLORS.length],
+    created_at: nowIso(),
   };
-
-  db.assignments.unshift(newAssignment);
-  saveDocument("assignments", newAssignment.id, newAssignment);
-  res.json({ success: true, data: newAssignment });
+  db.courses.unshift(newCourse);
+  saveDocument("courses", newCourse.id, newCourse);
+  res.json({ success: true, data: courseWithCounts(newCourse, req.user) });
 });
 
-// 7. Get Single Assignment Detail
-app.get("/api/assignments/:id", (req, res) => {
-  const assignmentId = req.params.id;
-  const studentId = req.query.studentId as string;
-
-  const assignment = db.assignments.find((a) => a.id === assignmentId);
-  if (!assignment) {
-    return res.status(404).json({ success: false, message: "Bài tập không tồn tại." });
-  }
-
-  const course = db.courses.find((c) => c.id === assignment.course_id);
-
-  let submission = null;
-  let chatSession = null;
-
-  if (studentId) {
-    submission = db.submissions.find((s) => s.assignment_id === assignmentId && s.student_id === studentId);
-    chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignmentId && cs.student_id === studentId);
-  }
-
-  res.json({
-    success: true,
-    data: {
-      assignment,
-      course_name: course?.name,
-      submission,
-      chat_session: chatSession,
-    },
+app.put("/api/courses/:id", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền sửa môn học này.");
+  const { name, code, semester, description } = req.body || {};
+  if (!name?.trim() || !code?.trim()) return fail(res, 400, "Tên môn học và Mã môn là bắt buộc.");
+  Object.assign(course, {
+    name: name.trim(),
+    code: code.trim().toUpperCase(),
+    semester: semester || course.semester,
+    description: description !== undefined ? String(description).trim() : course.description,
+    updated_at: nowIso(),
   });
+  saveDocument("courses", course.id, course);
+  res.json({ success: true, data: course, message: "Cập nhật thông tin môn học thành công!" });
 });
 
-// 8. Get all submissions for an assignment (Teacher view)
-app.get("/api/assignments/:id/submissions", (req, res) => {
-  const assignmentId = req.params.id;
-  const assignment = db.assignments.find((a) => a.id === assignmentId);
-
-  if (!assignment) {
-    return res.status(404).json({ success: false, message: "Bài tập không tồn tại." });
-  }
-
-  const courseMembers = db.course_members.filter((m) => m.course_id === assignment.course_id);
-  const submissions = db.submissions.filter((s) => s.assignment_id === assignmentId);
-
-  const memberSubmissions = courseMembers.map((member) => {
-    const sub = submissions.find((s) => s.student_id === member.student_id);
-    const isPastDue = new Date(assignment.due_date) < new Date();
-
-    if (sub) {
-      return sub;
-    }
-
-    return {
-      id: `stub_${member.student_id}_${assignmentId}`,
-      assignment_id: assignmentId,
-      student_id: member.student_id,
-      student_name: member.student_name,
-      student_email: member.student_email,
-      submitted_files: [],
-      submitted_text: "",
-      status: isPastDue ? "not_submitted" : "draft",
-    };
-  });
-
-  res.json({
-    success: true,
-    data: {
-      assignment,
-      submissions: memberSubmissions,
-    },
-  });
+app.post("/api/courses/:id/regenerate-code", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền.");
+  let invite = generateInviteCode();
+  while (db.courses.some((c: any) => c.invite_code === invite)) invite = generateInviteCode();
+  course.invite_code = invite;
+  saveDocument("courses", course.id, course);
+  res.json({ success: true, data: { invite_code: invite }, message: "Đã tạo mã mời mới. Mã cũ không còn hiệu lực." });
 });
 
-// 9. Get detailed submission view (Teacher view)
-app.get("/api/submissions/:id", (req, res) => {
-  const subId = req.params.id;
-  const sub = db.submissions.find((s) => s.id === subId);
-
-  if (!sub) {
-    return res.status(404).json({ success: false, message: "Bài nộp không tồn tại." });
-  }
-
-  const assignment = db.assignments.find((a) => a.id === sub.assignment_id);
-  const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
-
-  res.json({
-    success: true,
-    data: {
-      submission: sub,
-      assignment,
-      chat_session: chatSession,
-    },
-  });
+app.delete("/api/courses/:id", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học để xóa.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền xóa môn học này.");
+  const courseId = course.id;
+  db.courses = db.courses.filter((c: any) => c.id !== courseId);
+  deleteDocument("courses", courseId);
+  const assignmentIds = db.assignments.filter((a: any) => a.course_id === courseId).map((a: any) => a.id);
+  for (const id of assignmentIds) deleteAssignmentCascade(id);
+  const members = db.course_members.filter((m: any) => m.course_id === courseId);
+  db.course_members = db.course_members.filter((m: any) => m.course_id !== courseId);
+  for (const m of members) deleteDocument("course_members", `${courseId}_${m.student_id}`);
+  res.json({ success: true, message: `Đã xóa môn học "${course.name}" và các dữ liệu liên quan.` });
 });
 
-// 10. AI Chat interaction in Student Workspace
-app.post("/api/chat/message", async (req, res) => {
-  const { assignment_id, student_id, message_content } = req.body;
-
-  if (!assignment_id || !student_id || !message_content) {
-    return res.status(400).json({ success: false, message: "Thiếu thông tin tin nhắn." });
-  }
-
-  const assignment = db.assignments.find((a) => a.id === assignment_id);
-  const course = assignment ? db.courses.find((c) => c.id === assignment.course_id) : null;
-
-  if (!assignment) {
-    return res.status(404).json({ success: false, message: "Bài tập không tìm thấy." });
-  }
-
-  let chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === student_id);
-
-  if (!chatSession) {
-    chatSession = {
-      id: "cs_" + Date.now(),
-      assignment_id,
-      student_id,
-      messages: [],
-    };
-    db.chat_sessions.push(chatSession);
-  }
-
-  const userMsg = {
-    id: "m_" + Date.now(),
-    role: "user" as const,
-    content: message_content,
-    timestamp: new Date().toISOString(),
-  };
-
-  chatSession.messages.push(userMsg);
-
-  // System Prompt based on Mode
-  let systemInstruction = "";
-  if (assignment.ai_submode === "socratic") {
-    systemInstruction = `Bạn là trợ lý học tập AI trong môn ${course?.name || "học"}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}. 
-Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước (ví dụ: 'Theo bạn vấn đề này liên quan khái niệm nào đã học?'). Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
-Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`;
-  } else {
-    systemInstruction = `Bạn là trợ lý học tập AI nhiệt tình trong môn ${course?.name || "học"}, hỗ trợ sinh viên làm bài tập: ${assignment.title}.
-Giải đáp thắc mắc, gợi ý hướng giải quyết bài toán và cung cấp tài liệu tham khảo chính xác cho sinh viên. Trả lời bằng tiếng Việt chuyên nghiệp, ngắn gọn.`;
-  }
-
-  try {
-    // Format conversation history for Gemini
-    const contents = chatSession.messages.map((m) => ({
-      role: m.role,
-      parts: [{ text: m.content }],
-    }));
-
-    const response = await getGenAI().models.generateContent({
-      model: "gemini-3.6-flash",
-      contents,
-      config: {
-        systemInstruction,
-        temperature: 0.7,
-      },
-    });
-
-    const replyText = response.text || "Trợ lý AI đang bận, vui lòng thử lại sau.";
-
-    const aiMsg = {
-      id: "m_" + (Date.now() + 1),
-      role: "model" as const,
-      content: replyText,
-      timestamp: new Date().toISOString(),
-    };
-
-    chatSession.messages.push(aiMsg);
-    saveDocument("chat_sessions", chatSession.id, chatSession);
-
-    res.json({
-      success: true,
-      data: {
-        chat_session: chatSession,
-        new_message: aiMsg,
-      },
-    });
-  } catch (err: any) {
-    console.error("Gemini Chat Error:", err);
-    // Fallback response if API fails or key missing
-    const fallbackText = assignment.ai_submode === "socratic"
-      ? `Chào bạn! Về câu hỏi "${message_content.slice(0, 40)}...", theo bạn khái niệm hoặc quy trình nào trong bài học là mấu chốt để phân tích vấn đề này?`
-      : `Trợ lý AI đã ghi nhận câu hỏi của bạn. Hãy liên hệ giảng viên hoặc xem lại tài liệu môn học để có hướng giải chi tiết.`;
-
-    const aiMsg = {
-      id: "m_" + (Date.now() + 1),
-      role: "model" as const,
-      content: fallbackText,
-      timestamp: new Date().toISOString(),
-    };
-
-    chatSession.messages.push(aiMsg);
-    saveDocument("chat_sessions", chatSession.id, chatSession);
-
-    res.json({
-      success: true,
-      data: {
-        chat_session: chatSession,
-        new_message: aiMsg,
-      },
-    });
-  }
-});
-
-// 11. Submit assignment & calculate Process Score via Gemini
-app.post("/api/submissions/submit", async (req, res) => {
-  const { assignment_id, student_id, submitted_files, submitted_text, notes } = req.body;
-
-  if (!assignment_id || !student_id) {
-    return res.status(400).json({ success: false, message: "Thiếu dữ liệu bài nộp." });
-  }
-
-  const assignment = db.assignments.find((a) => a.id === assignment_id);
-  const student = db.users.find((u) => u.id === student_id);
-
-  if (!assignment || !student) {
-    return res.status(404).json({ success: false, message: "Không tìm thấy bài tập hoặc sinh viên." });
-  }
-
-  const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === student_id);
-  const isLate = new Date() > new Date(assignment.due_date);
-
-  let processScoreResult = null;
-
-  // Perform Gemini Process Score evaluation if AI chat was involved
-  if (assignment.submission_mode !== "file_only" && chatSession && chatSession.messages.length > 0) {
-    const transcript = chatSession.messages
-      .map((m) => `${m.role === "user" ? "Sinh viên" : "AI Assistant"}: ${m.content}`)
-      .join("\n");
-
-    const evalPrompt = `Bạn được cung cấp transcript cuộc trò chuyện giữa sinh viên và AI khi làm bài tập [${assignment.title}], cùng bài nộp cuối cùng (nếu có: "${submitted_text || 'Không có văn bản nộp trực tiếp'}"). Phân tích và trả về JSON:
-{
-  "process_score": (số nguyên từ 0-100),
-  "tieu_chi": {
-    "tu_duy_phan_bien": (0-100, dựa trên số lần sinh viên chất vấn/phản bác câu trả lời AI),
-    "dao_sau_van_de": (0-100, dựa trên việc câu hỏi có refine từ chung chung sang cụ thể không),
-    "kiem_chung_thong_tin": (0-100, dựa trên việc sinh viên có yêu cầu AI dẫn nguồn/so sánh/verify không),
-    "noi_hoa_kien_thuc": (0-100, dựa trên việc sinh viên có tự diễn giải lại bằng lời riêng không),
-    "tinh_chu_dong": (0-100, tỷ lệ câu hỏi mở rộng vấn đề so với chỉ nhận đáp án)
-  },
-  "noi_dung_ngoai_luong": (mô tả nếu bài nộp có đoạn không khớp transcript, hoặc null),
-  "nhan_xet_ngan": (2-3 câu tiếng Việt tóm tắt kiểu tư duy sinh viên),
-  "highlight_segments": [{"doan_van_ban": "trích đoạn câu nói tiêu biểu của sinh viên", "mau": "xanh|vang|do", "ly_do": "lý do đánh giá màu này"}]
+function deleteAssignmentCascade(assignmentId: string) {
+  db.assignments = db.assignments.filter((a: any) => a.id !== assignmentId);
+  deleteDocument("assignments", assignmentId);
+  for (const s of db.submissions.filter((x: any) => x.assignment_id === assignmentId)) deleteDocument("submissions", s.id);
+  db.submissions = db.submissions.filter((s: any) => s.assignment_id !== assignmentId);
+  for (const cs of db.chat_sessions.filter((x: any) => x.assignment_id === assignmentId)) deleteDocument("chat_sessions", cs.id);
+  db.chat_sessions = db.chat_sessions.filter((cs: any) => cs.assignment_id !== assignmentId);
 }
-Lưu ý quy định màu sắc highlight:
-- "xanh": Thể hiện phản biện xuất sắc, tư duy sâu hoặc tự tổng hợp kiến thức
-- "vang": Thể hiện sự tò mò, cần làm rõ thêm hoặc yêu cầu đáp án ban đầu
-- "do": Thể hiện việc copy hoàn toàn hoặc chỉ yêu cầu AI làm hộ mà không tự suy nghĩ
 
-Chỉ trả về JSON hợp lệ, không kèm bất kỳ ký tự nào khác.`;
+app.post("/api/courses/join", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới tham gia lớp bằng mã mời.");
+  const { invite_code } = req.body || {};
+  if (!invite_code) return fail(res, 400, "Vui lòng nhập mã mời.");
+  const course = db.courses.find((c: any) => c.invite_code === String(invite_code).trim().toUpperCase());
+  if (!course) return fail(res, 404, "Không tìm thấy môn học với mã mời này.");
+  if (isMember(course.id, req.user)) return fail(res, 400, "Bạn đã tham gia môn học này rồi!");
+  const member = {
+    course_id: course.id,
+    student_id: req.user.id,
+    student_name: req.user.name,
+    student_email: req.user.email,
+    student_avatar: req.user.avatar,
+    joined_at: nowIso(),
+  };
+  db.course_members.push(member);
+  saveDocument("course_members", `${course.id}_${req.user.id}`, member);
+  addNotification(course.teacher_id, "Sinh viên mới tham gia", `${req.user.name} vừa tham gia ${course.name}.`);
+  res.json({ success: true, data: courseWithCounts(course, req.user), message: `Tham gia môn học "${course.name}" thành công!` });
+});
 
-    try {
-      const evalResponse = await getGenAI().models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: [
-          { role: "user", parts: [{ text: `Dưới đây là transcript hội thoại:\n${transcript}\n\n${evalPrompt}` }] }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
+app.post("/api/courses/:id/leave", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 404, "Bạn không thuộc môn học này.");
+  db.course_members = db.course_members.filter((m: any) => !(m.course_id === course.id && m.student_id === req.user.id));
+  deleteDocument("course_members", `${course.id}_${req.user.id}`);
+  res.json({ success: true, message: "Bạn đã rời khỏi môn học." });
+});
+
+app.delete("/api/courses/:id/members/:studentId", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền.");
+  const before = db.course_members.length;
+  db.course_members = db.course_members.filter((m: any) => !(m.course_id === course.id && m.student_id === req.params.studentId));
+  if (db.course_members.length === before) return fail(res, 404, "Sinh viên không thuộc lớp.");
+  deleteDocument("course_members", `${course.id}_${req.params.studentId}`);
+  res.json({ success: true, message: "Đã xóa sinh viên khỏi lớp." });
+});
+
+app.get("/api/courses/:id", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Môn học không tồn tại.");
+  if (!canViewCourse(course, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  const owner = isOwner(course, req.user);
+  const members = db.course_members.filter((m: any) => m.course_id === course.id);
+  const assignments = db.assignments
+    .filter((a: any) => a.course_id === course.id)
+    .map((a: any) => {
+      const out: any = { ...a };
+      if (!owner) {
+        const sub = db.submissions.find((s: any) => s.assignment_id === a.id && s.student_id === req.user.id);
+        out.submission_status = sub ? sub.status : "not_submitted";
+        out.submitted_at = sub?.submitted_at;
+        out.my_process_score = sub?.process_score_result?.process_score;
+        out.my_grade = sub?.grade;
+      } else {
+        const subs = db.submissions.filter((s: any) => s.assignment_id === a.id && isSubmitted(s));
+        out.submitted_count = subs.length;
+        out.ungraded_count = subs.filter((s: any) => !gradedState(s)).length;
+        out.member_count = members.length;
+      }
+      return out;
+    })
+    .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+  const { invite_code, ...rest } = course;
+  res.json({ success: true, data: { ...(owner ? course : rest), members, assignments } });
+});
+
+// ---- Assignments ----
+function sanitizeAssignmentInput(body: any) {
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late } = body || {};
+  return {
+    title: typeof title === "string" ? title.trim() : title,
+    description: description ?? "",
+    rubric: rubric ?? "",
+    due_date,
+    attachments: Array.isArray(attachments) ? attachments : [],
+    submission_mode: ["file_only", "ai_chat_only", "both"].includes(submission_mode) ? submission_mode : "both",
+    ai_submode: ai_submode === "normal" ? "normal" : "socratic",
+    allow_late: allow_late === false ? false : true,
+  };
+}
+
+app.post("/api/courses/:id/assignments", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền giao bài cho môn này.");
+  const input = sanitizeAssignmentInput(req.body);
+  if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
+  const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
+  db.assignments.unshift(a);
+  saveDocument("assignments", a.id, a);
+  for (const m of db.course_members.filter((m: any) => m.course_id === course.id)) {
+    addNotification(m.student_id, "Bài tập mới", `${course.name}: ${a.title}`, `/course/${course.id}/assignment/${a.id}`);
+  }
+  res.json({ success: true, data: a });
+});
+
+app.put("/api/assignments/:id", (req: AuthedRequest, res) => {
+  const a = db.assignments.find((x: any) => x.id === req.params.id);
+  if (!a) return fail(res, 404, "Bài tập không tồn tại.");
+  if (!isOwner(findCourse(a.course_id), req.user)) return fail(res, 403, "Bạn không có quyền sửa bài tập này.");
+  const input = sanitizeAssignmentInput({ ...a, ...req.body });
+  if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
+  Object.assign(a, input, { updated_at: nowIso() });
+  saveDocument("assignments", a.id, a);
+  res.json({ success: true, data: a, message: "Đã cập nhật bài tập." });
+});
+
+app.delete("/api/assignments/:id", (req: AuthedRequest, res) => {
+  const a = db.assignments.find((x: any) => x.id === req.params.id);
+  if (!a) return fail(res, 404, "Bài tập không tồn tại.");
+  if (!isOwner(findCourse(a.course_id), req.user)) return fail(res, 403, "Bạn không có quyền xóa bài tập này.");
+  deleteAssignmentCascade(a.id);
+  res.json({ success: true, message: "Đã xóa bài tập và các bài nộp liên quan." });
+});
+
+app.get("/api/assignments/:id", (req: AuthedRequest, res) => {
+  const assignment = db.assignments.find((a: any) => a.id === req.params.id);
+  if (!assignment) return fail(res, 404, "Bài tập không tồn tại.");
+  const course = findCourse(assignment.course_id);
+  if (!course || !canViewCourse(course, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  let submission = null, chatSession = null;
+  if (req.user.role === "student") {
+    submission = db.submissions.find((s: any) => s.assignment_id === assignment.id && s.student_id === req.user.id) || null;
+    chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id) || null;
+  }
+  res.json({ success: true, data: { assignment, course_name: course.name, submission, chat_session: chatSession } });
+});
+
+app.get("/api/assignments/:id/submissions", (req: AuthedRequest, res) => {
+  const assignment = db.assignments.find((a: any) => a.id === req.params.id);
+  if (!assignment) return fail(res, 404, "Bài tập không tồn tại.");
+  if (!isOwner(findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền xem bài nộp.");
+  const isPastDue = new Date(assignment.due_date) < new Date();
+  const submissions = db.course_members
+    .filter((m: any) => m.course_id === assignment.course_id)
+    .map((m: any) => {
+      const sub = db.submissions.find((s: any) => s.assignment_id === assignment.id && s.student_id === m.student_id);
+      return sub || {
+        id: `stub_${m.student_id}_${assignment.id}`,
+        assignment_id: assignment.id,
+        student_id: m.student_id,
+        student_name: m.student_name,
+        student_email: m.student_email,
+        student_avatar: m.student_avatar,
+        submitted_files: [],
+        submitted_text: "",
+        status: isPastDue ? "not_submitted" : "draft",
+      };
+    });
+  res.json({ success: true, data: { assignment, submissions } });
+});
+
+// ---- Submissions ----
+app.get("/api/submissions/:id", (req: AuthedRequest, res) => {
+  const sub = db.submissions.find((s: any) => s.id === req.params.id);
+  if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
+  const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
+  const course = assignment && findCourse(assignment.course_id);
+  if (!isOwner(course, req.user) && sub.student_id !== req.user.id) return fail(res, 403, "Bạn không có quyền xem bài nộp này.");
+  const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
+  res.json({ success: true, data: { submission: sub, assignment, chat_session: chatSession } });
+});
+
+app.put("/api/submissions/:id/grade", (req: AuthedRequest, res) => {
+  const sub = db.submissions.find((s: any) => s.id === req.params.id);
+  if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
+  const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
+  if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền chấm bài này.");
+  const grade = Number(req.body?.grade);
+  if (!Number.isFinite(grade) || grade < 0 || grade > 10) return fail(res, 400, "Điểm phải nằm trong khoảng 0 - 10.");
+  sub.grade = Math.round(grade * 100) / 100;
+  sub.feedback = String(req.body?.feedback || "").slice(0, 5000);
+  sub.graded_at = nowIso();
+  saveDocument("submissions", sub.id, sub);
+  addNotification(sub.student_id, "Bài tập đã được chấm", `${assignment.title}: ${sub.grade}/10`, `/course/${assignment.course_id}/assignment/${assignment.id}`);
+  res.json({ success: true, data: sub, message: "Đã lưu điểm và nhận xét." });
+});
+
+app.post("/api/submissions/:id/reevaluate", async (req: AuthedRequest, res) => {
+  const sub = db.submissions.find((s: any) => s.id === req.params.id);
+  if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
+  const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
+  if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền.");
+  const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
+  if (!chat || !chat.messages.some((m: any) => m.role === "user")) return fail(res, 400, "Bài nộp này không có nhật ký chat để chấm.");
+  try {
+    sub.process_score_result = await evaluateProcess(assignment, chat, sub.submitted_text);
+    sub.eval_status = "ok";
+    sub.eval_error = undefined;
+    saveDocument("submissions", sub.id, sub);
+    res.json({ success: true, data: sub, message: "Đã chấm lại bằng AI." });
+  } catch (e: any) {
+    sub.eval_status = "failed";
+    sub.eval_error = e.message;
+    saveDocument("submissions", sub.id, sub);
+    fail(res, 502, "AI chưa chấm được: " + e.message);
+  }
+});
+
+function transcriptOf(chat: any) {
+  return chat.messages.map((m: any) => `${m.role === "user" ? "Sinh viên" : "AI Assistant"}: ${m.content}`).join("\n");
+}
+
+async function evaluateProcess(assignment: any, chat: any, submittedText: string) {
+  if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+  const transcript = transcriptOf(chat).slice(-60000);
+  const evalPrompt = `Bạn được cung cấp transcript cuộc trò chuyện giữa sinh viên và AI khi làm bài tập [${assignment.title}], cùng bài nộp cuối cùng (nếu có: "${submittedText || "Không có văn bản nộp trực tiếp"}"). Hãy đánh giá QUÁ TRÌNH TƯ DUY của sinh viên một cách nghiêm khắc, trung thực: nếu sinh viên chỉ xin đáp án, copy-paste, hoặc làm hộ thì điểm phải thấp. Trả về JSON theo schema:
+- process_score: số nguyên 0-100
+- tieu_chi: tu_duy_phan_bien (chất vấn/phản bác AI), dao_sau_van_de (refine câu hỏi từ chung chung sang cụ thể), kiem_chung_thong_tin (yêu cầu dẫn nguồn/verify), noi_hoa_kien_thuc (tự diễn giải bằng lời riêng), tinh_chu_dong (mở rộng vấn đề thay vì chỉ nhận đáp án); mỗi tiêu chí 0-100
+- noi_dung_ngoai_luong: mô tả nếu bài nộp có đoạn không khớp transcript, hoặc chuỗi rỗng
+- nhan_xet_ngan: 2-3 câu tiếng Việt tóm tắt kiểu tư duy
+- highlight_segments: danh sách {doan_van_ban (trích NGUYÊN VĂN câu của sinh viên), mau: "xanh"|"vang"|"do", ly_do}
+Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần làm rõ; do = copy hoàn toàn hoặc nhờ AI làm hộ.`;
+  const response = await getGenAI().models.generateContent({
+    model: GEMINI_MODEL,
+    contents: [{ role: "user", parts: [{ text: `Transcript:\n${transcript}\n\n${evalPrompt}` }] }],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          process_score: { type: Type.INTEGER },
+          tieu_chi: {
             type: Type.OBJECT,
             properties: {
-              process_score: { type: Type.INTEGER },
-              tieu_chi: {
-                type: Type.OBJECT,
-                properties: {
-                  tu_duy_phan_bien: { type: Type.INTEGER },
-                  dao_sau_van_de: { type: Type.INTEGER },
-                  kiem_chung_thong_tin: { type: Type.INTEGER },
-                  noi_hoa_kien_thuc: { type: Type.INTEGER },
-                  tinh_chu_dong: { type: Type.INTEGER },
-                },
-                required: ["tu_duy_phan_bien", "dao_sau_van_de", "kiem_chung_thong_tin", "noi_hoa_kien_thuc", "tinh_chu_dong"],
-              },
-              noi_dung_ngoai_luong: { type: Type.STRING },
-              nhan_xet_ngan: { type: Type.STRING },
-              highlight_segments: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    doan_van_ban: { type: Type.STRING },
-                    mau: { type: Type.STRING },
-                    ly_do: { type: Type.STRING },
-                  },
-                  required: ["doan_van_ban", "mau", "ly_do"],
-                },
-              },
+              tu_duy_phan_bien: { type: Type.INTEGER },
+              dao_sau_van_de: { type: Type.INTEGER },
+              kiem_chung_thong_tin: { type: Type.INTEGER },
+              noi_hoa_kien_thuc: { type: Type.INTEGER },
+              tinh_chu_dong: { type: Type.INTEGER },
             },
-            required: ["process_score", "tieu_chi", "nhan_xet_ngan", "highlight_segments"],
+            required: ["tu_duy_phan_bien", "dao_sau_van_de", "kiem_chung_thong_tin", "noi_hoa_kien_thuc", "tinh_chu_dong"],
+          },
+          noi_dung_ngoai_luong: { type: Type.STRING },
+          nhan_xet_ngan: { type: Type.STRING },
+          highlight_segments: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: { doan_van_ban: { type: Type.STRING }, mau: { type: Type.STRING }, ly_do: { type: Type.STRING } },
+              required: ["doan_van_ban", "mau", "ly_do"],
+            },
           },
         },
-      });
+        required: ["process_score", "tieu_chi", "nhan_xet_ngan", "highlight_segments"],
+      },
+    },
+  });
+  if (!response.text) throw new Error("AI trả về nội dung rỗng.");
+  const parsed = JSON.parse(response.text.trim());
+  const clamp = (n: any) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+  parsed.process_score = clamp(parsed.process_score);
+  for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp(parsed.tieu_chi[k]);
+  parsed.noi_dung_ngoai_luong = parsed.noi_dung_ngoai_luong?.trim() ? parsed.noi_dung_ngoai_luong : null;
+  parsed.highlight_segments = (parsed.highlight_segments || []).map((h: any) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang" }));
+  return parsed;
+}
 
-      if (evalResponse.text) {
-        processScoreResult = JSON.parse(evalResponse.text.trim());
-      }
-    } catch (e) {
-      console.error("Gemini Evaluation error:", e);
-      // Fallback heuristic evaluation
-      const msgCount = chatSession.messages.length;
-      processScoreResult = {
-        process_score: Math.min(95, 60 + msgCount * 5),
-        tieu_chi: {
-          tu_duy_phan_bien: 75,
-          dao_sau_van_de: 80,
-          kiem_chung_thong_tin: 70,
-          noi_hoa_kien_thuc: 85,
-          tinh_chu_dong: 90,
-        },
-        noi_dung_ngoai_luong: null,
-        nhan_xet_ngan: "Sinh viên có quá trình trao đổi tích cực với AI, liên tục đặt câu hỏi để hoàn thành bài tập.",
-        highlight_segments: chatSession.messages.filter((m) => m.role === "user").slice(0, 3).map((m) => ({
-          doan_van_ban: m.content.slice(0, 80),
-          mau: "xanh",
-          ly_do: "Câu hỏi thể hiện sự chủ động tìm hiểu nội dung.",
-        })),
-      };
+// Draft saving (does not submit)
+app.post("/api/submissions/draft", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới lưu nháp.");
+  const { assignment_id, submitted_files, submitted_text, notes } = req.body || {};
+  const assignment = db.assignments.find((a: any) => a.id === assignment_id);
+  if (!assignment || !isMember(assignment.course_id, req.user)) return fail(res, 404, "Không tìm thấy bài tập.");
+  let sub = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (sub && isSubmitted(sub)) return fail(res, 409, "Bài đã được nộp, không thể lưu nháp.");
+  if (!sub) {
+    sub = {
+      id: uid("sub"), assignment_id, student_id: req.user.id, student_name: req.user.name,
+      student_email: req.user.email, student_avatar: req.user.avatar, submitted_files: [], submitted_text: "", status: "draft",
+    };
+    db.submissions.push(sub);
+  }
+  sub.submitted_files = Array.isArray(submitted_files) ? submitted_files : sub.submitted_files;
+  sub.submitted_text = submitted_text ?? sub.submitted_text;
+  sub.notes = notes ?? sub.notes;
+  sub.draft_saved_at = nowIso();
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: { draft_saved_at: sub.draft_saved_at } });
+});
+
+// ---- AI chat ----
+const chatHits = new Map<string, number[]>();
+function chatRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const hits = (chatHits.get(userId) || []).filter((t) => now - t < 5 * 60 * 1000);
+  if (hits.length >= 25) { chatHits.set(userId, hits); return true; }
+  hits.push(now);
+  chatHits.set(userId, hits);
+  return false;
+}
+
+app.post("/api/chat/message", async (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
+  const { assignment_id, message_content } = req.body || {};
+  if (!assignment_id || !message_content || typeof message_content !== "string") return fail(res, 400, "Thiếu thông tin tin nhắn.");
+  if (message_content.length > 30000) return fail(res, 413, "Tin nhắn quá dài (tối đa 30.000 ký tự).");
+  const assignment = db.assignments.find((a: any) => a.id === assignment_id);
+  if (!assignment) return fail(res, 404, "Bài tập không tìm thấy.");
+  const course = findCourse(assignment.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  if (assignment.submission_mode === "file_only") return fail(res, 400, "Bài tập này chỉ nộp file, không có AI chat.");
+  const existing = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (existing && isSubmitted(existing)) return fail(res, 409, "Bài đã nộp, cuộc trò chuyện đã được khóa.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
+
+  let chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
+  if (!chatSession) {
+    chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] };
+    db.chat_sessions.push(chatSession);
+  }
+  const userMsg = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
+  chatSession.messages.push(userMsg);
+
+  const systemInstruction = assignment.ai_submode === "socratic"
+    ? `Bạn là trợ lý học tập AI trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}.
+Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước. Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
+Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`
+    : `Bạn là trợ lý học tập AI nhiệt tình trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}.
+Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài liệu tham khảo chính xác. Trả lời bằng tiếng Việt chuyên nghiệp, ngắn gọn.`;
+
+  try {
+    if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+    const response = await getGenAI().models.generateContent({
+      model: GEMINI_MODEL,
+      contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+      config: { systemInstruction, temperature: 0.7 },
+    });
+    const replyText = response.text;
+    if (!replyText) throw new Error("AI trả về nội dung rỗng.");
+    const aiMsg = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+    chatSession.messages.push(aiMsg);
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+  } catch (err: any) {
+    console.error("Gemini Chat Error:", err?.message || err);
+    // Roll back the unanswered message so the student can simply retry
+    chatSession.messages = chatSession.messages.filter((m: any) => m.id !== userMsg.id);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Tin nhắn chưa được ghi nhận, hãy thử gửi lại.");
+  }
+});
+
+// ---- Submit ----
+app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới nộp bài.");
+  const { assignment_id, submitted_files, submitted_text, notes } = req.body || {};
+  const assignment = db.assignments.find((a: any) => a.id === assignment_id);
+  if (!assignment || !isMember(assignment.course_id, req.user)) return fail(res, 404, "Không tìm thấy bài tập.");
+
+  let sub = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (sub && isSubmitted(sub)) return fail(res, 409, "Bạn đã nộp bài này rồi, không thể nộp lại.");
+  const isLate = new Date() > new Date(assignment.due_date);
+  if (isLate && assignment.allow_late === false) return fail(res, 403, "Đã quá hạn nộp và bài tập này không nhận bài trễ.");
+
+  const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
+  const userTurns = chatSession ? chatSession.messages.filter((m: any) => m.role === "user").length : 0;
+  if (assignment.submission_mode !== "file_only" && userTurns < 3) return fail(res, 400, "Bạn cần trao đổi ít nhất 3 lượt với trợ lý AI trước khi nộp.");
+  if (assignment.submission_mode === "file_only" && !(submitted_files?.length || submitted_text?.trim())) return fail(res, 400, "Vui lòng đính kèm file hoặc nhập nội dung bài làm.");
+
+  let processScoreResult: any = undefined;
+  let evalStatus: string = "skipped";
+  let evalError: string | undefined;
+  if (assignment.submission_mode !== "file_only" && chatSession && userTurns > 0) {
+    try {
+      processScoreResult = await evaluateProcess(assignment, chatSession, submitted_text);
+      evalStatus = "ok";
+    } catch (e: any) {
+      console.error("Gemini Evaluation error:", e?.message || e);
+      evalStatus = "failed";
+      evalError = e?.message || "Lỗi không xác định";
     }
   }
 
-  let sub = db.submissions.find((s) => s.assignment_id === assignment_id && s.student_id === student_id);
-
   if (!sub) {
-    sub = {
-      id: "sub_" + Date.now(),
-      assignment_id,
-      student_id,
-      student_name: student.name,
-      student_email: student.email,
-      student_avatar: student.avatar,
-      submitted_at: new Date().toISOString(),
-      submitted_files: submitted_files || [],
-      submitted_text: submitted_text || "",
-      chat_session_id: chatSession?.id,
-      process_score_result: processScoreResult,
-      status: isLate ? "late" : "submitted",
-      notes: notes || "",
-    };
+    sub = { id: uid("sub"), assignment_id, student_id: req.user.id, student_name: req.user.name, student_email: req.user.email, student_avatar: req.user.avatar };
     db.submissions.push(sub);
-  } else {
-    sub.submitted_at = new Date().toISOString();
-    sub.submitted_files = submitted_files || sub.submitted_files;
-    sub.submitted_text = submitted_text !== undefined ? submitted_text : sub.submitted_text;
-    sub.chat_session_id = chatSession?.id || sub.chat_session_id;
-    if (processScoreResult) sub.process_score_result = processScoreResult;
-    sub.status = isLate ? "late" : "submitted";
-    sub.notes = notes || sub.notes;
   }
-
+  Object.assign(sub, {
+    submitted_at: nowIso(),
+    submitted_files: Array.isArray(submitted_files) ? submitted_files : [],
+    submitted_text: submitted_text || "",
+    chat_session_id: chatSession?.id,
+    process_score_result: processScoreResult,
+    eval_status: evalStatus,
+    eval_error: evalError,
+    status: isLate ? "late" : "submitted",
+    notes: notes || "",
+  });
   if (chatSession) {
     chatSession.submission_id = sub.id;
     saveDocument("chat_sessions", chatSession.id, chatSession);
   }
-
   saveDocument("submissions", sub.id, sub);
-
+  const course = findCourse(assignment.course_id);
+  if (course) addNotification(course.teacher_id, "Có bài nộp mới", `${req.user.name} đã nộp "${assignment.title}"${isLate ? " (trễ hạn)" : ""}.`, `/course/${course.id}/assignment/${assignment.id}`);
   res.json({
     success: true,
     data: sub,
-    message: "Nộp bài thành công!",
+    message: evalStatus === "failed" ? "Nộp bài thành công. Phần chấm quá trình bằng AI sẽ được giảng viên chạy lại sau." : "Nộp bài thành công!",
   });
 });
 
-// 12. Get Course Class-level Statistics (Teacher tab 3)
-app.get("/api/courses/:id/stats", (req, res) => {
-  const courseId = req.params.id;
-  const course = db.courses.find((c) => c.id === courseId);
+// ---- Stats (real data only) ----
+app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Môn học không tồn tại.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền xem thống kê.");
+  const members = db.course_members.filter((m: any) => m.course_id === course.id);
+  const assignments = db.assignments.filter((a: any) => a.course_id === course.id);
+  const subs = db.submissions.filter((s: any) => assignments.some((a: any) => a.id === s.assignment_id) && isSubmitted(s) && members.some((m: any) => m.student_id === s.student_id));
+  const totalPossible = members.length * assignments.length;
+  const pct = (n: number) => (totalPossible ? Math.round((n / totalPossible) * 100) : 0);
+  const onTime = subs.filter((s: any) => s.status === "submitted").length;
+  const late = subs.filter((s: any) => s.status === "late").length;
+  const scored = subs.filter((s: any) => s.process_score_result);
+  const avg = (arr: number[]) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
 
-  if (!course) {
-    return res.status(404).json({ success: false, message: "Môn học không tồn tại." });
-  }
-
-  const members = db.course_members.filter((m) => m.course_id === courseId);
-  const assignments = db.assignments.filter((a) => a.course_id === courseId);
-  const submissions = db.submissions.filter((s) => assignments.some((a) => a.id === s.assignment_id));
-
-  const totalPossible = members.length * assignments.length || 1;
-  const submittedCount = submissions.filter((s) => s.status === "submitted" || s.status === "late").length;
-  const onTimeCount = submissions.filter((s) => s.status === "submitted").length;
-  const lateCount = submissions.filter((s) => s.status === "late").length;
-
-  const evaluatedSubmissions = submissions.filter((s) => s.process_score_result?.process_score !== undefined);
-  const totalScore = evaluatedSubmissions.reduce((sum, s) => sum + (s.process_score_result?.process_score || 0), 0);
-  const avgScore = evaluatedSubmissions.length > 0 ? Math.round(totalScore / evaluatedSubmissions.length) : 82;
-
-  // Score distribution buckets
   const distribution = [
-    { range: "90 - 100 (Xuất sắc)", count: 0 },
-    { range: "80 - 89 (Giỏi)", count: 0 },
-    { range: "70 - 79 (Khá)", count: 0 },
-    { range: "50 - 69 (Trung bình)", count: 0 },
-    { range: "< 50 (Yếu/Dùng AI làm hộ)", count: 0 },
+    { range: "90-100", label: "Xuất sắc", count: 0 },
+    { range: "80-89", label: "Giỏi", count: 0 },
+    { range: "70-79", label: "Khá", count: 0 },
+    { range: "50-69", label: "Trung bình", count: 0 },
+    { range: "<50", label: "Yếu / nhờ AI làm hộ", count: 0 },
   ];
-
-  evaluatedSubmissions.forEach((s) => {
-    const score = s.process_score_result!.process_score;
-    if (score >= 90) distribution[0].count++;
-    else if (score >= 80) distribution[1].count++;
-    else if (score >= 70) distribution[2].count++;
-    else if (score >= 50) distribution[3].count++;
-    else distribution[4].count++;
-  });
-
-  // Default mock counts if demo data small
-  if (evaluatedSubmissions.length <= 1) {
-    distribution[0].count = 5;
-    distribution[1].count = 8;
-    distribution[2].count = 3;
-    distribution[3].count = 1;
-    distribution[4].count = 0;
+  for (const s of scored) {
+    const v = s.process_score_result.process_score;
+    distribution[v >= 90 ? 0 : v >= 80 ? 1 : v >= 70 ? 2 : v >= 50 ? 3 : 4].count++;
   }
 
-  // Identify assignments with low process score
-  const lowScoreAssignments = assignments
-    .map((a) => {
-      const subs = db.submissions.filter((s) => s.assignment_id === a.id && s.process_score_result);
-      const avg = subs.length > 0
-        ? Math.round(subs.reduce((acc, curr) => acc + curr.process_score_result!.process_score, 0) / subs.length)
-        : 72;
-      return {
-        assignment_id: a.id,
-        title: a.title,
-        avg_score: avg,
-        recommendation: avg < 75
-          ? "Đề bài có xu hướng khiến sinh viên xin đáp án trực tiếp. Giảng viên nên chuyển sang Chế độ Socratic và bổ sung yêu cầu phản biện trường hợp biên."
-          : "Đề bài kích thích tư duy tốt. Sinh viên tương tác chủ động.",
-      };
-    })
-    .sort((a, b) => a.avg_score - b.avg_score);
+  const per_assignment = assignments.map((a: any) => {
+    const aSubs = subs.filter((s: any) => s.assignment_id === a.id);
+    const aScores = aSubs.filter((s: any) => s.process_score_result).map((s: any) => s.process_score_result.process_score);
+    const avgScore = avg(aScores);
+    return {
+      assignment_id: a.id,
+      title: a.title,
+      submitted: aSubs.length,
+      total: members.length,
+      avg_score: avgScore,
+      recommendation: avgScore === null
+        ? "Chưa có bài nộp nào được chấm quá trình."
+        : avgScore < 75
+        ? "Sinh viên có xu hướng xin đáp án trực tiếp. Cân nhắc chuyển sang chế độ Socratic và bổ sung yêu cầu phản biện trường hợp biên."
+        : "Đề bài kích thích tư duy tốt, sinh viên tương tác chủ động.",
+    };
+  }).sort((a: any, b: any) => (a.avg_score ?? 999) - (b.avg_score ?? 999));
+
+  const students = members.map((m: any) => {
+    const mine = subs.filter((s: any) => s.student_id === m.student_id);
+    const myScores = mine.filter((s: any) => s.process_score_result).map((s: any) => s.process_score_result.process_score);
+    const myGrades = mine.filter(gradedState).map((s: any) => s.grade);
+    return {
+      student_id: m.student_id,
+      student_name: m.student_name,
+      student_email: m.student_email,
+      student_avatar: m.student_avatar,
+      submitted: mine.length,
+      total: assignments.length,
+      late: mine.filter((s: any) => s.status === "late").length,
+      avg_process_score: avg(myScores),
+      avg_grade: myGrades.length ? Math.round((myGrades.reduce((a: number, b: number) => a + b, 0) / myGrades.length) * 10) / 10 : null,
+      needs_attention: (myScores.length > 0 && (avg(myScores) as number) < 60) || (assignments.length > 0 && mine.length < assignments.length / 2),
+    };
+  });
 
   res.json({
     success: true,
     data: {
       total_students: members.length,
-      submission_rate: Math.round((submittedCount / totalPossible) * 100),
-      on_time_rate: Math.round((onTimeCount / totalPossible) * 100),
-      late_rate: Math.round((lateCount / totalPossible) * 100),
-      not_submitted_rate: Math.round(((totalPossible - submittedCount) / totalPossible) * 100),
-      average_process_score: avgScore,
+      total_assignments: assignments.length,
+      submission_rate: pct(subs.length),
+      on_time_rate: pct(onTime),
+      late_rate: pct(late),
+      not_submitted_rate: totalPossible ? 100 - pct(subs.length) : 0,
+      average_process_score: avg(scored.map((s: any) => s.process_score_result.process_score)),
+      evaluated_count: scored.length,
       score_distribution: distribution,
-      low_process_score_assignments: lowScoreAssignments,
+      per_assignment,
+      students,
     },
   });
 });
+
+// ---- Dashboard & notifications ----
+app.get("/api/overview", (req: AuthedRequest, res) => {
+  const user = req.user;
+  const now = Date.now();
+  if (user.role === "teacher") {
+    const myCourses = db.courses.filter((c: any) => c.teacher_id === user.id);
+    const myAssignments = db.assignments.filter((a: any) => myCourses.some((c: any) => c.id === a.course_id));
+    const toGrade = db.submissions
+      .filter((s: any) => isSubmitted(s) && !gradedState(s) && myAssignments.some((a: any) => a.id === s.assignment_id))
+      .map((s: any) => {
+        const a = myAssignments.find((x: any) => x.id === s.assignment_id);
+        return { submission_id: s.id, assignment_id: a.id, course_id: a.course_id, assignment_title: a.title, student_name: s.student_name, submitted_at: s.submitted_at, process_score: s.process_score_result?.process_score };
+      })
+      .sort((a: any, b: any) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
+      .slice(0, 8);
+    const students = new Set(db.course_members.filter((m: any) => myCourses.some((c: any) => c.id === m.course_id)).map((m: any) => m.student_id));
+    const upcoming = myAssignments.filter((a: any) => new Date(a.due_date).getTime() > now).sort((a: any, b: any) => +new Date(a.due_date) - +new Date(b.due_date)).slice(0, 5)
+      .map((a: any) => ({ id: a.id, course_id: a.course_id, title: a.title, due_date: a.due_date, course_name: myCourses.find((c: any) => c.id === a.course_id)?.name }));
+    return res.json({ success: true, data: { course_count: myCourses.length, student_count: students.size, assignment_count: myAssignments.length, to_grade_count: toGrade.length, to_grade: toGrade, upcoming } });
+  }
+  const myCourseIds = db.course_members.filter((m: any) => m.student_id === user.id).map((m: any) => m.course_id);
+  const mySubs = db.submissions.filter((s: any) => s.student_id === user.id);
+  const withCourse = (a: any) => ({ id: a.id, course_id: a.course_id, title: a.title, due_date: a.due_date, course_name: findCourse(a.course_id)?.name });
+  const pending = db.assignments.filter((a: any) => myCourseIds.includes(a.course_id) && !mySubs.some((s: any) => s.assignment_id === a.id && isSubmitted(s)));
+  const grades = mySubs.filter(gradedState).map((s: any) => s.grade);
+  const scores = mySubs.filter((s: any) => s.process_score_result).map((s: any) => s.process_score_result.process_score);
+  const recentGraded = mySubs.filter(gradedState).sort((a: any, b: any) => +new Date(b.graded_at) - +new Date(a.graded_at)).slice(0, 5)
+    .map((s: any) => { const a = db.assignments.find((x: any) => x.id === s.assignment_id); return { assignment_id: a?.id, course_id: a?.course_id, title: a?.title, grade: s.grade, feedback: s.feedback }; });
+  res.json({
+    success: true,
+    data: {
+      course_count: myCourseIds.length,
+      submitted_count: mySubs.filter(isSubmitted).length,
+      pending_count: pending.filter((a: any) => new Date(a.due_date).getTime() > now).length,
+      overdue_count: pending.filter((a: any) => new Date(a.due_date).getTime() <= now).length,
+      avg_grade: grades.length ? Math.round((grades.reduce((a: number, b: number) => a + b, 0) / grades.length) * 10) / 10 : null,
+      avg_process_score: scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : null,
+      upcoming: pending.filter((a: any) => new Date(a.due_date).getTime() > now).sort((a: any, b: any) => +new Date(a.due_date) - +new Date(b.due_date)).slice(0, 5).map(withCourse),
+      overdue: pending.filter((a: any) => new Date(a.due_date).getTime() <= now).slice(0, 5).map(withCourse),
+      recent_graded: recentGraded,
+    },
+  });
+});
+
+app.get("/api/notifications", (req: AuthedRequest, res) => {
+  const list = db.notifications.filter((n: any) => n.user_id === req.user.id).slice(0, 30);
+  res.json({ success: true, data: list, unread: list.filter((n: any) => !n.read).length });
+});
+
+app.post("/api/notifications/read", (req: AuthedRequest, res) => {
+  for (const n of db.notifications.filter((n: any) => n.user_id === req.user.id && !n.read)) {
+    n.read = true;
+    saveDocument("notifications", n.id, n);
+  }
+  res.json({ success: true });
+});
+
+app.use("/api", (req, res) => fail(res, 404, "API không tồn tại."));
+
 
 // Lazy initialization for serverless / Vercel
 let isServerlessInitialized = false;

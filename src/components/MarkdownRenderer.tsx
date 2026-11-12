@@ -19,7 +19,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
   return (
     <div
-      className={`markdown-content font-sans text-xs md:text-sm leading-relaxed ${className}`}
+      className={`markdown-content font-sans text-sm leading-relaxed ${className}`}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
