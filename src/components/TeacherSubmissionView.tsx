@@ -5,6 +5,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { Submission, Assignment, ChatSession, ProcessScoreResult } from "../types";
 import { googleSignIn, getAccessToken, exportReportToDocs, sendResultEmailViaGmail } from "../lib/workspace";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { L2Review } from "./L2Review";
 import { Avatar, Bar, Modal, fmtDate, riseItem, staggerParent, useToast } from "./ui";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
   chatSession: ChatSession | null;
   onGrade: (grade: number, feedback: string) => Promise<void>;
   onReevaluate: () => Promise<void>;
+  onL2Scores: (scores: Record<string, number>) => Promise<void>;
 }
 
 const HL = {
@@ -21,7 +23,8 @@ const HL = {
   do: { cls: "bg-[#ffe9ec] dark:bg-[#3a1320] border-rose-400/40", label: "Nhờ AI làm hộ / sao chép", dot: "bg-rose-500" },
 } as const;
 
-export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment, chatSession, onGrade, onReevaluate }) => {
+export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment, chatSession, onGrade, onReevaluate, onL2Scores }) => {
+  const isL2 = assignment.submission_mode === "writing_l2" && !!assignment.l2;
   const toast = useToast();
   const result: ProcessScoreResult | undefined = submission.process_score_result;
   const [grade, setGrade] = useState<string>(submission.grade !== undefined ? String(submission.grade) : "");
@@ -70,7 +73,7 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
   const sendMail = async () => {
     setMailBusy(true);
     try {
-      const body = [result?.nhan_xet_ngan, submission.grade !== undefined ? `Điểm giảng viên: ${submission.grade}/10` : "", submission.feedback].filter(Boolean).join("\n\n");
+      const body = [result?.nhan_xet_ngan, submission.l2_result?.overall_comment, submission.grade !== undefined ? `Điểm giảng viên: ${submission.grade}/10` : "", submission.feedback].filter(Boolean).join("\n\n");
       await sendResultEmailViaGmail(await googleToken(), submission.student_email, submission.student_name, assignment.title, result?.process_score ?? 0, body || "Bài của bạn đã được đánh giá.");
       toast.success(`Đã gửi email tới ${submission.student_email}.`); setMailOpen(false);
     } catch (e: any) { toast.error(e.message || "Không gửi được email."); } finally { setMailBusy(false); }
@@ -87,11 +90,15 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
           <div className="text-xs text-mute flex items-center gap-1.5 mt-0.5"><Clock className="w-3.5 h-3.5" />Nộp lúc {fmtDate(submission.submitted_at)}
             <span className={`chip ml-1 ${submission.status === "late" ? "chip-amber" : "chip-green"}`}>{submission.status === "late" ? "Nộp trễ" : "Đúng hạn"}</span></div>
         </div>
+        {isL2 && submission.l2_result && <div className="text-right"><div className="text-xs text-mute">Trung bình 5 chiều</div><div className="text-4xl font-medium gradient-text">{(assignment.l2!.dimensions.reduce((acc, d) => acc + (submission.l2_teacher_scores?.[d.key] ?? submission.l2_result!.dimensions.find((x) => x.key === d.key)?.score ?? 0), 0) / 5).toFixed(1)}<span className="text-base text-mute">/5</span></div></div>}
         {result && <div className="text-right"><div className="text-xs text-mute">Process Score</div><div className="text-4xl font-medium gradient-text">{result.process_score}<span className="text-base text-mute">/100</span></div></div>}
       </motion.div>
 
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5 min-w-0">
+          {isL2 ? (
+            <L2Review submission={submission} assignment={assignment} chatSession={chatSession} onReevaluate={onReevaluate} onScores={onL2Scores} />
+          ) : (<>
           {/* AI evaluation */}
           <motion.div variants={riseItem} className="card p-6">
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -145,6 +152,7 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
               </div>
             )}
           </motion.div>
+          </>)}
         </div>
 
         {/* Right rail: grading + submitted work + export */}

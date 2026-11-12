@@ -4,6 +4,115 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
+
+// src/lib/l2.ts
+var L2_ERROR_TYPES = ["language", "logic", "hallucination"];
+var DEFAULT_L2_DIMENSIONS = [
+  {
+    key: "prompt_quality",
+    name: "Ch\u1EA5t l\u01B0\u1EE3ng prompt",
+    description: "Prompt n\xEAu r\xF5 m\u1EE5c ti\xEAu, ng\u01B0\u1EDDi \u0111\u1ECDc, ng\u1EEF c\u1EA3nh v\xE0 r\xE0ng bu\u1ED9c (\u0111\u1ED9 d\xE0i, gi\u1ECDng v\u0103n, c\u1EA5u tr\xFAc). Ch\u1EA5m theo \xFD \u0111\u1ECBnh, kh\xF4ng tr\u1EEB \u0111i\u1EC3m v\xEC ng\u1EEF ph\xE1p hay tr\xECnh \u0111\u1ED9 ngo\u1EA1i ng\u1EEF. C\u0103n c\u1EE9: nh\u1EADt k\xFD prompt.",
+    levels: [
+      "Prompt m\u01A1 h\u1ED3 ho\u1EB7c ch\u1EC9 ra l\u1EC7nh chung chung (\u201Cvi\u1EBFt gi\xFAp t\xF4i\u201D), kh\xF4ng n\xEAu m\u1EE5c ti\xEAu hay ng\u01B0\u1EDDi \u0111\u1ECDc.",
+      "C\xF3 n\xEAu ch\u1EE7 \u0111\u1EC1 nh\u01B0ng thi\u1EBFu ng\u01B0\u1EDDi \u0111\u1ECDc ho\u1EB7c r\xE0ng bu\u1ED9c; AI ph\u1EA3i \u0111o\xE1n nhi\u1EC1u.",
+      "N\xEAu \u0111\u01B0\u1EE3c m\u1EE5c ti\xEAu v\xE0 m\u1ED9t v\xE0i r\xE0ng bu\u1ED9c, c\xF2n thi\u1EBFu ng\u1EEF c\u1EA3nh ho\u1EB7c ti\xEAu ch\xED th\xE0nh c\xF4ng.",
+      "N\xEAu r\xF5 m\u1EE5c ti\xEAu, ng\u01B0\u1EDDi \u0111\u1ECDc, \u0111\u1ED9 d\xE0i/gi\u1ECDng v\u0103n; h\u1EA7u h\u1EBFt th\xF4ng tin c\u1EA7n thi\u1EBFt \u0111\u1EC1u c\xF3.",
+      "Prompt \u0111\u1EA7y \u0111\u1EE7, c\u1EE5 th\u1EC3 v\xE0 c\xF3 c\u1EA5u tr\xFAc: m\u1EE5c ti\xEAu, ng\u01B0\u1EDDi \u0111\u1ECDc, ng\u1EEF c\u1EA3nh, r\xE0ng bu\u1ED9c, ti\xEAu ch\xED ki\u1EC3m tra k\u1EBFt qu\u1EA3."
+    ]
+  },
+  {
+    key: "prompt_iteration",
+    name: "C\u1EA3i ti\u1EBFn prompt",
+    description: "Sinh vi\xEAn d\xF9ng ph\u1EA3n h\u1ED3i c\u1EE7a AI \u0111\u1EC3 tinh ch\u1EC9nh prompt c\xF3 ch\u1EE7 \u0111\xEDch thay v\xEC h\u1ECFi l\u1EA1i y nguy\xEAn ho\u1EB7c ch\u1EA5p nh\u1EADn k\u1EBFt qu\u1EA3 \u0111\u1EA7u ti\xEAn. C\u0103n c\u1EE9: chu\u1ED7i c\xE1c l\u1EA7n s\u1EEDa prompt v\xE0 prompt cu\u1ED1i.",
+    levels: [
+      "Ch\u1EC9 h\u1ECFi m\u1ED9t l\u1EA7n ho\u1EB7c l\u1EB7p l\u1EA1i g\u1EA7n nh\u01B0 nguy\xEAn v\u0103n, kh\xF4ng d\xF9ng ph\u1EA3n h\u1ED3i c\u1EE7a AI.",
+      "C\xF3 s\u1EEDa prompt nh\u01B0ng thay \u0111\u1ED5i ng\u1EABu nhi\xEAn, kh\xF4ng r\xF5 l\xFD do.",
+      "C\xF3 s\u1EEDa theo ph\u1EA3n h\u1ED3i c\u1EE7a AI \u1EDF m\u1ED9t s\u1ED1 l\u1EA7n; ch\u01B0a n\xEAu r\xF5 \u0111i\u1EC1u c\u1EA7n c\u1EA3i thi\u1EC7n.",
+      "S\u1EEDa c\xF3 ch\u1EE7 \u0111\xEDch: ch\u1EC9 ra \u0111i\u1EC3m ch\u01B0a \u1ED5n c\u1EE7a k\u1EBFt qu\u1EA3 tr\u01B0\u1EDBc r\u1ED3i th\xEAm y\xEAu c\u1EA7u c\u1EE5 th\u1EC3.",
+      "C\u1EA3i ti\u1EBFn l\u1EB7p c\xF3 chi\u1EBFn l\u01B0\u1EE3c: m\u1ED7i l\u1EA7n s\u1EEDa \u0111\u1EC1u b\xE1m v\xE0o m\u1ED9t v\u1EA5n \u0111\u1EC1 c\u1EE5 th\u1EC3 v\xE0 prompt cu\u1ED1i t\u1ED1t h\u01A1n r\xF5 r\u1EC7t."
+    ]
+  },
+  {
+    key: "error_detection",
+    name: "Ph\xE1t hi\u1EC7n l\u1ED7i",
+    description: "B\u1EAFt \u0111\u01B0\u1EE3c c\xE1c l\u1ED7i c\xE0i s\u1EB5n (ng\xF4n ng\u1EEF, logic, \u1EA3o gi\xE1c), \xEDt b\u1ECF s\xF3t v\xE0 \xEDt \u0111\xE1nh d\u1EA5u nh\u1EA7m. C\u0103n c\u1EE9 ch\xEDnh: k\u1EBFt qu\u1EA3 \u0111\u1ED1i chi\u1EBFu t\u1EF1 \u0111\u1ED9ng v\u1EDBi danh s\xE1ch l\u1ED7i c\u1EE7a gi\u1EA3ng vi\xEAn.",
+    levels: [
+      "B\u1EAFt \u0111\u01B0\u1EE3c r\u1EA5t \xEDt ho\u1EB7c kh\xF4ng b\u1EAFt \u0111\u01B0\u1EE3c l\u1ED7i n\xE0o; \u0111\xE1nh d\u1EA5u nh\u1EA7m nhi\u1EC1u ch\u1ED7.",
+      "B\u1EAFt \u0111\u01B0\u1EE3c m\u1ED9t ph\u1EA7n nh\u1ECF c\xE1c l\u1ED7i, b\u1ECF s\xF3t ph\u1EA7n l\u1EDBn.",
+      "B\u1EAFt \u0111\u01B0\u1EE3c kho\u1EA3ng m\u1ED9t n\u1EEDa s\u1ED1 l\u1ED7i; c\xF2n b\u1ECF s\xF3t ho\u1EB7c \u0111\xE1nh d\u1EA5u nh\u1EA7m \u0111\xE1ng k\u1EC3.",
+      "B\u1EAFt \u0111\u01B0\u1EE3c ph\u1EA7n l\u1EDBn l\u1ED7i, b\u1ECF s\xF3t \xEDt, h\u1EA7u nh\u01B0 kh\xF4ng \u0111\xE1nh d\u1EA5u nh\u1EA7m.",
+      "B\u1EAFt \u0111\u01B0\u1EE3c g\u1EA7n nh\u01B0 to\xE0n b\u1ED9 l\u1ED7i, k\u1EC3 c\u1EA3 l\u1ED7i kh\xF3 (\u1EA3o gi\xE1c), g\u1EA7n nh\u01B0 kh\xF4ng \u0111\xE1nh d\u1EA5u nh\u1EA7m."
+    ]
+  },
+  {
+    key: "critical_reasoning",
+    name: "L\u1EADp lu\u1EADn ph\u1EA3n bi\u1EC7n",
+    description: "Ghi ch\xFA gi\u1EA3i th\xEDch \u0111\xFAng v\xEC sao \u0111o\u1EA1n \u0111\xF3 sai: g\u1ECDi \u0111\xFAng lo\u1EA1i l\u1ED7i, n\xEAu l\xFD do, \u0111\u1EC1 xu\u1EA5t c\xE1ch s\u1EEDa ho\u1EB7c c\xE1ch ki\u1EC3m ch\u1EE9ng. C\u0103n c\u1EE9: c\xE1c ghi ch\xFA c\u1EE7a sinh vi\xEAn, \u0111\u1ED1i chi\u1EBFu v\u1EDBi \u0111\xE1p \xE1n c\u1EE7a gi\u1EA3ng vi\xEAn.",
+    levels: [
+      "Kh\xF4ng ghi ch\xFA ho\u1EB7c ghi ch\xFA tr\u1ED1ng r\u1ED7ng (\u201Csai\u201D, \u201Cl\u1EA1\u201D).",
+      "Ghi ch\xFA c\xF3 n\xEAu c\u1EA3m nh\u1EADn nh\u01B0ng kh\xF4ng gi\u1EA3i th\xEDch ho\u1EB7c gi\u1EA3i th\xEDch sai.",
+      "Gi\u1EA3i th\xEDch \u0111\xFAng m\u1ED9t ph\u1EA7n; ch\u01B0a g\u1ECDi \u0111\xFAng lo\u1EA1i l\u1ED7i ho\u1EB7c ch\u01B0a n\xEAu c\xE1ch s\u1EEDa.",
+      "Gi\u1EA3i th\xEDch \u0111\xFAng l\xFD do v\xE0 g\u1ECDi \u0111\xFAng lo\u1EA1i l\u1ED7i \u1EDF h\u1EA7u h\u1EBFt c\xE1c l\u1ED7i b\u1EAFt \u0111\u01B0\u1EE3c.",
+      "Gi\u1EA3i th\xEDch ch\xEDnh x\xE1c, \u0111\u1EC1 xu\u1EA5t c\xE1ch s\u1EEDa ho\u1EB7c c\xE1ch ki\u1EC3m ch\u1EE9ng (\u0111\u1EB7c bi\u1EC7t v\u1EDBi \u1EA3o gi\xE1c) cho c\xE1c l\u1ED7i b\u1EAFt \u0111\u01B0\u1EE3c."
+    ]
+  },
+  {
+    key: "revision_ownership",
+    name: "Ch\u1EC9nh s\u1EEDa & l\xE0m ch\u1EE7 v\u0103n b\u1EA3n",
+    description: "B\u1EA3n s\u1EEDa cu\u1ED1i s\u1EEDa \u0111\xFAng c\xE1c l\u1ED7i \u0111\xE3 ph\xE1t hi\u1EC7n, c\u1EA3i thi\u1EC7n th\u1EF1c ch\u1EA5t v\xE0 ph\xF9 h\u1EE3p ng\u01B0\u1EDDi \u0111\u1ECDc; kh\xF4ng gi\u1EEF nguy\xEAn l\u1ED7i, c\u0169ng kh\xF4ng x\xF3a vi\u1EBFt l\u1EA1i v\xF4 c\u0103n c\u1EE9. C\u0103n c\u1EE9: so s\xE1nh b\u1EA3n cu\u1ED1i v\u1EDBi b\u1EA3n AI g\u1ED1c.",
+    levels: [
+      "G\u1EA7n nh\u01B0 gi\u1EEF nguy\xEAn v\u0103n b\u1EA3n AI (k\u1EC3 c\u1EA3 l\u1ED7i) ho\u1EB7c x\xF3a \u0111i vi\u1EBFt l\u1EA1i ho\xE0n to\xE0n kh\xF4ng d\u1EF1a tr\xEAn b\u1EA3n g\u1ED1c.",
+      "S\u1EEDa \xEDt, nhi\u1EC1u l\u1ED7i v\u1EABn c\xF2n; thay \u0111\u1ED5i ch\u1EE7 y\u1EBFu l\xE0 di\u1EC5n \u0111\u1EA1t l\u1EA1i b\u1EC1 m\u1EB7t.",
+      "S\u1EEDa \u0111\u01B0\u1EE3c m\u1ED9t s\u1ED1 l\u1ED7i; c\xF2n l\u1ED7i ho\u1EB7c c\xF3 ch\u1ED7 s\u1EEDa ch\u01B0a \u0111\xFAng.",
+      "S\u1EEDa \u0111\xFAng h\u1EA7u h\u1EBFt l\u1ED7i \u0111\xE3 ph\xE1t hi\u1EC7n, v\u0103n b\u1EA3n m\u1EA1ch l\u1EA1c v\xE0 ph\xF9 h\u1EE3p ng\u01B0\u1EDDi \u0111\u1ECDc.",
+      "S\u1EEDa \u0111\xFAng v\xE0 c\u1EA3i thi\u1EC7n th\u1EF1c ch\u1EA5t (l\u1EADp lu\u1EADn, b\u1EB1ng ch\u1EE9ng, gi\u1ECDng v\u0103n), gi\u1EEF \u0111\u01B0\u1EE3c c\u1EA5u tr\xFAc h\u1EE3p l\xFD c\u1EE7a b\u1EA3n g\u1ED1c."
+    ]
+  }
+];
+var normWs = (s) => s.replace(/\s+/g, " ").trim();
+function findPhraseRange(text, phrase) {
+  if (!phrase) return null;
+  let i = text.indexOf(phrase);
+  if (i < 0) i = text.toLowerCase().indexOf(phrase.toLowerCase());
+  return i < 0 ? null : { start: i, end: i + phrase.length };
+}
+var overlapLen = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+function matchErrors(errors, highlights) {
+  const hits = [];
+  for (const e of errors) {
+    for (const h of highlights) {
+      const o = overlapLen(e.start, e.end, h.start, h.end);
+      if (o > 0 && (o >= 0.4 * (e.end - e.start) || o >= 0.8 * (h.end - h.start))) hits.push({ error: e, highlight: h, overlap: o });
+    }
+  }
+  const caught = errors.map((e) => hits.filter((x) => x.error.id === e.id).sort((a, b) => b.overlap - a.overlap)[0]).filter(Boolean);
+  const caughtIds = new Set(caught.map((c) => c.error.id));
+  const hitHighlightIds = new Set(hits.map((x) => x.highlight.id));
+  const missed = errors.filter((e) => !caughtIds.has(e.id));
+  const falsePositives = highlights.filter((h) => !hitHighlightIds.has(h.id));
+  return {
+    caught,
+    missed,
+    false_positives: falsePositives,
+    recall: errors.length ? caught.length / errors.length : 1,
+    precision: highlights.length ? (highlights.length - falsePositives.length) / highlights.length : 0
+  };
+}
+var tokenize = (s) => s.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 1200);
+function wordSimilarity(a, b) {
+  const x = tokenize(a), y = tokenize(b);
+  if (!x.length && !y.length) return 1;
+  if (!x.length || !y.length) return 0;
+  let prev = new Array(y.length + 1).fill(0);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = new Array(y.length + 1).fill(0);
+    for (let j = 1; j <= y.length; j++) cur[j] = x[i - 1] === y[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1]);
+    prev = cur;
+  }
+  return 2 * prev[y.length] / (x.length + y.length);
+}
+
+// server.ts
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -1277,7 +1386,7 @@ app.get("/api/courses/:id", (req, res) => {
   const owner = isOwner(course, req.user);
   const members = db.course_members.filter((m) => m.course_id === course.id);
   const assignments = db.assignments.filter((a) => a.course_id === course.id).map((a) => {
-    const out = { ...a };
+    const out = { ...publicAssignment(a, req.user) };
     if (!owner) {
       const sub = db.submissions.find((s) => s.assignment_id === a.id && s.student_id === req.user.id);
       out.submission_status = sub ? sub.status : "not_submitted";
@@ -1295,6 +1404,40 @@ app.get("/api/courses/:id", (req, res) => {
   const { invite_code, ...rest } = course;
   res.json({ success: true, data: { ...owner ? course : rest, members, assignments } });
 });
+function sanitizeL2(raw) {
+  const ai_text = String(raw?.ai_text ?? "").replace(/\r\n/g, "\n").trimEnd().slice(0, 8e3);
+  if (ai_text.trim().length < 20) return { error: "V\u0103n b\u1EA3n AI qu\xE1 ng\u1EAFn (t\u1ED1i thi\u1EC3u 20 k\xFD t\u1EF1)." };
+  const rawErrors = Array.isArray(raw?.errors) ? raw.errors.slice(0, 25) : [];
+  const errors = [];
+  for (const e of rawErrors) {
+    const phrase = String(e?.text ?? "").trim();
+    if (!phrase) continue;
+    const range = findPhraseRange(ai_text, phrase);
+    if (!range) return { error: `Kh\xF4ng t\xECm th\u1EA5y \u0111o\u1EA1n l\u1ED7i \u201C${phrase.slice(0, 40)}\u201D trong v\u0103n b\u1EA3n AI. H\xE3y ch\u1ECDn l\u1EA1i \u0111o\u1EA1n l\u1ED7i t\u1EEB ch\xEDnh v\u0103n b\u1EA3n.` };
+    if (errors.some((x) => range.start < x.end && range.end > x.start)) return { error: `\u0110o\u1EA1n l\u1ED7i \u201C${phrase.slice(0, 40)}\u201D b\u1ECB ch\u1ED3ng l\xEAn m\u1ED9t l\u1ED7i kh\xE1c.` };
+    errors.push({
+      id: typeof e?.id === "string" && e.id ? e.id : uid("err"),
+      type: L2_ERROR_TYPES.includes(e?.type) ? e.type : "language",
+      text: ai_text.slice(range.start, range.end),
+      answer: String(e?.answer ?? "").trim().slice(0, 1e3),
+      start: range.start,
+      end: range.end
+    });
+  }
+  if (errors.length === 0) return { error: "C\u1EA7n \u0111\xE1nh d\u1EA5u \xEDt nh\u1EA5t m\u1ED9t l\u1ED7i c\xE0i s\u1EB5n trong v\u0103n b\u1EA3n AI." };
+  errors.sort((a, b) => a.start - b.start);
+  const rawDims = Array.isArray(raw?.dimensions) ? raw.dimensions : [];
+  const dimensions = DEFAULT_L2_DIMENSIONS.map((d) => {
+    const r = rawDims.find((x) => x?.key === d.key);
+    const levels = Array.isArray(r?.levels) && r.levels.length === 5 ? r.levels.map((l, i) => String(l ?? "").trim().slice(0, 400) || d.levels[i]) : d.levels;
+    return { key: d.key, name: String(r?.name ?? "").trim().slice(0, 80) || d.name, description: String(r?.description ?? "").trim().slice(0, 600) || d.description, levels };
+  });
+  return { l2: { ai_text, errors, dimensions, prompt_language: raw?.prompt_language === "bilingual" ? "bilingual" : "en" } };
+}
+function publicAssignment(a, user) {
+  if (a?.l2 && user?.role === "student") return { ...a, l2: { ...a.l2, errors: [] } };
+  return a;
+}
 function sanitizeAssignmentInput(body) {
   const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late } = body || {};
   return {
@@ -1303,7 +1446,7 @@ function sanitizeAssignmentInput(body) {
     rubric: rubric ?? "",
     due_date,
     attachments: Array.isArray(attachments) ? attachments : [],
-    submission_mode: ["file_only", "ai_chat_only", "both"].includes(submission_mode) ? submission_mode : "both",
+    submission_mode: ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both",
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true
   };
@@ -1315,6 +1458,12 @@ app.post("/api/courses/:id/assignments", (req, res) => {
   if (!can(req.user, "manage_assignments")) return denied(res);
   const input = sanitizeAssignmentInput(req.body);
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Ti\xEAu \u0111\u1EC1 v\xE0 h\u1EA1n n\u1ED9p h\u1EE3p l\u1EC7 l\xE0 b\u1EAFt bu\u1ED9c.");
+  if (input.submission_mode === "writing_l2") {
+    const r = sanitizeL2(req.body?.l2);
+    if (r.error) return fail(res, 400, r.error);
+    input.l2 = r.l2;
+    input.ai_submode = "socratic";
+  }
   const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
   db.assignments.unshift(a);
   saveDocument("assignments", a.id, a);
@@ -1330,6 +1479,17 @@ app.put("/api/assignments/:id", (req, res) => {
   if (!can(req.user, "manage_assignments")) return denied(res);
   const input = sanitizeAssignmentInput({ ...a, ...req.body });
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Ti\xEAu \u0111\u1EC1 v\xE0 h\u1EA1n n\u1ED9p h\u1EE3p l\u1EC7 l\xE0 b\u1EAFt bu\u1ED9c.");
+  const hasWork = db.submissions.some((x) => x.assignment_id === a.id && (x.l2_work || isSubmitted(x)));
+  if (input.submission_mode !== a.submission_mode && hasWork) return fail(res, 409, "\u0110\xE3 c\xF3 sinh vi\xEAn l\xE0m b\xE0i n\xEAn kh\xF4ng th\u1EC3 \u0111\u1ED5i h\xECnh th\u1EE9c b\xE0i t\u1EADp.");
+  if (input.submission_mode === "writing_l2") {
+    const r = sanitizeL2(req.body?.l2 ?? a.l2);
+    if (r.error) return fail(res, 400, r.error);
+    if (hasWork && a.l2 && r.l2.ai_text !== a.l2.ai_text) return fail(res, 409, "\u0110\xE3 c\xF3 sinh vi\xEAn l\xE0m b\xE0i n\xEAn kh\xF4ng th\u1EC3 \u0111\u1ED5i v\u0103n b\u1EA3n AI.");
+    input.l2 = r.l2;
+    input.ai_submode = "socratic";
+  } else {
+    input.l2 = void 0;
+  }
   Object.assign(a, input, { updated_at: nowIso() });
   saveDocument("assignments", a.id, a);
   res.json({ success: true, data: a, message: "\u0110\xE3 c\u1EADp nh\u1EADt b\xE0i t\u1EADp." });
@@ -1352,7 +1512,9 @@ app.get("/api/assignments/:id", (req, res) => {
     submission = db.submissions.find((s) => s.assignment_id === assignment.id && s.student_id === req.user.id) || null;
     chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment.id && cs.student_id === req.user.id) || null;
   }
-  res.json({ success: true, data: { assignment, course_name: course.name, submission, chat_session: chatSession } });
+  const extra = {};
+  if (req.user.role === "student" && assignment.l2 && submission && isSubmitted(submission)) extra.l2_feedback = studentL2Feedback(assignment, submission);
+  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: chatSession, ...extra } });
 });
 app.get("/api/assignments/:id/submissions", (req, res) => {
   const assignment = db.assignments.find((a) => a.id === req.params.id);
@@ -1382,7 +1544,7 @@ app.get("/api/submissions/:id", (req, res) => {
   const course = assignment && findCourse(assignment.course_id);
   if (!isOwner(course, req.user) && sub.student_id !== req.user.id) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem b\xE0i n\u1ED9p n\xE0y.");
   const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
-  res.json({ success: true, data: { submission: sub, assignment, chat_session: chatSession } });
+  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: chatSession } });
 });
 app.put("/api/submissions/:id/grade", (req, res) => {
   const sub = db.submissions.find((s) => s.id === req.params.id);
@@ -1406,6 +1568,21 @@ app.post("/api/submissions/:id/reevaluate", async (req, res) => {
   if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n.");
   if (!can(req.user, "grade")) return denied(res);
   const chat = db.chat_sessions.find((cs) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
+  if (assignment?.l2 && sub.l2_work) {
+    try {
+      sub.l2_report = computeL2Report(assignment, sub);
+      sub.l2_result = await evaluateL2(assignment, sub, chat, sub.l2_report);
+      sub.eval_status = "ok";
+      sub.eval_error = void 0;
+      saveDocument("submissions", sub.id, sub);
+      return res.json({ success: true, data: sub, message: "\u0110\xE3 ch\u1EA5m l\u1EA1i b\u1EB1ng AI." });
+    } catch (e) {
+      sub.eval_status = "failed";
+      sub.eval_error = e.message;
+      saveDocument("submissions", sub.id, sub);
+      return fail(res, 502, "AI ch\u01B0a ch\u1EA5m \u0111\u01B0\u1EE3c: " + e.message);
+    }
+  }
   if (!chat || !chat.messages.some((m) => m.role === "user")) return fail(res, 400, "B\xE0i n\u1ED9p n\xE0y kh\xF4ng c\xF3 nh\u1EADt k\xFD chat \u0111\u1EC3 ch\u1EA5m.");
   try {
     sub.process_score_result = await evaluateProcess(assignment, chat, sub.submitted_text);
@@ -1507,6 +1684,308 @@ app.post("/api/submissions/draft", (req, res) => {
   saveDocument("submissions", sub.id, sub);
   res.json({ success: true, data: { draft_saved_at: sub.draft_saved_at } });
 });
+var l2Lang = (a) => a.l2?.prompt_language === "bilingual" ? "Reply in the language the student used (English or Vietnamese)." : "Reply in English only. If the student writes in another language, still answer in English and remind them to write prompts in English.";
+function l2ChatInstruction(assignment, course, phase) {
+  if (phase === "prompt") {
+    return `You are an AI writing assistant in a second-language (L2) writing course (${course?.name || "course"}). The student must complete this writing task: """${assignment.description}""".
+In this step you may ONLY help with planning: brainstorm ideas and give a short bullet-point OUTLINE (at most 6 bullets, phrases not sentences).
+NEVER write full sentences or paragraphs of the final text, even if asked; say that in this step you can only help with an outline.
+If the request is vague, ask ONE short clarifying question about the goal, the reader or the constraints.
+${l2Lang(assignment)}`;
+  }
+  return `You are a Socratic tutor. The student is critically reading the following AI-generated text to find hidden problems (language errors, logical errors, invented facts).
+TEXT: """${assignment.l2.ai_text}"""
+Rules: NEVER say which word, sentence or claim is wrong, never list errors, and never confirm or deny that a specific phrase is an error. Ask one or two short guiding questions and suggest strategies (check articles and agreement, check connectors and logic, verify numbers, names and sources). Keep answers brief.
+${l2Lang(assignment)}`;
+}
+function studentL2Feedback(assignment, sub) {
+  const errors = assignment.l2?.errors || [];
+  const rep = sub.l2_report;
+  if (!rep) return null;
+  const byId = new Map(errors.map((e) => [e.id, e]));
+  const afterDeadline = Date.now() > new Date(assignment.due_date).getTime();
+  return {
+    total: rep.total,
+    caught: rep.caught.map((c) => {
+      const e = byId.get(c.error_id);
+      return { type: e?.type, text: e?.text, answer: e?.answer, note: c.note };
+    }),
+    missed_count: rep.missed.length,
+    missed: afterDeadline ? rep.missed.map((id) => {
+      const e = byId.get(id);
+      return { type: e?.type, text: e?.text, answer: e?.answer };
+    }) : [],
+    false_positive_count: rep.false_positives.length,
+    recall: rep.recall,
+    precision: rep.precision
+  };
+}
+function computeL2Report(assignment, sub) {
+  const l2 = assignment.l2;
+  const work = sub.l2_work;
+  const m = matchErrors(l2.errors, work.highlights || []);
+  const finalText = work.revision?.text || "";
+  const normFinal = normWs(finalText).toLowerCase();
+  const sim = wordSimilarity(l2.ai_text, finalText);
+  const snaps = (work.revision?.snapshots || []).slice(-40);
+  for (const sn of snaps) sn.sim = Math.round(wordSimilarity(l2.ai_text, sn.text) * 100) / 100;
+  return {
+    total: l2.errors.length,
+    caught: m.caught.map((c) => ({ error_id: c.error.id, highlight_id: c.highlight.id, note: c.highlight.note })),
+    missed: m.missed.map((e) => e.id),
+    false_positives: m.false_positives.map((h) => h.id),
+    recall: Math.round(m.recall * 100) / 100,
+    precision: Math.round(m.precision * 100) / 100,
+    remained: l2.errors.filter((e) => normFinal.includes(normWs(e.text).toLowerCase())).map((e) => e.id),
+    similarity_to_original: Math.round(sim * 100) / 100,
+    timeline: snaps.map((sn) => ({ t: sn.t, sim: sn.sim ?? 0 })),
+    rewritten_from_scratch: sim < 0.35
+  };
+}
+async function evaluateL2(assignment, sub, chat, report) {
+  if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
+  const l2 = assignment.l2;
+  const work = sub.l2_work;
+  const msgs = chat?.messages || [];
+  const transcript = (phase) => msgs.filter((m) => m.phase === phase).map((m) => `${m.role === "user" ? "STUDENT" : "AI"}: ${m.content}`).join("\n").slice(-12e3);
+  const errById = new Map(l2.errors.map((e) => [e.id, e]));
+  const evidence = {
+    writing_task: assignment.description,
+    prompt_language_policy: l2.prompt_language === "en" ? "English only" : "English or Vietnamese allowed",
+    prompt_history: (work.prompt_history || []).map((p) => p.text),
+    final_prompt: work.final_prompt,
+    prompt_phase_chat: transcript("prompt"),
+    ai_text: l2.ai_text,
+    planted_errors: l2.errors.map((e) => ({ id: e.id, type: e.type, text: e.text, teacher_answer: e.answer })),
+    student_highlights: (work.highlights || []).map((h) => ({ id: h.id, text: h.text, note: h.note })),
+    critique_phase_chat: transcript("critique"),
+    automatic_matching: {
+      caught: report.caught.map((c) => ({ error_id: c.error_id, error_text: errById.get(c.error_id)?.text, student_note: c.note })),
+      missed_error_ids: report.missed,
+      false_positive_highlight_ids: report.false_positives,
+      recall: report.recall,
+      precision: report.precision
+    },
+    final_text: work.revision?.text,
+    similarity_to_original_0_to_1: report.similarity_to_original,
+    planted_errors_still_in_final_text: report.remained,
+    rewritten_from_scratch: report.rewritten_from_scratch
+  };
+  const rubric = l2.dimensions.map((d, i) => `${i + 1}. ${d.key} \u2014 ${d.name}: ${d.description}
+` + d.levels.map((lv, k) => `   ${k + 1} = ${lv}`).join("\n")).join("\n");
+  const instruction = `B\u1EA1n ch\u1EA5m m\u1ED9t b\xE0i "Vi\u1EBFt L2" (vi\u1EBFt b\u1EB1ng ngo\u1EA1i ng\u1EEF c\xF3 AI h\u1ED7 tr\u1EE3) theo 5 chi\u1EC1u, thang 1-5, \u0111\xFAng theo b\u1EA3ng ti\xEAu ch\xED d\u01B0\u1EDBi \u0111\xE2y. H\xE3y nghi\xEAm kh\u1EAFc v\xE0 trung th\u1EF1c, ch\u1EC9 d\u1EF1a tr\xEAn b\u1EB1ng ch\u1EE9ng \u0111\u01B0\u1EE3c cung c\u1EA5p.
+
+B\u1EA2NG TI\xCAU CH\xCD:
+${rubric}
+
+QUY T\u1EAEC:
+- Chi\u1EC1u prompt_quality v\xE0 prompt_iteration ch\u1EC9 ch\u1EA5m t\u1EEB nh\u1EADt k\xFD prompt. \u0110\xE1nh gi\xE1 \xFD \u0111\u1ECBnh, b\u1ED1i c\u1EA3nh, r\xE0ng bu\u1ED9c v\xE0 chi\u1EBFn l\u01B0\u1EE3c; KH\xD4NG tr\u1EEB \u0111i\u1EC3m v\xEC ng\u1EEF ph\xE1p hay tr\xECnh \u0111\u1ED9 ngo\u1EA1i ng\u1EEF.
+- Chi\u1EC1u error_detection: d\xF9ng k\u1EBFt qu\u1EA3 \u0111\u1ED1i chi\u1EBFu t\u1EF1 \u0111\u1ED9ng ("automatic_matching") l\xE0m c\u0103n c\u1EE9 ch\xEDnh, kh\xF4ng t\u1EF1 \u0111o\xE1n l\u1EA1i l\u1ED7i n\xE0o \u0111\u01B0\u1EE3c b\u1EAFt. N\u1EBFu recall = 0 th\xEC \u0111i\u1EC3m t\u1ED1i \u0111a l\xE0 2. Precision th\u1EA5p (\u0111\xE1nh d\u1EA5u nh\u1EA7m nhi\u1EC1u) th\xEC h\u1EA1 \u0111i\u1EC3m.
+- Chi\u1EC1u critical_reasoning: ch\u1EC9 x\xE9t c\xE1c l\u1ED7i \u0111\xE3 b\u1EAFt; so ghi ch\xFA c\u1EE7a sinh vi\xEAn v\u1EDBi "teacher_answer" (g\u1ECDi \u0111\xFAng lo\u1EA1i l\u1ED7i? gi\u1EA3i th\xEDch \u0111\xFAng? \u0111\u1EC1 xu\u1EA5t c\xE1ch s\u1EEDa/ki\u1EC3m ch\u1EE9ng?). Kh\xF4ng c\xF3 ghi ch\xFA n\xE0o th\xEC \u0111i\u1EC3m 1.
+- Chi\u1EC1u revision_ownership: d\u1EF1a tr\xEAn final_text so v\u1EDBi ai_text, "planted_errors_still_in_final_text" v\xE0 "similarity_to_original". L\u1ED7i c\xF2n nguy\xEAn th\xEC h\u1EA1 \u0111i\u1EC3m; rewritten_from_scratch = true th\xEC \u0111i\u1EC3m t\u1ED1i \u0111a l\xE0 2.
+- M\u1ED7i chi\u1EC1u: "score" (s\u1ED1 nguy\xEAn 1-5), "comment" (2 c\xE2u ti\u1EBFng Vi\u1EC7t, n\xEAu l\xFD do), "evidence" (1-3 m\u1EE5c: "quote" tr\xEDch NGUY\xCAN V\u0102N t\u1EEB b\u1EB1ng ch\u1EE9ng, "mau" = xanh (\u0111i\u1EC3m m\u1EA1nh) | vang (c\u1EA7n l\xE0m r\xF5) | do (v\u1EA5n \u0111\u1EC1), "ly_do").
+- "overall_comment": 2-3 c\xE2u ti\u1EBFng Vi\u1EC7t t\xF3m t\u1EAFt \u0111i\u1EC3m m\u1EA1nh v\xE0 vi\u1EC7c c\u1EA7n c\u1EA3i thi\u1EC7n.
+- Ph\u1EA3i tr\u1EA3 \u0111\u1EE7 c\u1EA3 5 chi\u1EC1u v\u1EDBi \u0111\xFAng "key" nh\u01B0 b\u1EA3ng.`;
+  const response = await generateWithFallback({
+    contents: [{ role: "user", parts: [{ text: `${instruction}
+
+B\u1EB0NG CH\u1EE8NG (JSON):
+${JSON.stringify(evidence)}` }] }],
+    config: {
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          dimensions: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                key: { type: Type.STRING },
+                score: { type: Type.INTEGER },
+                comment: { type: Type.STRING },
+                evidence: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { quote: { type: Type.STRING }, mau: { type: Type.STRING }, ly_do: { type: Type.STRING } }, required: ["quote", "mau", "ly_do"] } }
+              },
+              required: ["key", "score", "comment", "evidence"]
+            }
+          },
+          overall_comment: { type: Type.STRING }
+        },
+        required: ["dimensions", "overall_comment"]
+      }
+    }
+  }, 6e4);
+  if (!response.text) throw new Error("AI tr\u1EA3 v\u1EC1 n\u1ED9i dung r\u1ED7ng.");
+  const parsed = JSON.parse(response.text.trim());
+  const dims = DEFAULT_L2_DIMENSIONS.map((d) => {
+    const r = (parsed.dimensions || []).find((x) => x?.key === d.key);
+    if (!r) throw new Error(`AI kh\xF4ng tr\u1EA3 v\u1EC1 chi\u1EC1u "${d.key}".`);
+    return {
+      key: d.key,
+      score: Math.max(1, Math.min(5, Math.round(Number(r.score) || 1))),
+      comment: String(r.comment || ""),
+      evidence: (Array.isArray(r.evidence) ? r.evidence : []).slice(0, 3).map((ev) => ({ quote: String(ev?.quote || ""), mau: ["xanh", "vang", "do"].includes(ev?.mau) ? ev.mau : "vang", ly_do: String(ev?.ly_do || "") }))
+    };
+  });
+  const d3 = dims.find((d) => d.key === "error_detection");
+  if (report.recall === 0) d3.score = Math.min(d3.score, 2);
+  const d5 = dims.find((d) => d.key === "revision_ownership");
+  if (report.rewritten_from_scratch) d5.score = Math.min(d5.score, 2);
+  return { dimensions: dims, overall_comment: String(parsed.overall_comment || "") };
+}
+function l2Student(req, res) {
+  if (req.user.role !== "student") {
+    fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi l\xE0m b\xE0i n\xE0y.");
+    return null;
+  }
+  if (!can(req.user, "submit")) {
+    denied(res);
+    return null;
+  }
+  const assignment = db.assignments.find((a) => a.id === req.params.id);
+  if (!assignment || assignment.submission_mode !== "writing_l2" || !assignment.l2) {
+    fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp Vi\u1EBFt L2.");
+    return null;
+  }
+  if (!isMember(assignment.course_id, req.user)) {
+    fail(res, 403, "B\u1EA1n kh\xF4ng thu\u1ED9c m\xF4n h\u1ECDc n\xE0y.");
+    return null;
+  }
+  if (/* @__PURE__ */ new Date() > new Date(assignment.due_date) && assignment.allow_late === false) {
+    fail(res, 403, "B\xE0i t\u1EADp \u0111\xE3 kh\xF3a sau h\u1EA1n n\u1ED9p.");
+    return null;
+  }
+  let sub = db.submissions.find((s) => s.assignment_id === assignment.id && s.student_id === req.user.id);
+  if (sub && isSubmitted(sub)) {
+    fail(res, 409, "B\u1EA1n \u0111\xE3 n\u1ED9p b\xE0i n\xE0y r\u1ED3i.");
+    return null;
+  }
+  if (!sub) {
+    sub = { id: uid("sub"), assignment_id: assignment.id, student_id: req.user.id, student_name: req.user.name, student_email: req.user.email, student_avatar: req.user.avatar, submitted_files: [], submitted_text: "", status: "draft" };
+    db.submissions.push(sub);
+  }
+  if (!sub.l2_work) sub.l2_work = { step: 1, highlights: [], revision: { text: "", snapshots: [], stats: { typed: 0, deleted: 0, pasted: 0 } }, step_times: { s1: nowIso() } };
+  return { assignment, sub };
+}
+app.post("/api/l2/:id/lock-prompt", (req, res) => {
+  const ctx = l2Student(req, res);
+  if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work = sub.l2_work;
+  if (work.step !== 1) return fail(res, 409, "B\u01B0\u1EDBc 1 \u0111\xE3 \u0111\u01B0\u1EE3c ch\u1ED1t.");
+  const finalPrompt = String(req.body?.final_prompt ?? "").trim();
+  if (finalPrompt.length < 5) return fail(res, 400, "H\xE3y nh\u1EADp prompt cu\u1ED1i c\xF9ng c\u1EE7a b\u1EA1n (t\u1ED1i thi\u1EC3u 5 k\xFD t\u1EF1).");
+  const chat = db.chat_sessions.find((cs) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
+  const prompts = (chat?.messages || []).filter((m) => m.phase === "prompt" && m.role === "user");
+  if (prompts.length < 1) return fail(res, 400, "H\xE3y trao \u0111\u1ED5i v\u1EDBi tr\u1EE3 l\xFD AI \xEDt nh\u1EA5t m\u1ED9t l\u1EA7n tr\u01B0\u1EDBc khi ch\u1ED1t prompt.");
+  work.final_prompt = finalPrompt.slice(0, 4e3);
+  work.prompt_history = prompts.map((m) => ({ text: String(m.content).slice(0, 4e3), at: m.timestamp }));
+  work.step = 2;
+  work.step_times = { ...work.step_times, s2: nowIso() };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub });
+});
+app.put("/api/l2/:id/critique", (req, res) => {
+  const ctx = l2Student(req, res);
+  if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work = sub.l2_work;
+  if (work.step !== 2) return fail(res, 409, "B\u01B0\u1EDBc ph\u1EA3n bi\u1EC7n ch\u01B0a m\u1EDF ho\u1EB7c \u0111\xE3 \u0111\xF3ng.");
+  const text = assignment.l2.ai_text;
+  const raw = Array.isArray(req.body?.highlights) ? req.body.highlights.slice(0, 40) : [];
+  const out = [];
+  for (const h of raw) {
+    const start = Number(h?.start), end = Number(h?.end);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > text.length || end <= start) return fail(res, 400, "V\xF9ng \u0111\xE1nh d\u1EA5u kh\xF4ng h\u1EE3p l\u1EC7.");
+    out.push({ id: typeof h?.id === "string" && h.id ? h.id : uid("hl"), start, end, text: text.slice(start, end), note: String(h?.note ?? "").trim().slice(0, 500) });
+  }
+  out.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < out.length; i++) if (out[i].start < out[i - 1].end) return fail(res, 400, "Hai v\xF9ng \u0111\xE1nh d\u1EA5u kh\xF4ng \u0111\u01B0\u1EE3c ch\u1ED3ng l\xEAn nhau.");
+  work.highlights = out;
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: { highlights: out } });
+});
+app.post("/api/l2/:id/finish-critique", (req, res) => {
+  const ctx = l2Student(req, res);
+  if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work = sub.l2_work;
+  if (work.step !== 2) return fail(res, 409, "B\u01B0\u1EDBc ph\u1EA3n bi\u1EC7n ch\u01B0a m\u1EDF ho\u1EB7c \u0111\xE3 \u0111\xF3ng.");
+  if (!work.highlights.length) return fail(res, 400, "H\xE3y \u0111\xE1nh d\u1EA5u \xEDt nh\u1EA5t m\u1ED9t \u0111o\u1EA1n nghi ng\u1EDD tr\u01B0\u1EDBc khi sang b\u01B0\u1EDBc ch\u1EC9nh s\u1EEDa.");
+  if (work.highlights.some((h) => !h.note)) return fail(res, 400, "M\u1ED7i \u0111o\u1EA1n \u0111\xE1nh d\u1EA5u c\u1EA7n c\xF3 ghi ch\xFA l\xFD do.");
+  work.step = 3;
+  work.revision = { text: assignment.l2.ai_text, snapshots: [{ t: nowIso(), text: assignment.l2.ai_text }], stats: { typed: 0, deleted: 0, pasted: 0 } };
+  work.step_times = { ...work.step_times, s3: nowIso() };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub });
+});
+app.put("/api/l2/:id/revision", (req, res) => {
+  const ctx = l2Student(req, res);
+  if (!ctx) return;
+  const { sub } = ctx;
+  const work = sub.l2_work;
+  if (work.step !== 3) return fail(res, 409, "B\u01B0\u1EDBc ch\u1EC9nh s\u1EEDa ch\u01B0a m\u1EDF.");
+  const text = String(req.body?.text ?? "");
+  if (text.length > 2e4) return fail(res, 413, "V\u0103n b\u1EA3n qu\xE1 d\xE0i.");
+  const snaps = (Array.isArray(req.body?.snapshots) ? req.body.snapshots : []).slice(-60).map((x) => ({ t: String(x?.t || nowIso()), text: String(x?.text ?? "").slice(0, 6e3) }));
+  const n = (v) => Math.max(0, Math.min(1e7, Math.floor(Number(v) || 0)));
+  work.revision = { text, snapshots: snaps.length ? snaps : work.revision.snapshots, stats: { typed: n(req.body?.stats?.typed), deleted: n(req.body?.stats?.deleted), pasted: n(req.body?.stats?.pasted) } };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: { saved_at: nowIso() } });
+});
+async function submitL2(req, res, assignment, sub, isLate) {
+  const work = sub?.l2_work;
+  if (!sub || !work || work.step !== 3) return fail(res, 400, "B\u1EA1n c\u1EA7n ho\xE0n th\xE0nh c\u1EA3 3 b\u01B0\u1EDBc tr\u01B0\u1EDBc khi n\u1ED9p.");
+  if (!work.revision.text.trim()) return fail(res, 400, "B\u1EA3n ch\u1EC9nh s\u1EEDa \u0111ang tr\u1ED1ng.");
+  const chat = db.chat_sessions.find((cs) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
+  const report = computeL2Report(assignment, sub);
+  let result, evalStatus = "ok", evalError;
+  try {
+    result = await evaluateL2(assignment, sub, chat, report);
+  } catch (e) {
+    console.error("L2 evaluation error:", e?.message || e);
+    evalStatus = "failed";
+    evalError = e?.message || "L\u1ED7i kh\xF4ng x\xE1c \u0111\u1ECBnh";
+  }
+  Object.assign(sub, {
+    submitted_at: nowIso(),
+    submitted_text: work.revision.text,
+    submitted_files: [],
+    chat_session_id: chat?.id,
+    l2_report: report,
+    l2_result: result,
+    eval_status: evalStatus,
+    eval_error: evalError,
+    status: isLate ? "late" : "submitted"
+  });
+  if (chat) {
+    chat.submission_id = sub.id;
+    saveDocument("chat_sessions", chat.id, chat);
+  }
+  saveDocument("submissions", sub.id, sub);
+  const course = findCourse(assignment.course_id);
+  if (course) addNotification(course.teacher_id, "C\xF3 b\xE0i n\u1ED9p m\u1EDBi", `${req.user.name} \u0111\xE3 n\u1ED9p "${assignment.title}"${isLate ? " (tr\u1EC5 h\u1EA1n)" : ""}.`, `/course/${course.id}/assignment/${assignment.id}`);
+  res.json({ success: true, data: sub, message: evalStatus === "failed" ? "N\u1ED9p b\xE0i th\xE0nh c\xF4ng. Ph\u1EA7n ch\u1EA5m b\u1EB1ng AI s\u1EBD \u0111\u01B0\u1EE3c gi\u1EA3ng vi\xEAn ch\u1EA1y l\u1EA1i sau." : "N\u1ED9p b\xE0i th\xE0nh c\xF4ng!" });
+}
+app.put("/api/submissions/:id/l2-scores", (req, res) => {
+  const sub = db.submissions.find((s) => s.id === req.params.id);
+  if (!sub) return fail(res, 404, "B\xE0i n\u1ED9p kh\xF4ng t\u1ED3n t\u1EA1i.");
+  const assignment = db.assignments.find((a) => a.id === sub.assignment_id);
+  if (!assignment?.l2 || !isOwner(findCourse(assignment.course_id), req.user)) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n ch\u1EA5m b\xE0i n\xE0y.");
+  if (!can(req.user, "grade")) return denied(res);
+  const scores = {};
+  for (const d of DEFAULT_L2_DIMENSIONS) {
+    const v = req.body?.scores?.[d.key];
+    if (v === void 0 || v === null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > 5) return fail(res, 400, "\u0110i\u1EC3m m\u1ED7i chi\u1EC1u ph\u1EA3i l\xE0 s\u1ED1 nguy\xEAn t\u1EEB 1 \u0111\u1EBFn 5.");
+    scores[d.key] = n;
+  }
+  sub.l2_teacher_scores = scores;
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub, message: "\u0110\xE3 l\u01B0u \u0111i\u1EC3m t\u1EEBng chi\u1EC1u." });
+});
 var chatHits = /* @__PURE__ */ new Map();
 function chatRateLimited(userId) {
   const now = Date.now();
@@ -1523,6 +2002,7 @@ app.post("/api/chat/message", async (req, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi tr\xF2 chuy\u1EC7n trong b\xE0i t\u1EADp.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
   const { assignment_id, message_content } = req.body || {};
+  const phase = req.body?.phase === "critique" ? "critique" : req.body?.phase === "prompt" ? "prompt" : void 0;
   if (!assignment_id || !message_content || typeof message_content !== "string") return fail(res, 400, "Thi\u1EBFu th\xF4ng tin tin nh\u1EAFn.");
   if (message_content.length > 3e4) return fail(res, 413, "Tin nh\u1EAFn qu\xE1 d\xE0i (t\u1ED1i \u0111a 30.000 k\xFD t\u1EF1).");
   const assignment = db.assignments.find((a) => a.id === assignment_id);
@@ -1532,6 +2012,12 @@ app.post("/api/chat/message", async (req, res) => {
   if (assignment.submission_mode === "file_only") return fail(res, 400, "B\xE0i t\u1EADp n\xE0y ch\u1EC9 n\u1ED9p file, kh\xF4ng c\xF3 AI chat.");
   const existing = db.submissions.find((s) => s.assignment_id === assignment_id && s.student_id === req.user.id);
   if (existing && isSubmitted(existing)) return fail(res, 409, "B\xE0i \u0111\xE3 n\u1ED9p, cu\u1ED9c tr\xF2 chuy\u1EC7n \u0111\xE3 \u0111\u01B0\u1EE3c kh\xF3a.");
+  const isL2 = assignment.submission_mode === "writing_l2" && !!assignment.l2;
+  if (isL2) {
+    if (!phase) return fail(res, 400, "Thi\u1EBFu th\xF4ng tin b\u01B0\u1EDBc l\xE0m b\xE0i.");
+    const step = existing?.l2_work?.step ?? 1;
+    if (phase === "prompt" && step !== 1 || phase === "critique" && step !== 2) return fail(res, 409, "B\u01B0\u1EDBc n\xE0y ch\u01B0a m\u1EDF ho\u1EB7c \u0111\xE3 \u0111\u01B0\u1EE3c ch\u1ED1t.");
+  }
   if (chatRateLimited(req.user.id)) return fail(res, 429, "B\u1EA1n g\u1EEDi qu\xE1 nhanh, vui l\xF2ng \u0111\u1EE3i v\xE0i ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.");
   let chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   if (!chatSession) {
@@ -1539,20 +2025,22 @@ app.post("/api/chat/message", async (req, res) => {
     db.chat_sessions.push(chatSession);
   }
   const userMsg = { id: uid("m"), role: "user", content: message_content, timestamp: nowIso() };
+  if (isL2) userMsg.phase = phase;
   chatSession.messages.push(userMsg);
-  const systemInstruction = assignment.ai_submode === "socratic" ? `B\u1EA1n l\xE0 tr\u1EE3 l\xFD h\u1ECDc t\u1EADp AI trong m\xF4n ${course.name}, h\u1ED7 tr\u1EE3 sinh vi\xEAn l\xE0m b\xE0i t\u1EADp: ${assignment.title}. M\xF4 t\u1EA3 b\xE0i t\u1EADp: ${assignment.description}.
+  const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase) : assignment.ai_submode === "socratic" ? `B\u1EA1n l\xE0 tr\u1EE3 l\xFD h\u1ECDc t\u1EADp AI trong m\xF4n ${course.name}, h\u1ED7 tr\u1EE3 sinh vi\xEAn l\xE0m b\xE0i t\u1EADp: ${assignment.title}. M\xF4 t\u1EA3 b\xE0i t\u1EADp: ${assignment.description}.
 Khi sinh vi\xEAn h\u1ECFi, \u0111\u1EEBng \u0111\u01B0a \u0111\xE1p \xE1n ngay. \u0110\u1EB7t 1-2 c\xE2u h\u1ECFi g\u1EE3i m\u1EDF \u0111\u1EC3 sinh vi\xEAn t\u1EF1 suy ngh\u0129 tr\u01B0\u1EDBc. Ch\u1EC9 \u0111\u01B0a \u0111\xE1p \xE1n/h\u01B0\u1EDBng d\u1EABn chi ti\u1EBFt sau khi sinh vi\xEAn \u0111\xE3 th\u1EED tr\u1EA3 l\u1EDDi. N\u1EBFu sinh vi\xEAn y\xEAu c\u1EA7u \u0111\xE1p \xE1n ngay, nh\u1EAFc nh\u1EB9 nh\xE0ng v\u1EC1 l\u1EE3i \xEDch t\u1EF1 t\u01B0 duy tr\u01B0\u1EDBc, sau \u0111\xF3 v\u1EABn h\u1ED7 tr\u1EE3 n\u1EBFu h\u1ECD th\u1EF1c s\u1EF1 c\u1EA7n.
 Tr\u1EA3 l\u1EDDi b\u1EB1ng ti\u1EBFng Vi\u1EC7t th\xE2n thi\u1EC7n, r\xF5 r\xE0ng, mang t\xEDnh gi\xE1o d\u1EE5c.` : `B\u1EA1n l\xE0 tr\u1EE3 l\xFD h\u1ECDc t\u1EADp AI nhi\u1EC7t t\xECnh trong m\xF4n ${course.name}, h\u1ED7 tr\u1EE3 sinh vi\xEAn l\xE0m b\xE0i t\u1EADp: ${assignment.title}.
 Gi\u1EA3i \u0111\xE1p th\u1EAFc m\u1EAFc, g\u1EE3i \xFD h\u01B0\u1EDBng gi\u1EA3i quy\u1EBFt v\xE0 cung c\u1EA5p t\xE0i li\u1EC7u tham kh\u1EA3o ch\xEDnh x\xE1c. Tr\u1EA3 l\u1EDDi b\u1EB1ng ti\u1EBFng Vi\u1EC7t chuy\xEAn nghi\u1EC7p, ng\u1EAFn g\u1ECDn.`;
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
     const response = await generateWithFallback({
-      contents: chatSession.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
+      contents: chatSession.messages.filter((m) => !isL2 || m.phase === phase).map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
       config: { systemInstruction, temperature: 0.7 }
     });
     const replyText = response.text;
     if (!replyText) throw new Error("AI tr\u1EA3 v\u1EC1 n\u1ED9i dung r\u1ED7ng.");
     const aiMsg = { id: uid("m"), role: "model", content: replyText, timestamp: nowIso() };
+    if (isL2) aiMsg.phase = phase;
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
     res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
@@ -1562,6 +2050,30 @@ Gi\u1EA3i \u0111\xE1p th\u1EAFc m\u1EAFc, g\u1EE3i \xFD h\u01B0\u1EDBng gi\u1EA3
     fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng ph\u1EA3n h\u1ED3i \u0111\u01B0\u1EE3c. Tin nh\u1EAFn ch\u01B0a \u0111\u01B0\u1EE3c ghi nh\u1EADn, h\xE3y th\u1EED g\u1EEDi l\u1EA1i.");
   }
 });
+function l2DimScores(sub) {
+  return DEFAULT_L2_DIMENSIONS.map((d) => sub.l2_teacher_scores?.[d.key] ?? sub.l2_result?.dimensions?.find((x) => x.key === d.key)?.score ?? 0);
+}
+function l2ClassStats(assignments, subs) {
+  const l2Assignments = assignments.filter((a) => a.submission_mode === "writing_l2" && a.l2);
+  if (l2Assignments.length === 0) return void 0;
+  const scored = subs.filter((s) => s.l2_result && l2Assignments.some((a) => a.id === s.assignment_id));
+  const dimensions = DEFAULT_L2_DIMENSIONS.map((d, i) => {
+    const vals = scored.map((s) => l2DimScores(s)[i]).filter((v) => v > 0);
+    const distribution = [1, 2, 3, 4, 5].map((n) => vals.filter((v) => v === n).length);
+    return { key: d.key, name: d.name, avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 : null, distribution };
+  });
+  const missed_errors = [];
+  for (const a of l2Assignments) {
+    const done = subs.filter((s) => s.assignment_id === a.id && s.l2_report);
+    if (!done.length) continue;
+    for (const e of a.l2.errors) {
+      const missed = done.filter((s) => s.l2_report.missed.includes(e.id)).length;
+      if (missed > 0) missed_errors.push({ assignment_title: a.title, type: e.type, text: e.text, missed, total: done.length });
+    }
+  }
+  missed_errors.sort((x, y) => y.missed / y.total - x.missed / x.total);
+  return { assignments: l2Assignments.length, evaluated: scored.length, dimensions, missed_errors: missed_errors.slice(0, 10) };
+}
 app.post("/api/submissions/submit", async (req, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi n\u1ED9p b\xE0i.");
   if (!can(req.user, "submit")) return denied(res);
@@ -1572,6 +2084,7 @@ app.post("/api/submissions/submit", async (req, res) => {
   if (sub && isSubmitted(sub)) return fail(res, 409, "B\u1EA1n \u0111\xE3 n\u1ED9p b\xE0i n\xE0y r\u1ED3i, kh\xF4ng th\u1EC3 n\u1ED9p l\u1EA1i.");
   const isLate = /* @__PURE__ */ new Date() > new Date(assignment.due_date);
   if (isLate && assignment.allow_late === false) return fail(res, 403, "\u0110\xE3 qu\xE1 h\u1EA1n n\u1ED9p v\xE0 b\xE0i t\u1EADp n\xE0y kh\xF4ng nh\u1EADn b\xE0i tr\u1EC5.");
+  if (assignment.submission_mode === "writing_l2" && assignment.l2) return submitL2(req, res, assignment, sub, isLate);
   const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   const userTurns = chatSession ? chatSession.messages.filter((m) => m.role === "user").length : 0;
   if (assignment.submission_mode !== "file_only" && userTurns < 3) return fail(res, 400, "B\u1EA1n c\u1EA7n trao \u0111\u1ED5i \xEDt nh\u1EA5t 3 l\u01B0\u1EE3t v\u1EDBi tr\u1EE3 l\xFD AI tr\u01B0\u1EDBc khi n\u1ED9p.");
@@ -1643,7 +2156,8 @@ app.get("/api/courses/:id/stats", (req, res) => {
   }
   const per_assignment = assignments.map((a) => {
     const aSubs = subs.filter((s) => s.assignment_id === a.id);
-    const aScores = aSubs.filter((s) => s.process_score_result).map((s) => s.process_score_result.process_score);
+    const isL2a = a.submission_mode === "writing_l2";
+    const aScores = isL2a ? aSubs.filter((s) => s.l2_result).map((s) => l2DimScores(s).reduce((x, y) => x + y, 0) / 5 * 20) : aSubs.filter((s) => s.process_score_result).map((s) => s.process_score_result.process_score);
     const avgScore = avg(aScores);
     return {
       assignment_id: a.id,
@@ -1651,7 +2165,7 @@ app.get("/api/courses/:id/stats", (req, res) => {
       submitted: aSubs.length,
       total: members.length,
       avg_score: avgScore,
-      recommendation: avgScore === null ? "Ch\u01B0a c\xF3 b\xE0i n\u1ED9p n\xE0o \u0111\u01B0\u1EE3c ch\u1EA5m qu\xE1 tr\xECnh." : avgScore < 75 ? "Sinh vi\xEAn c\xF3 xu h\u01B0\u1EDBng xin \u0111\xE1p \xE1n tr\u1EF1c ti\u1EBFp. C\xE2n nh\u1EAFc chuy\u1EC3n sang ch\u1EBF \u0111\u1ED9 Socratic v\xE0 b\u1ED5 sung y\xEAu c\u1EA7u ph\u1EA3n bi\u1EC7n tr\u01B0\u1EDDng h\u1EE3p bi\xEAn." : "\u0110\u1EC1 b\xE0i k\xEDch th\xEDch t\u01B0 duy t\u1ED1t, sinh vi\xEAn t\u01B0\u01A1ng t\xE1c ch\u1EE7 \u0111\u1ED9ng."
+      recommendation: isL2a ? avgScore === null ? "Ch\u01B0a c\xF3 b\xE0i Vi\u1EBFt L2 n\xE0o \u0111\u01B0\u1EE3c ch\u1EA5m." : "Xem ph\xE2n t\xEDch theo t\u1EEBng chi\u1EC1u v\xE0 c\xE1c l\u1ED7i c\u1EA3 l\u1EDBp hay b\u1ECF s\xF3t \u1EDF ph\u1EA7n Vi\u1EBFt L2 b\xEAn d\u01B0\u1EDBi." : avgScore === null ? "Ch\u01B0a c\xF3 b\xE0i n\u1ED9p n\xE0o \u0111\u01B0\u1EE3c ch\u1EA5m qu\xE1 tr\xECnh." : avgScore < 75 ? "Sinh vi\xEAn c\xF3 xu h\u01B0\u1EDBng xin \u0111\xE1p \xE1n tr\u1EF1c ti\u1EBFp. C\xE2n nh\u1EAFc chuy\u1EC3n sang ch\u1EBF \u0111\u1ED9 Socratic v\xE0 b\u1ED5 sung y\xEAu c\u1EA7u ph\u1EA3n bi\u1EC7n tr\u01B0\u1EDDng h\u1EE3p bi\xEAn." : "\u0110\u1EC1 b\xE0i k\xEDch th\xEDch t\u01B0 duy t\u1ED1t, sinh vi\xEAn t\u01B0\u01A1ng t\xE1c ch\u1EE7 \u0111\u1ED9ng."
     };
   }).sort((a, b) => (a.avg_score ?? 999) - (b.avg_score ?? 999));
   const students = members.map((m) => {
@@ -1684,7 +2198,8 @@ app.get("/api/courses/:id/stats", (req, res) => {
       evaluated_count: scored.length,
       score_distribution: distribution,
       per_assignment,
-      students
+      students,
+      l2: l2ClassStats(assignments, subs)
     }
   });
 });

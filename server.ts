@@ -3,6 +3,10 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
+import {
+  DEFAULT_L2_DIMENSIONS, L2_ERROR_TYPES, findPhraseRange, matchErrors, wordSimilarity, normWs,
+  type L2Config, type L2Error, type L2Highlight, type L2Work, type L2ErrorReport, type L2Result,
+} from "./src/lib/l2.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -1209,7 +1213,7 @@ app.get("/api/courses/:id", (req: AuthedRequest, res) => {
   const assignments = db.assignments
     .filter((a: any) => a.course_id === course.id)
     .map((a: any) => {
-      const out: any = { ...a };
+      const out: any = { ...publicAssignment(a, req.user) };
       if (!owner) {
         const sub = db.submissions.find((s: any) => s.assignment_id === a.id && s.student_id === req.user.id);
         out.submission_status = sub ? sub.status : "not_submitted";
@@ -1230,6 +1234,43 @@ app.get("/api/courses/:id", (req: AuthedRequest, res) => {
 });
 
 // ---- Assignments ----
+/** Validates the "Viết L2" configuration. Positions of planted errors are always recomputed from the AI text. */
+function sanitizeL2(raw: any): { l2?: L2Config; error?: string } {
+  const ai_text = String(raw?.ai_text ?? "").replace(/\r\n/g, "\n").trimEnd().slice(0, 8000);
+  if (ai_text.trim().length < 20) return { error: "Văn bản AI quá ngắn (tối thiểu 20 ký tự)." };
+  const rawErrors = Array.isArray(raw?.errors) ? raw.errors.slice(0, 25) : [];
+  const errors: L2Error[] = [];
+  for (const e of rawErrors) {
+    const phrase = String(e?.text ?? "").trim();
+    if (!phrase) continue;
+    const range = findPhraseRange(ai_text, phrase);
+    if (!range) return { error: `Không tìm thấy đoạn lỗi “${phrase.slice(0, 40)}” trong văn bản AI. Hãy chọn lại đoạn lỗi từ chính văn bản.` };
+    if (errors.some((x) => range.start < x.end && range.end > x.start)) return { error: `Đoạn lỗi “${phrase.slice(0, 40)}” bị chồng lên một lỗi khác.` };
+    errors.push({
+      id: typeof e?.id === "string" && e.id ? e.id : uid("err"),
+      type: L2_ERROR_TYPES.includes(e?.type) ? e.type : "language",
+      text: ai_text.slice(range.start, range.end),
+      answer: String(e?.answer ?? "").trim().slice(0, 1000),
+      start: range.start, end: range.end,
+    });
+  }
+  if (errors.length === 0) return { error: "Cần đánh dấu ít nhất một lỗi cài sẵn trong văn bản AI." };
+  errors.sort((a, b) => a.start - b.start);
+  const rawDims = Array.isArray(raw?.dimensions) ? raw.dimensions : [];
+  const dimensions = DEFAULT_L2_DIMENSIONS.map((d) => {
+    const r = rawDims.find((x: any) => x?.key === d.key);
+    const levels = Array.isArray(r?.levels) && r.levels.length === 5 ? r.levels.map((l: any, i: number) => String(l ?? "").trim().slice(0, 400) || d.levels[i]) : d.levels;
+    return { key: d.key, name: String(r?.name ?? "").trim().slice(0, 80) || d.name, description: String(r?.description ?? "").trim().slice(0, 600) || d.description, levels };
+  });
+  return { l2: { ai_text, errors, dimensions, prompt_language: raw?.prompt_language === "bilingual" ? "bilingual" : "en" } };
+}
+
+/** Students must never receive the answer key. */
+function publicAssignment(a: any, user: any) {
+  if (a?.l2 && user?.role === "student") return { ...a, l2: { ...a.l2, errors: [] } };
+  return a;
+}
+
 function sanitizeAssignmentInput(body: any) {
   const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late } = body || {};
   return {
@@ -1238,7 +1279,7 @@ function sanitizeAssignmentInput(body: any) {
     rubric: rubric ?? "",
     due_date,
     attachments: Array.isArray(attachments) ? attachments : [],
-    submission_mode: ["file_only", "ai_chat_only", "both"].includes(submission_mode) ? submission_mode : "both",
+    submission_mode: ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both",
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true,
   };
@@ -1249,8 +1290,14 @@ app.post("/api/courses/:id/assignments", (req: AuthedRequest, res) => {
   if (!course) return fail(res, 404, "Không tìm thấy môn học.");
   if (!isOwner(course, req.user)) return fail(res, 403, "Bạn không có quyền giao bài cho môn này.");
   if (!can(req.user, "manage_assignments")) return denied(res);
-  const input = sanitizeAssignmentInput(req.body);
+  const input: any = sanitizeAssignmentInput(req.body);
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
+  if (input.submission_mode === "writing_l2") {
+    const r = sanitizeL2(req.body?.l2);
+    if (r.error) return fail(res, 400, r.error);
+    input.l2 = r.l2;
+    input.ai_submode = "socratic";
+  }
   const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
   db.assignments.unshift(a);
   saveDocument("assignments", a.id, a);
@@ -1265,8 +1312,19 @@ app.put("/api/assignments/:id", (req: AuthedRequest, res) => {
   if (!a) return fail(res, 404, "Bài tập không tồn tại.");
   if (!isOwner(findCourse(a.course_id), req.user)) return fail(res, 403, "Bạn không có quyền sửa bài tập này.");
   if (!can(req.user, "manage_assignments")) return denied(res);
-  const input = sanitizeAssignmentInput({ ...a, ...req.body });
+  const input: any = sanitizeAssignmentInput({ ...a, ...req.body });
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
+  const hasWork = db.submissions.some((x: any) => x.assignment_id === a.id && (x.l2_work || isSubmitted(x)));
+  if (input.submission_mode !== a.submission_mode && hasWork) return fail(res, 409, "Đã có sinh viên làm bài nên không thể đổi hình thức bài tập.");
+  if (input.submission_mode === "writing_l2") {
+    const r = sanitizeL2(req.body?.l2 ?? a.l2);
+    if (r.error) return fail(res, 400, r.error);
+    if (hasWork && a.l2 && r.l2!.ai_text !== a.l2.ai_text) return fail(res, 409, "Đã có sinh viên làm bài nên không thể đổi văn bản AI.");
+    input.l2 = r.l2;
+    input.ai_submode = "socratic";
+  } else {
+    input.l2 = undefined;
+  }
   Object.assign(a, input, { updated_at: nowIso() });
   saveDocument("assignments", a.id, a);
   res.json({ success: true, data: a, message: "Đã cập nhật bài tập." });
@@ -1291,7 +1349,9 @@ app.get("/api/assignments/:id", (req: AuthedRequest, res) => {
     submission = db.submissions.find((s: any) => s.assignment_id === assignment.id && s.student_id === req.user.id) || null;
     chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id) || null;
   }
-  res.json({ success: true, data: { assignment, course_name: course.name, submission, chat_session: chatSession } });
+  const extra: any = {};
+  if (req.user.role === "student" && assignment.l2 && submission && isSubmitted(submission)) extra.l2_feedback = studentL2Feedback(assignment, submission);
+  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: chatSession, ...extra } });
 });
 
 app.get("/api/assignments/:id/submissions", (req: AuthedRequest, res) => {
@@ -1326,7 +1386,7 @@ app.get("/api/submissions/:id", (req: AuthedRequest, res) => {
   const course = assignment && findCourse(assignment.course_id);
   if (!isOwner(course, req.user) && sub.student_id !== req.user.id) return fail(res, 403, "Bạn không có quyền xem bài nộp này.");
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
-  res.json({ success: true, data: { submission: sub, assignment, chat_session: chatSession } });
+  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: chatSession } });
 });
 
 app.put("/api/submissions/:id/grade", (req: AuthedRequest, res) => {
@@ -1352,6 +1412,19 @@ app.post("/api/submissions/:id/reevaluate", async (req: AuthedRequest, res) => {
   if (!isOwner(assignment && findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền.");
   if (!can(req.user, "grade")) return denied(res);
   const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
+  if (assignment?.l2 && sub.l2_work) {
+    try {
+      sub.l2_report = computeL2Report(assignment, sub);
+      sub.l2_result = await evaluateL2(assignment, sub, chat, sub.l2_report);
+      sub.eval_status = "ok"; sub.eval_error = undefined;
+      saveDocument("submissions", sub.id, sub);
+      return res.json({ success: true, data: sub, message: "Đã chấm lại bằng AI." });
+    } catch (e: any) {
+      sub.eval_status = "failed"; sub.eval_error = e.message;
+      saveDocument("submissions", sub.id, sub);
+      return fail(res, 502, "AI chưa chấm được: " + e.message);
+    }
+  }
   if (!chat || !chat.messages.some((m: any) => m.role === "user")) return fail(res, 400, "Bài nộp này không có nhật ký chat để chấm.");
   try {
     sub.process_score_result = await evaluateProcess(assignment, chat, sub.submitted_text);
@@ -1448,6 +1521,275 @@ app.post("/api/submissions/draft", (req: AuthedRequest, res) => {
   res.json({ success: true, data: { draft_saved_at: sub.draft_saved_at } });
 });
 
+// ---- "Viết L2": prompt -> critique -> revise ----------------------------------
+const l2Lang = (a: any) => (a.l2?.prompt_language === "bilingual"
+  ? "Reply in the language the student used (English or Vietnamese)."
+  : "Reply in English only. If the student writes in another language, still answer in English and remind them to write prompts in English.");
+
+function l2ChatInstruction(assignment: any, course: any, phase: "prompt" | "critique") {
+  if (phase === "prompt") {
+    return `You are an AI writing assistant in a second-language (L2) writing course (${course?.name || "course"}). The student must complete this writing task: """${assignment.description}""".
+In this step you may ONLY help with planning: brainstorm ideas and give a short bullet-point OUTLINE (at most 6 bullets, phrases not sentences).
+NEVER write full sentences or paragraphs of the final text, even if asked; say that in this step you can only help with an outline.
+If the request is vague, ask ONE short clarifying question about the goal, the reader or the constraints.
+${l2Lang(assignment)}`;
+  }
+  return `You are a Socratic tutor. The student is critically reading the following AI-generated text to find hidden problems (language errors, logical errors, invented facts).
+TEXT: """${assignment.l2.ai_text}"""
+Rules: NEVER say which word, sentence or claim is wrong, never list errors, and never confirm or deny that a specific phrase is an error. Ask one or two short guiding questions and suggest strategies (check articles and agreement, check connectors and logic, verify numbers, names and sources). Keep answers brief.
+${l2Lang(assignment)}`;
+}
+
+/** What a student may see about their own result: caught errors with the answer; missed ones only after the deadline. */
+function studentL2Feedback(assignment: any, sub: any) {
+  const errors: L2Error[] = assignment.l2?.errors || [];
+  const rep: L2ErrorReport | undefined = sub.l2_report;
+  if (!rep) return null;
+  const byId = new Map(errors.map((e) => [e.id, e]));
+  const afterDeadline = Date.now() > new Date(assignment.due_date).getTime();
+  return {
+    total: rep.total,
+    caught: rep.caught.map((c) => { const e = byId.get(c.error_id); return { type: e?.type, text: e?.text, answer: e?.answer, note: c.note }; }),
+    missed_count: rep.missed.length,
+    missed: afterDeadline ? rep.missed.map((id) => { const e = byId.get(id); return { type: e?.type, text: e?.text, answer: e?.answer }; }) : [],
+    false_positive_count: rep.false_positives.length,
+    recall: rep.recall, precision: rep.precision,
+  };
+}
+
+function computeL2Report(assignment: any, sub: any): L2ErrorReport {
+  const l2: L2Config = assignment.l2;
+  const work: L2Work = sub.l2_work;
+  const m = matchErrors(l2.errors, work.highlights || []);
+  const finalText = work.revision?.text || "";
+  const normFinal = normWs(finalText).toLowerCase();
+  const sim = wordSimilarity(l2.ai_text, finalText);
+  const snaps = (work.revision?.snapshots || []).slice(-40);
+  for (const sn of snaps) sn.sim = Math.round(wordSimilarity(l2.ai_text, sn.text) * 100) / 100;
+  return {
+    total: l2.errors.length,
+    caught: m.caught.map((c) => ({ error_id: c.error.id, highlight_id: c.highlight.id, note: c.highlight.note })),
+    missed: m.missed.map((e) => e.id),
+    false_positives: m.false_positives.map((h) => h.id),
+    recall: Math.round(m.recall * 100) / 100,
+    precision: Math.round(m.precision * 100) / 100,
+    remained: l2.errors.filter((e) => normFinal.includes(normWs(e.text).toLowerCase())).map((e) => e.id),
+    similarity_to_original: Math.round(sim * 100) / 100,
+    timeline: snaps.map((sn) => ({ t: sn.t, sim: sn.sim ?? 0 })),
+    rewritten_from_scratch: sim < 0.35,
+  };
+}
+
+async function evaluateL2(assignment: any, sub: any, chat: any, report: L2ErrorReport): Promise<L2Result> {
+  if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+  const l2: L2Config = assignment.l2;
+  const work: L2Work = sub.l2_work;
+  const msgs = (chat?.messages || []) as any[];
+  const transcript = (phase: string) => msgs.filter((m) => m.phase === phase).map((m) => `${m.role === "user" ? "STUDENT" : "AI"}: ${m.content}`).join("\n").slice(-12000);
+  const errById = new Map(l2.errors.map((e) => [e.id, e]));
+  const evidence = {
+    writing_task: assignment.description,
+    prompt_language_policy: l2.prompt_language === "en" ? "English only" : "English or Vietnamese allowed",
+    prompt_history: (work.prompt_history || []).map((p) => p.text),
+    final_prompt: work.final_prompt,
+    prompt_phase_chat: transcript("prompt"),
+    ai_text: l2.ai_text,
+    planted_errors: l2.errors.map((e) => ({ id: e.id, type: e.type, text: e.text, teacher_answer: e.answer })),
+    student_highlights: (work.highlights || []).map((h) => ({ id: h.id, text: h.text, note: h.note })),
+    critique_phase_chat: transcript("critique"),
+    automatic_matching: {
+      caught: report.caught.map((c) => ({ error_id: c.error_id, error_text: errById.get(c.error_id)?.text, student_note: c.note })),
+      missed_error_ids: report.missed,
+      false_positive_highlight_ids: report.false_positives,
+      recall: report.recall, precision: report.precision,
+    },
+    final_text: work.revision?.text,
+    similarity_to_original_0_to_1: report.similarity_to_original,
+    planted_errors_still_in_final_text: report.remained,
+    rewritten_from_scratch: report.rewritten_from_scratch,
+  };
+  const rubric = l2.dimensions.map((d, i) => `${i + 1}. ${d.key} — ${d.name}: ${d.description}\n` + d.levels.map((lv, k) => `   ${k + 1} = ${lv}`).join("\n")).join("\n");
+  const instruction = `Bạn chấm một bài "Viết L2" (viết bằng ngoại ngữ có AI hỗ trợ) theo 5 chiều, thang 1-5, đúng theo bảng tiêu chí dưới đây. Hãy nghiêm khắc và trung thực, chỉ dựa trên bằng chứng được cung cấp.
+
+BẢNG TIÊU CHÍ:
+${rubric}
+
+QUY TẮC:
+- Chiều prompt_quality và prompt_iteration chỉ chấm từ nhật ký prompt. Đánh giá ý định, bối cảnh, ràng buộc và chiến lược; KHÔNG trừ điểm vì ngữ pháp hay trình độ ngoại ngữ.
+- Chiều error_detection: dùng kết quả đối chiếu tự động ("automatic_matching") làm căn cứ chính, không tự đoán lại lỗi nào được bắt. Nếu recall = 0 thì điểm tối đa là 2. Precision thấp (đánh dấu nhầm nhiều) thì hạ điểm.
+- Chiều critical_reasoning: chỉ xét các lỗi đã bắt; so ghi chú của sinh viên với "teacher_answer" (gọi đúng loại lỗi? giải thích đúng? đề xuất cách sửa/kiểm chứng?). Không có ghi chú nào thì điểm 1.
+- Chiều revision_ownership: dựa trên final_text so với ai_text, "planted_errors_still_in_final_text" và "similarity_to_original". Lỗi còn nguyên thì hạ điểm; rewritten_from_scratch = true thì điểm tối đa là 2.
+- Mỗi chiều: "score" (số nguyên 1-5), "comment" (2 câu tiếng Việt, nêu lý do), "evidence" (1-3 mục: "quote" trích NGUYÊN VĂN từ bằng chứng, "mau" = xanh (điểm mạnh) | vang (cần làm rõ) | do (vấn đề), "ly_do").
+- "overall_comment": 2-3 câu tiếng Việt tóm tắt điểm mạnh và việc cần cải thiện.
+- Phải trả đủ cả 5 chiều với đúng "key" như bảng.`;
+  const response = await generateWithFallback({
+    contents: [{ role: "user", parts: [{ text: `${instruction}\n\nBẰNG CHỨNG (JSON):\n${JSON.stringify(evidence)}` }] }],
+    config: {
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          dimensions: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                key: { type: Type.STRING }, score: { type: Type.INTEGER }, comment: { type: Type.STRING },
+                evidence: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { quote: { type: Type.STRING }, mau: { type: Type.STRING }, ly_do: { type: Type.STRING } }, required: ["quote", "mau", "ly_do"] } },
+              },
+              required: ["key", "score", "comment", "evidence"],
+            },
+          },
+          overall_comment: { type: Type.STRING },
+        },
+        required: ["dimensions", "overall_comment"],
+      },
+    },
+  }, 60000);
+  if (!response.text) throw new Error("AI trả về nội dung rỗng.");
+  const parsed = JSON.parse(response.text.trim());
+  const dims = DEFAULT_L2_DIMENSIONS.map((d) => {
+    const r = (parsed.dimensions || []).find((x: any) => x?.key === d.key);
+    if (!r) throw new Error(`AI không trả về chiều "${d.key}".`);
+    return {
+      key: d.key,
+      score: Math.max(1, Math.min(5, Math.round(Number(r.score) || 1))),
+      comment: String(r.comment || ""),
+      evidence: (Array.isArray(r.evidence) ? r.evidence : []).slice(0, 3).map((ev: any) => ({ quote: String(ev?.quote || ""), mau: ["xanh", "vang", "do"].includes(ev?.mau) ? ev.mau : "vang", ly_do: String(ev?.ly_do || "") })),
+    };
+  });
+  // Hard guard-rails so that a lenient model cannot contradict the objective evidence
+  const d3 = dims.find((d) => d.key === "error_detection")!;
+  if (report.recall === 0) d3.score = Math.min(d3.score, 2);
+  const d5 = dims.find((d) => d.key === "revision_ownership")!;
+  if (report.rewritten_from_scratch) d5.score = Math.min(d5.score, 2);
+  return { dimensions: dims, overall_comment: String(parsed.overall_comment || "") };
+}
+
+/** Common checks for the student-side L2 endpoints. Returns the draft submission (created on demand). */
+function l2Student(req: AuthedRequest, res: express.Response): { assignment: any; sub: any } | null {
+  if (req.user.role !== "student") { fail(res, 403, "Chỉ sinh viên mới làm bài này."); return null; }
+  if (!can(req.user, "submit")) { denied(res); return null; }
+  const assignment = db.assignments.find((a: any) => a.id === req.params.id);
+  if (!assignment || assignment.submission_mode !== "writing_l2" || !assignment.l2) { fail(res, 404, "Không tìm thấy bài tập Viết L2."); return null; }
+  if (!isMember(assignment.course_id, req.user)) { fail(res, 403, "Bạn không thuộc môn học này."); return null; }
+  if (new Date() > new Date(assignment.due_date) && assignment.allow_late === false) { fail(res, 403, "Bài tập đã khóa sau hạn nộp."); return null; }
+  let sub = db.submissions.find((s: any) => s.assignment_id === assignment.id && s.student_id === req.user.id);
+  if (sub && isSubmitted(sub)) { fail(res, 409, "Bạn đã nộp bài này rồi."); return null; }
+  if (!sub) {
+    sub = { id: uid("sub"), assignment_id: assignment.id, student_id: req.user.id, student_name: req.user.name, student_email: req.user.email, student_avatar: req.user.avatar, submitted_files: [], submitted_text: "", status: "draft" };
+    db.submissions.push(sub);
+  }
+  if (!sub.l2_work) sub.l2_work = { step: 1, highlights: [], revision: { text: "", snapshots: [], stats: { typed: 0, deleted: 0, pasted: 0 } }, step_times: { s1: nowIso() } };
+  return { assignment, sub };
+}
+
+app.post("/api/l2/:id/lock-prompt", (req: AuthedRequest, res) => {
+  const ctx = l2Student(req, res); if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work: L2Work = sub.l2_work;
+  if (work.step !== 1) return fail(res, 409, "Bước 1 đã được chốt.");
+  const finalPrompt = String(req.body?.final_prompt ?? "").trim();
+  if (finalPrompt.length < 5) return fail(res, 400, "Hãy nhập prompt cuối cùng của bạn (tối thiểu 5 ký tự).");
+  const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
+  const prompts = (chat?.messages || []).filter((m: any) => m.phase === "prompt" && m.role === "user");
+  if (prompts.length < 1) return fail(res, 400, "Hãy trao đổi với trợ lý AI ít nhất một lần trước khi chốt prompt.");
+  work.final_prompt = finalPrompt.slice(0, 4000);
+  work.prompt_history = prompts.map((m: any) => ({ text: String(m.content).slice(0, 4000), at: m.timestamp }));
+  work.step = 2;
+  work.step_times = { ...work.step_times, s2: nowIso() };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub });
+});
+
+app.put("/api/l2/:id/critique", (req: AuthedRequest, res) => {
+  const ctx = l2Student(req, res); if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work: L2Work = sub.l2_work;
+  if (work.step !== 2) return fail(res, 409, "Bước phản biện chưa mở hoặc đã đóng.");
+  const text: string = assignment.l2.ai_text;
+  const raw = Array.isArray(req.body?.highlights) ? req.body.highlights.slice(0, 40) : [];
+  const out: L2Highlight[] = [];
+  for (const h of raw) {
+    const start = Number(h?.start), end = Number(h?.end);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > text.length || end <= start) return fail(res, 400, "Vùng đánh dấu không hợp lệ.");
+    out.push({ id: typeof h?.id === "string" && h.id ? h.id : uid("hl"), start, end, text: text.slice(start, end), note: String(h?.note ?? "").trim().slice(0, 500) });
+  }
+  out.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < out.length; i++) if (out[i].start < out[i - 1].end) return fail(res, 400, "Hai vùng đánh dấu không được chồng lên nhau.");
+  work.highlights = out;
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: { highlights: out } });
+});
+
+app.post("/api/l2/:id/finish-critique", (req: AuthedRequest, res) => {
+  const ctx = l2Student(req, res); if (!ctx) return;
+  const { assignment, sub } = ctx;
+  const work: L2Work = sub.l2_work;
+  if (work.step !== 2) return fail(res, 409, "Bước phản biện chưa mở hoặc đã đóng.");
+  if (!work.highlights.length) return fail(res, 400, "Hãy đánh dấu ít nhất một đoạn nghi ngờ trước khi sang bước chỉnh sửa.");
+  if (work.highlights.some((h) => !h.note)) return fail(res, 400, "Mỗi đoạn đánh dấu cần có ghi chú lý do.");
+  work.step = 3;
+  work.revision = { text: assignment.l2.ai_text, snapshots: [{ t: nowIso(), text: assignment.l2.ai_text }], stats: { typed: 0, deleted: 0, pasted: 0 } };
+  work.step_times = { ...work.step_times, s3: nowIso() };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub });
+});
+
+app.put("/api/l2/:id/revision", (req: AuthedRequest, res) => {
+  const ctx = l2Student(req, res); if (!ctx) return;
+  const { sub } = ctx;
+  const work: L2Work = sub.l2_work;
+  if (work.step !== 3) return fail(res, 409, "Bước chỉnh sửa chưa mở.");
+  const text = String(req.body?.text ?? "");
+  if (text.length > 20000) return fail(res, 413, "Văn bản quá dài.");
+  const snaps = (Array.isArray(req.body?.snapshots) ? req.body.snapshots : []).slice(-60).map((x: any) => ({ t: String(x?.t || nowIso()), text: String(x?.text ?? "").slice(0, 6000) }));
+  const n = (v: any) => Math.max(0, Math.min(1e7, Math.floor(Number(v) || 0)));
+  work.revision = { text, snapshots: snaps.length ? snaps : work.revision.snapshots, stats: { typed: n(req.body?.stats?.typed), deleted: n(req.body?.stats?.deleted), pasted: n(req.body?.stats?.pasted) } };
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: { saved_at: nowIso() } });
+});
+
+async function submitL2(req: AuthedRequest, res: express.Response, assignment: any, sub: any | undefined, isLate: boolean) {
+  const work: L2Work | undefined = sub?.l2_work;
+  if (!sub || !work || work.step !== 3) return fail(res, 400, "Bạn cần hoàn thành cả 3 bước trước khi nộp.");
+  if (!work.revision.text.trim()) return fail(res, 400, "Bản chỉnh sửa đang trống.");
+  const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
+  const report = computeL2Report(assignment, sub);
+  let result: L2Result | undefined, evalStatus = "ok", evalError: string | undefined;
+  try { result = await evaluateL2(assignment, sub, chat, report); }
+  catch (e: any) { console.error("L2 evaluation error:", e?.message || e); evalStatus = "failed"; evalError = e?.message || "Lỗi không xác định"; }
+  Object.assign(sub, {
+    submitted_at: nowIso(), submitted_text: work.revision.text, submitted_files: [], chat_session_id: chat?.id,
+    l2_report: report, l2_result: result, eval_status: evalStatus, eval_error: evalError, status: isLate ? "late" : "submitted",
+  });
+  if (chat) { chat.submission_id = sub.id; saveDocument("chat_sessions", chat.id, chat); }
+  saveDocument("submissions", sub.id, sub);
+  const course = findCourse(assignment.course_id);
+  if (course) addNotification(course.teacher_id, "Có bài nộp mới", `${req.user.name} đã nộp "${assignment.title}"${isLate ? " (trễ hạn)" : ""}.`, `/course/${course.id}/assignment/${assignment.id}`);
+  res.json({ success: true, data: sub, message: evalStatus === "failed" ? "Nộp bài thành công. Phần chấm bằng AI sẽ được giảng viên chạy lại sau." : "Nộp bài thành công!" });
+}
+
+app.put("/api/submissions/:id/l2-scores", (req: AuthedRequest, res) => {
+  const sub = db.submissions.find((s: any) => s.id === req.params.id);
+  if (!sub) return fail(res, 404, "Bài nộp không tồn tại.");
+  const assignment = db.assignments.find((a: any) => a.id === sub.assignment_id);
+  if (!assignment?.l2 || !isOwner(findCourse(assignment.course_id), req.user)) return fail(res, 403, "Bạn không có quyền chấm bài này.");
+  if (!can(req.user, "grade")) return denied(res);
+  const scores: Record<string, number> = {};
+  for (const d of DEFAULT_L2_DIMENSIONS) {
+    const v = req.body?.scores?.[d.key];
+    if (v === undefined || v === null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > 5) return fail(res, 400, "Điểm mỗi chiều phải là số nguyên từ 1 đến 5.");
+    scores[d.key] = n;
+  }
+  sub.l2_teacher_scores = scores;
+  saveDocument("submissions", sub.id, sub);
+  res.json({ success: true, data: sub, message: "Đã lưu điểm từng chiều." });
+});
+
 // ---- AI chat ----
 const chatHits = new Map<string, number[]>();
 function chatRateLimited(userId: string): boolean {
@@ -1463,6 +1805,7 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
   const { assignment_id, message_content } = req.body || {};
+  const phase: "prompt" | "critique" | undefined = req.body?.phase === "critique" ? "critique" : req.body?.phase === "prompt" ? "prompt" : undefined;
   if (!assignment_id || !message_content || typeof message_content !== "string") return fail(res, 400, "Thiếu thông tin tin nhắn.");
   if (message_content.length > 30000) return fail(res, 413, "Tin nhắn quá dài (tối đa 30.000 ký tự).");
   const assignment = db.assignments.find((a: any) => a.id === assignment_id);
@@ -1472,6 +1815,12 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (assignment.submission_mode === "file_only") return fail(res, 400, "Bài tập này chỉ nộp file, không có AI chat.");
   const existing = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
   if (existing && isSubmitted(existing)) return fail(res, 409, "Bài đã nộp, cuộc trò chuyện đã được khóa.");
+  const isL2 = assignment.submission_mode === "writing_l2" && !!assignment.l2;
+  if (isL2) {
+    if (!phase) return fail(res, 400, "Thiếu thông tin bước làm bài.");
+    const step = existing?.l2_work?.step ?? 1;
+    if ((phase === "prompt" && step !== 1) || (phase === "critique" && step !== 2)) return fail(res, 409, "Bước này chưa mở hoặc đã được chốt.");
+  }
   if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
 
   let chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
@@ -1479,10 +1828,11 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
     chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] };
     db.chat_sessions.push(chatSession);
   }
-  const userMsg = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
+  const userMsg: any = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
+  if (isL2) userMsg.phase = phase;
   chatSession.messages.push(userMsg);
 
-  const systemInstruction = assignment.ai_submode === "socratic"
+  const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase!) : assignment.ai_submode === "socratic"
     ? `Bạn là trợ lý học tập AI trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}.
 Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước. Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
 Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`
@@ -1492,12 +1842,13 @@ Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài 
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
     const response = await generateWithFallback({
-      contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+      contents: chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
       config: { systemInstruction, temperature: 0.7 },
     });
     const replyText = response.text;
     if (!replyText) throw new Error("AI trả về nội dung rỗng.");
-    const aiMsg = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+    const aiMsg: any = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+    if (isL2) aiMsg.phase = phase;
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
     res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
@@ -1508,6 +1859,33 @@ Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài 
     fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Tin nhắn chưa được ghi nhận, hãy thử gửi lại.");
   }
 });
+
+/** Per-dimension scores of a submission: the teacher's override wins over the AI's score. */
+function l2DimScores(sub: any): number[] {
+  return DEFAULT_L2_DIMENSIONS.map((d) => sub.l2_teacher_scores?.[d.key] ?? sub.l2_result?.dimensions?.find((x: any) => x.key === d.key)?.score ?? 0);
+}
+
+function l2ClassStats(assignments: any[], subs: any[]) {
+  const l2Assignments = assignments.filter((a: any) => a.submission_mode === "writing_l2" && a.l2);
+  if (l2Assignments.length === 0) return undefined;
+  const scored = subs.filter((s: any) => s.l2_result && l2Assignments.some((a: any) => a.id === s.assignment_id));
+  const dimensions = DEFAULT_L2_DIMENSIONS.map((d, i) => {
+    const vals = scored.map((s: any) => l2DimScores(s)[i]).filter((v: number) => v > 0);
+    const distribution = [1, 2, 3, 4, 5].map((n) => vals.filter((v: number) => v === n).length);
+    return { key: d.key, name: d.name, avg: vals.length ? Math.round((vals.reduce((a: number, b: number) => a + b, 0) / vals.length) * 10) / 10 : null, distribution };
+  });
+  const missed_errors: any[] = [];
+  for (const a of l2Assignments) {
+    const done = subs.filter((s: any) => s.assignment_id === a.id && s.l2_report);
+    if (!done.length) continue;
+    for (const e of a.l2.errors as L2Error[]) {
+      const missed = done.filter((s: any) => s.l2_report.missed.includes(e.id)).length;
+      if (missed > 0) missed_errors.push({ assignment_title: a.title, type: e.type, text: e.text, missed, total: done.length });
+    }
+  }
+  missed_errors.sort((x, y) => y.missed / y.total - x.missed / x.total);
+  return { assignments: l2Assignments.length, evaluated: scored.length, dimensions, missed_errors: missed_errors.slice(0, 10) };
+}
 
 // ---- Submit ----
 app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
@@ -1521,6 +1899,7 @@ app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
   if (sub && isSubmitted(sub)) return fail(res, 409, "Bạn đã nộp bài này rồi, không thể nộp lại.");
   const isLate = new Date() > new Date(assignment.due_date);
   if (isLate && assignment.allow_late === false) return fail(res, 403, "Đã quá hạn nộp và bài tập này không nhận bài trễ.");
+  if (assignment.submission_mode === "writing_l2" && assignment.l2) return submitL2(req, res, assignment, sub, isLate);
 
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   const userTurns = chatSession ? chatSession.messages.filter((m: any) => m.role === "user").length : 0;
@@ -1599,7 +1978,11 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
 
   const per_assignment = assignments.map((a: any) => {
     const aSubs = subs.filter((s: any) => s.assignment_id === a.id);
-    const aScores = aSubs.filter((s: any) => s.process_score_result).map((s: any) => s.process_score_result.process_score);
+    const isL2a = a.submission_mode === "writing_l2";
+    // For L2 the "score" is the mean of the five dimensions (1-5) scaled to 0-100
+    const aScores = isL2a
+      ? aSubs.filter((s: any) => s.l2_result).map((s: any) => (l2DimScores(s).reduce((x: number, y: number) => x + y, 0) / 5) * 20)
+      : aSubs.filter((s: any) => s.process_score_result).map((s: any) => s.process_score_result.process_score);
     const avgScore = avg(aScores);
     return {
       assignment_id: a.id,
@@ -1607,7 +1990,9 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
       submitted: aSubs.length,
       total: members.length,
       avg_score: avgScore,
-      recommendation: avgScore === null
+      recommendation: isL2a
+        ? (avgScore === null ? "Chưa có bài Viết L2 nào được chấm." : "Xem phân tích theo từng chiều và các lỗi cả lớp hay bỏ sót ở phần Viết L2 bên dưới.")
+        : avgScore === null
         ? "Chưa có bài nộp nào được chấm quá trình."
         : avgScore < 75
         ? "Sinh viên có xu hướng xin đáp án trực tiếp. Cân nhắc chuyển sang chế độ Socratic và bổ sung yêu cầu phản biện trường hợp biên."
@@ -1647,6 +2032,7 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
       score_distribution: distribution,
       per_assignment,
       students,
+      l2: l2ClassStats(assignments, subs),
     },
   });
 });

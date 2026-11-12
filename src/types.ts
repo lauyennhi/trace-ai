@@ -39,7 +39,9 @@ export interface CourseMember {
   joined_at: string;
 }
 
-export type SubmissionMode = 'file_only' | 'ai_chat_only' | 'both';
+import type { L2Config, L2Work, L2Result, L2ErrorReport } from './lib/l2';
+
+export type SubmissionMode = 'file_only' | 'ai_chat_only' | 'both' | 'writing_l2';
 export type AISubmode = 'normal' | 'socratic';
 
 export interface AssignmentAttachment {
@@ -61,6 +63,8 @@ export interface Assignment {
   submission_mode: SubmissionMode;
   ai_submode: AISubmode;
   allow_late?: boolean;
+  /** Only for submission_mode 'writing_l2'. The answer key (errors) is stripped for students. */
+  l2?: L2Config;
   created_at: string;
   submitted_count?: number;
   ungraded_count?: number;
@@ -114,6 +118,10 @@ export interface Submission {
   grade?: number;
   feedback?: string;
   graded_at?: string;
+  l2_work?: L2Work;
+  l2_result?: L2Result;
+  l2_report?: L2ErrorReport;
+  l2_teacher_scores?: Record<string, number>;
   eval_status?: 'ok' | 'failed' | 'skipped';
   eval_error?: string;
   draft_saved_at?: string;
@@ -122,6 +130,7 @@ export interface Submission {
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
+  phase?: 'prompt' | 'critique';
   content: string;
   timestamp: string;
 }
@@ -166,6 +175,12 @@ export interface ClassStats {
     recommendation: string;
   }[];
   students: StudentStat[];
+  l2?: {
+    assignments: number;
+    evaluated: number;
+    dimensions: { key: string; name: string; avg: number | null; distribution: number[] }[];
+    missed_errors: { assignment_title: string; type: string; text: string; missed: number; total: number }[];
+  };
 }
 
 export interface AppNotification {

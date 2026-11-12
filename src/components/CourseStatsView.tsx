@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { Award, Users, CheckCircle2, BarChart3, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from "recharts";
 import { ClassStats } from "../types";
+import { L2_ERROR_LABEL } from "../lib/l2";
 import { AnimatedNumber, Avatar, Bar as ProgressBar, EmptyState, riseItem, staggerParent } from "./ui";
 
 const COLORS = ["#10b981", "#5b5bf0", "#f59e0b", "#f97316", "#ef4444"];
@@ -94,6 +95,31 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
           ))}
         </div>
       </motion.div>
+
+      {stats.l2 && (
+        <motion.div variants={riseItem} className="card p-6 space-y-5">
+          <div><h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-brand" />Bài Viết L2: phân bố điểm theo từng chiều</h3>
+            <p className="text-xs text-mute">{stats.l2.evaluated} bài đã chấm trong {stats.l2.assignments} bài tập · điểm cuối (giảng viên chỉnh nếu có), thang 1-5</p></div>
+          {stats.l2.evaluated === 0 ? <p className="text-sm text-mute">Chưa có bài Viết L2 nào được chấm.</p> : (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {stats.l2.dimensions.map((d) => (
+                <div key={d.key} className="rounded-2xl border border-line p-4">
+                  <div className="flex items-center justify-between"><span className="text-sm font-semibold">{d.name}</span><span className="chip chip-brand">TB {d.avg ?? "—"}</span></div>
+                  <div className="h-28 mt-2"><ResponsiveContainer width="100%" height="100%"><BarChart data={d.distribution.map((c, i) => ({ s: String(i + 1), c }))} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}><XAxis dataKey="s" tick={{ fontSize: 11, fill: "var(--mute)" }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--mute)" }} axisLine={false} tickLine={false} /><Tooltip contentStyle={tip} cursor={{ fill: "var(--surface-2)" }} formatter={(v: any) => [`${v} bài`, "Số bài"]} labelFormatter={(l) => `Điểm ${l}`} /><Bar dataKey="c" radius={[6, 6, 2, 2]} fill="#5b5bf0" animationDuration={900} /></BarChart></ResponsiveContainer></div>
+                </div>
+              ))}
+            </div>
+          )}
+          {stats.l2.missed_errors.length > 0 && (
+            <div><h4 className="text-sm font-bold mb-2">Lỗi cài sẵn cả lớp hay bỏ sót</h4>
+              <div className="space-y-2">{stats.l2.missed_errors.map((m, i) => (
+                <div key={i} className="rounded-xl border border-line p-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1"><p className="text-sm italic break-words">“{m.text}”</p><p className="text-xs text-mute">{L2_ERROR_LABEL[m.type as keyof typeof L2_ERROR_LABEL] || m.type} · {m.assignment_title}</p></div>
+                  <div className="w-36 shrink-0"><div className="flex justify-between text-xs mb-1"><span className="text-ink-2">Bỏ sót</span><strong>{m.missed}/{m.total}</strong></div><ProgressBar value={(m.missed / m.total) * 100} from="#f59e0b" to="#ef4444" /></div>
+                </div>))}</div></div>
+          )}
+        </motion.div>
+      )}
 
       <motion.div variants={riseItem} className="card overflow-hidden">
         <div className="p-6 pb-3"><h3 className="font-bold">Theo dõi từng sinh viên</h3><p className="text-xs text-mute">Sinh viên cần chú ý được đánh dấu để bạn hỗ trợ sớm</p></div>

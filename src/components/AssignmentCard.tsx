@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Clock, Bot, FileText, Sparkles, CheckCircle2, AlertTriangle, ChevronRight, Pencil, Trash2, Award, Users } from "lucide-react";
+import { Clock, Bot, FileText, PenLine, Sparkles, CheckCircle2, AlertTriangle, ChevronRight, Pencil, Trash2, Award, Users } from "lucide-react";
 import { Assignment, UserRole } from "../types";
 import { fmtDate, relTime, riseItem } from "./ui";
 
@@ -26,8 +26,8 @@ export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, canManage
     return <span className="chip chip-amber"><Clock className="w-3 h-3" />Chưa làm</span>;
   };
 
-  const ModeIcon = a.submission_mode === "file_only" ? FileText : Bot;
-  const modeLabel = a.submission_mode === "file_only" ? "Chỉ nộp file" : a.submission_mode === "ai_chat_only" ? "AI Chat" : "AI Chat + File";
+  const ModeIcon = a.submission_mode === "file_only" ? FileText : a.submission_mode === "writing_l2" ? PenLine : Bot;
+  const modeLabel = a.submission_mode === "writing_l2" ? "Viết L2" : a.submission_mode === "file_only" ? "Chỉ nộp file" : a.submission_mode === "ai_chat_only" ? "AI Chat" : "AI Chat + File";
 
   return (
     <motion.div variants={riseItem} onClick={() => onSelect(a.id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(a.id)}
@@ -39,7 +39,7 @@ export const AssignmentCard: React.FC<Props> = ({ assignment: a, role, canManage
         <div className="flex flex-wrap items-center gap-1.5">
           {status()}
           <span className="chip chip-gray"><ModeIcon className="w-3 h-3" />{modeLabel}</span>
-          {a.submission_mode !== "file_only" && a.ai_submode === "socratic" && <span className="chip chip-brand"><Sparkles className="w-3 h-3" />Socratic</span>}
+          {a.submission_mode !== "file_only" && a.submission_mode !== "writing_l2" && a.ai_submode === "socratic" && <span className="chip chip-brand"><Sparkles className="w-3 h-3" />Socratic</span>}
           {role === "teacher" && (a.ungraded_count || 0) > 0 && <span className="chip chip-rose">{a.ungraded_count} chờ chấm</span>}
           {role === "student" && a.my_grade !== undefined && <span className="chip chip-green"><Award className="w-3 h-3" />{a.my_grade}/10</span>}
           {role === "student" && a.my_process_score !== undefined && <span className="chip chip-brand">Tư duy {a.my_process_score}/100</span>}

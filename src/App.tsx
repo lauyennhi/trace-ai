@@ -14,6 +14,7 @@ import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { SupabaseModal } from "./components/SupabaseModal";
 import { StudentWorkspaceView } from "./components/StudentWorkspaceView";
 import { TeacherSubmissionView } from "./components/TeacherSubmissionView";
+import { StudentL2View } from "./components/StudentL2View";
 import { ToastProvider, useToast, Skeleton, pageVariants, hasPerm } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -290,6 +291,10 @@ function Shell() {
                         onEdit={() => setAssignmentModal({ open: true, assignment: assignmentDetail.assignment })}
                         onCsv={() => downloadGradebookCSV(course?.name || "Mon_hoc", assignmentDetail.assignment.title, subList)}
                         onSheets={exportSheets} exporting={exporting} sheetsUrl={sheetsUrl} /> : <Skeleton className="h-96 rounded-3xl" />
+                    ) : assignmentDetail.assignment.submission_mode === "writing_l2" && assignmentDetail.assignment.l2 ? (
+                      <StudentL2View key={assignmentDetail.assignment.id} assignment={assignmentDetail.assignment} courseName={assignmentDetail.course_name}
+                        userName={user.name} userAvatar={user.avatar} submission={assignmentDetail.submission} chatSession={assignmentDetail.chat_session} l2Feedback={assignmentDetail.l2_feedback}
+                        onChanged={() => { loadOverview(); loadCourses(); api(`/api/assignments/${assignmentDetail.assignment.id}`).then((d: any) => setAssignmentDetail((prev: any) => ({ ...prev, l2_feedback: d.l2_feedback, submission: d.submission }))).catch(() => {}); }} />
                     ) : (
                       <StudentWorkspaceView key={assignmentDetail.assignment.id} assignment={assignmentDetail.assignment} courseName={assignmentDetail.course_name}
                         userName={user.name} userAvatar={user.avatar} submission={assignmentDetail.submission} chatSession={assignmentDetail.chat_session}
@@ -306,6 +311,7 @@ function Shell() {
                   {!subDetail ? <div className="space-y-4"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-96 rounded-3xl" /></div> : (
                     <TeacherSubmissionView key={subDetail.submission.id} submission={subDetail.submission} assignment={subDetail.assignment} chatSession={subDetail.chat_session}
                       onGrade={async (grade, feedback) => { const s = await api<Submission>(`/api/submissions/${subDetail.submission.id}/grade`, { method: "PUT", body: { grade, feedback } }); setSubDetail({ ...subDetail, submission: s }); loadCourses(); loadOverview(); }}
+                      onL2Scores={async (scores) => { const sb = await api<Submission>(`/api/submissions/${subDetail.submission.id}/l2-scores`, { method: "PUT", body: { scores } }); setSubDetail({ ...subDetail, submission: sb }); }}
                       onReevaluate={async () => { const s = await api<Submission>(`/api/submissions/${subDetail.submission.id}/reevaluate`, { method: "POST" }); setSubDetail({ ...subDetail, submission: s }); }} />
                   )}
                 </div>
