@@ -883,8 +883,9 @@ async function syncMiddleware(req, res, next) {
       await refreshing;
     }
   } catch (e) {
-    console.error("[Supabase] Load failed:", e.message);
-    return res.status(503).json({ success: false, message: "Kh\xF4ng k\u1EBFt n\u1ED1i \u0111\u01B0\u1EE3c c\u01A1 s\u1EDF d\u1EEF li\u1EC7u. Vui l\xF2ng th\u1EED l\u1EA1i sau \xEDt ph\xFAt." });
+    const reason = String(e?.cause?.message || e?.message || e).slice(0, 200);
+    console.error("[Supabase] Load failed:", reason);
+    return res.status(503).json({ success: false, message: `Kh\xF4ng k\u1EBFt n\u1ED1i \u0111\u01B0\u1EE3c c\u01A1 s\u1EDF d\u1EEF li\u1EC7u: ${reason}` });
   }
   next();
 }
@@ -898,6 +899,33 @@ function generateInviteCode() {
 }
 var app = express();
 app.use(express.json({ limit: "10mb" }));
+app.get("/api/health", async (req, res) => {
+  const url = process.env.SUPABASE_URL?.trim() || "";
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
+  const out = {
+    ok: true,
+    supabase: {
+      configured: isSupabaseConfigured(),
+      url_host: url ? url.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : null,
+      key_type: !key ? null : key.startsWith("sb_secret_") ? "secret (\u0111\xFAng)" : key.startsWith("sb_publishable_") ? "publishable (SAI - c\u1EA7n secret)" : key.startsWith("eyJ") ? "legacy JWT (service_role ho\u1EB7c anon)" : "kh\xF4ng nh\u1EADn d\u1EA1ng \u0111\u01B0\u1EE3c",
+      using_service_role_env: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      loaded: supabaseLoaded,
+      error: null
+    },
+    gemini_configured: !!process.env.GEMINI_API_KEY,
+    auth_secret_configured: !!process.env.AUTH_SECRET
+  };
+  const sb = getSupabaseClient();
+  if (sb) {
+    try {
+      const { error } = await sb.from("documents").select("id").limit(1);
+      if (error) out.supabase.error = error.message;
+    } catch (e) {
+      out.supabase.error = String(e?.cause?.message || e?.message || e);
+    }
+  }
+  res.json(out);
+});
 app.use("/api", (req, res, next) => {
   const store = { pending: [] };
   const origEnd = res.end;
