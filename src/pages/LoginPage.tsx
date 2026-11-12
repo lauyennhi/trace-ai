@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sparkles, Mail, Lock, User as UserIcon, GraduationCap, BookOpen, ArrowRight, Eye, EyeOff, Brain, MessageSquareText, ShieldCheck } from "lucide-react";
 import { api, setToken } from "../lib/api";
+import { InkTrail } from "../components/InkTrail";
 import { User } from "../types";
 
 interface Props { onAuthed: (user: User) => void; }
@@ -41,6 +42,7 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
         <div className="blob blob-1 w-96 h-96 bg-[#a8c7fa] -top-24 -left-20 opacity-60" />
         <div className="blob blob-2 w-[28rem] h-[28rem] bg-[#d3bffa] bottom-[-8rem] right-[-6rem] opacity-60" />
         <div className="absolute inset-0 dot-grid opacity-30" />
+        <InkTrail />
         <div className="relative flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-brand text-white dark:text-[#062e6f] flex items-center justify-center"><Sparkles className="w-6 h-6" /></div>
           <span className="text-2xl font-normal tracking-tight">Trace</span>
@@ -48,10 +50,10 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
 
         <div className="relative space-y-8 max-w-lg">
           <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }} className="text-5xl font-normal leading-[1.15] tracking-tight">
-            Chấm <span className="text-brand">quá trình tư duy</span>, không chỉ kết quả.
+            Less paste, more <span className="text-brand">Trace</span>.
           </motion.h1>
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="text-lg text-ink-2">
-            Quản lý lớp học, giao bài và xem sinh viên đối thoại với AI như thế nào — phản biện, đào sâu hay chỉ xin đáp án.
+            Đọc vị từng dấu vết tư duy từ chính cuộc trò chuyện với AI.
           </motion.p>
 
           {/* floating mock chat */}
@@ -83,7 +85,8 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
       </div>
 
       {/* Form panel */}
-      <div className="relative flex items-center justify-center p-6 sm:p-12">
+      <div className="relative flex items-center justify-center p-6 sm:p-12 overflow-hidden">
+        <InkTrail strength={0.7} />
         <div className="blob blob-1 w-72 h-72 bg-indigo-300/40 dark:bg-indigo-500/20 -top-10 -right-10 lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
