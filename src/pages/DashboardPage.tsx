@@ -31,7 +31,7 @@ export const DashboardPage: React.FC<Props> = ({ user, courses, overview: o, loa
 
       <div className="grid xl:grid-cols-[1.15fr_1fr] gap-5">
         {/* Recently due / Upcoming */}
-        <motion.div variants={riseItem}>
+        <motion.div variants={riseItem} className="min-w-0">
           <Section title={manage ? "Gần đến hạn" : "Việc cần làm"} storageKey="due" action={<button onClick={() => (manage ? onGoCourses() : onGoCourses())} className="text-sm font-medium text-brand hover:underline px-2 hidden sm:block">{manage ? "Xem tất cả môn" : "Xem môn học"}</button>}>
             {!o ? <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div> : manage ? (
               o.recent_due.length === 0 ? <p className="text-sm text-mute py-6 text-center">Không có bài tập nào đến hạn gần đây.</p> : (
@@ -72,7 +72,7 @@ export const DashboardPage: React.FC<Props> = ({ user, courses, overview: o, loa
         </motion.div>
 
         {/* Class insights / Recent results */}
-        <motion.div variants={riseItem}>
+        <motion.div variants={riseItem} className="min-w-0">
           <Section title={manage ? "Phân tích lớp học" : "Kết quả gần đây"} storageKey="insights">
             {!o ? <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div> : manage ? (
               o.insights.length === 0 ? <div className="tonal p-6 text-sm text-ink-2 text-center">Chưa có điểm cần chú ý. Mọi thứ đang ổn 👍</div> : (
