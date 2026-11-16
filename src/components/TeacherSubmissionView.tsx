@@ -6,6 +6,7 @@ import { Submission, Assignment, ChatSession, ProcessScoreResult } from "../type
 import { googleSignIn, getAccessToken, exportReportToDocs, sendResultEmailViaGmail } from "../lib/workspace";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { L2Review } from "./L2Review";
+import { ThinkingTrace } from "./ThinkingTrace";
 import { Avatar, Bar, Modal, fmtDate, riseItem, staggerParent, useToast } from "./ui";
 
 interface Props {
@@ -123,6 +124,14 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
               </>
             )}
           </motion.div>
+
+          {chatSession && chatSession.messages.some((m) => m.role === "user") && (
+            <motion.div variants={riseItem} className="card p-6">
+              <h3 className="font-bold mb-1">Dấu vết tư duy theo từng lượt</h3>
+              <p className="text-xs text-mute mb-4">Mỗi điểm là một lượt của sinh viên. Khi AI đã nhận định, đường đi lên nếu lượt đó thể hiện tư duy độc lập, đi xuống nếu nhờ AI làm hộ hoặc sao chép.</p>
+              <ThinkingTrace messages={chatSession.messages} highlights={result?.highlight_segments} studentLabel="sinh viên" />
+            </motion.div>
+          )}
 
           {result && result.highlight_segments.length > 0 && (
             <motion.div variants={riseItem} className="card p-6">

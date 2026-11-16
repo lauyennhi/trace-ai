@@ -8,6 +8,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { Assignment, Submission, ChatSession, ProcessScoreResult } from "../types";
 import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { ThinkingTrace } from "./ThinkingTrace";
 import { Avatar, Modal, Bar, fmtDate, relTime, useToast } from "./ui";
 
 interface Props {
@@ -221,6 +222,14 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
             </motion.div>
           )}
 
+          {submitted && messages.some((m) => m.role === "user") && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card p-5">
+              <h3 className="font-bold mb-1">Dấu vết tư duy của bạn</h3>
+              <p className="text-xs text-mute mb-4">Mỗi điểm là một lượt bạn trao đổi với AI. Khi AI đã nhận định, đường đi lên nếu bạn tự suy nghĩ và phản biện, đi xuống nếu nhờ AI làm hộ.</p>
+              <ThinkingTrace messages={messages} highlights={result?.highlight_segments} studentLabel="bạn" />
+            </motion.div>
+          )}
+
           {assignment.submission_mode === "file_only" ? (
             <div className="card p-5 space-y-4">
               <h3 className="font-bold flex items-center gap-2"><FileText className="w-5 h-5 text-brand" />Nộp file bài làm</h3>
@@ -234,6 +243,12 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                 <div className="flex items-center gap-2 font-bold"><MessageSquareText className="w-5 h-5 text-brand" />Trao đổi với Trợ lý AI</div>
                 <span className="text-xs text-mute">{messages.length} tin nhắn</span>
               </div>
+              {!locked && turns > 0 && (
+                <div className="px-4 pt-3 border-b border-line" data-testid="live-trace">
+                  <div className="flex items-center justify-between text-[11px] text-mute mb-1"><span className="flex items-center gap-1.5 font-semibold text-brand"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />Dấu vết tư duy đang được ghi lại</span><span>{turns} lượt</span></div>
+                  <ThinkingTrace live messages={messages} studentLabel="bạn" />
+                </div>
+              )}
               <div className="overflow-y-auto p-4 md:p-5 space-y-5 min-h-[22rem] max-h-[60vh] bg-surface-2/40">
                 {needIntent && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="intent-panel" className="rounded-2xl border border-brand/30 bg-surface p-4 md:p-5 space-y-4">
