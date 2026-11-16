@@ -7,6 +7,7 @@ import {
   DEFAULT_L2_DIMENSIONS, L2_ERROR_TYPES, findPhraseRange, matchErrors, wordSimilarity, normWs,
   type L2Config, type L2Error, type L2Highlight, type L2Work, type L2ErrorReport, type L2Result,
 } from "./src/lib/l2.ts";
+import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
@@ -1272,16 +1273,21 @@ function publicAssignment(a: any, user: any) {
 }
 
 function sanitizeAssignmentInput(body: any) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts } = body || {};
+  const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
+  // Input friction only applies to plain AI-chat assignments (not file-only, not the 3-step L2 flow)
+  const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
   return {
     title: typeof title === "string" ? title.trim() : title,
     description: description ?? "",
     rubric: rubric ?? "",
     due_date,
     attachments: Array.isArray(attachments) ? attachments : [],
-    submission_mode: ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both",
+    submission_mode: mode,
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true,
+    friction: level,
+    friction_prompts: cleanFrictionPrompts(friction_prompts),
   };
 }
 
@@ -1801,6 +1807,86 @@ function chatRateLimited(userId: string): boolean {
   return false;
 }
 
+/** System prompt for plain (non-L2) assignment chat. When the student wrote their own ideas first, the AI builds on them. */
+function chatInstruction(assignment: any, course: any, chatSession: any): string {
+  const base = assignment.ai_submode === "socratic"
+    ? `Bạn là trợ lý học tập AI trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}.
+Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước. Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
+Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`
+    : `Bạn là trợ lý học tập AI nhiệt tình trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}.
+Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài liệu tham khảo chính xác. Trả lời bằng tiếng Việt chuyên nghiệp, ngắn gọn.`;
+  const intent: ChatIntent | undefined = chatSession?.intent;
+  if (!intent || intent.skipped || !intent.answers?.length) return base;
+  return `${base}
+Sinh viên đã tự ghi ý riêng của mình TRƯỚC khi hỏi bạn (tin nhắn đầu tiên của họ). Hãy dùng chính ý của họ làm nền: ghi nhận điểm đúng, chỉ ra điểm còn yếu hoặc thiếu, rồi giúp họ NÂNG CẤP lập luận của chính họ thay vì viết lại từ đầu. Không đưa bài hoàn chỉnh thay họ.`;
+}
+
+app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
+  if (!can(req.user, "use_ai_chat")) return denied(res);
+  const { assignment_id } = req.body || {};
+  const assignment = db.assignments.find((a: any) => a.id === assignment_id);
+  if (!assignment) return fail(res, 404, "Bài tập không tìm thấy.");
+  const course = findCourse(assignment.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  if (!assignment.friction || assignment.friction === "none") return fail(res, 400, "Bài tập này không yêu cầu ghi ý trước.");
+  const existing = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (existing && isSubmitted(existing)) return fail(res, 409, "Bài đã nộp, cuộc trò chuyện đã được khóa.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
+
+  let chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
+  if (chatSession?.intent) return fail(res, 409, "Bạn đã ghi ý ban đầu cho bài này rồi.");
+  const conf = Number(req.body?.confidence);
+  const confidence = Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : undefined;
+  const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
+  const prompts: string[] = assignment.friction_prompts?.length ? assignment.friction_prompts : cleanFrictionPrompts(undefined);
+
+  // Skipping is only allowed at the "nudge" level, and the skip itself is recorded
+  if (req.body?.skip === true) {
+    if (assignment.friction === "required") return fail(res, 400, "Bài tập này yêu cầu bạn ghi ý riêng trước.");
+    if (!chatSession) { chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] }; db.chat_sessions.push(chatSession); }
+    chatSession.intent = { answers: [], confidence, skipped: true, at: nowIso() } satisfies ChatIntent;
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    return res.json({ success: true, data: { chat_session: chatSession } });
+  }
+
+  const raw = Array.isArray(req.body?.answers) ? req.body.answers : [];
+  const answers = prompts.map((q, i) => ({ q, a: typeof raw[i] === "string" ? raw[i].trim().slice(0, 2000) : "" })).filter((x) => x.a);
+  const need = Math.min(FRICTION_MIN_ANSWERS, prompts.length);
+  if (answers.length < need || answers.reduce((n, x) => n + x.a.length, 0) < FRICTION_MIN_CHARS) {
+    return fail(res, 400, `Hãy trả lời ít nhất ${need} câu và viết đủ ý (tối thiểu ${FRICTION_MIN_CHARS} ký tự) để mở trợ lý AI.`);
+  }
+
+  const isNew = !chatSession;
+  if (!chatSession) { chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] }; db.chat_sessions.push(chatSession); }
+  const content = "**Ý ban đầu của em (trước khi hỏi AI)**\n\n" + answers.map((x) => `- ${x.q}\n  ${x.a.replace(/\n/g, "\n  ")}`).join("\n");
+  const userMsg: any = { id: uid("m"), role: "user" as const, kind: "intent", content, timestamp: nowIso() };
+  const prevMessages = chatSession.messages;
+  const prevIntent = chatSession.intent;
+  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || undefined, at: nowIso() } satisfies ChatIntent;
+  chatSession.messages = [...prevMessages, userMsg];
+
+  try {
+    if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+    const response = await generateWithFallback({
+      contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+      config: { systemInstruction: chatInstruction(assignment, course, chatSession), temperature: 0.7 },
+    });
+    const replyText = response.text;
+    if (!replyText) throw new Error("AI trả về nội dung rỗng.");
+    const aiMsg: any = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+    chatSession.messages.push(aiMsg);
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+  } catch (err: any) {
+    console.error("Gemini Intent Error:", err?.message || err);
+    // Roll back so the student can simply retry
+    chatSession.messages = prevMessages; chatSession.intent = prevIntent;
+    if (isNew) db.chat_sessions = db.chat_sessions.filter((cs: any) => cs.id !== chatSession.id);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Ý của bạn chưa được ghi nhận, hãy thử gửi lại.");
+  }
+});
+
 app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
@@ -1828,16 +1914,18 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
     chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] };
     db.chat_sessions.push(chatSession);
   }
+  // Input friction: the server (not the UI) enforces that the student wrote their own ideas first
+  if (!isL2 && assignment.friction && assignment.friction !== "none" && !chatSession.intent) {
+    if (!chatSession.messages.length) db.chat_sessions = db.chat_sessions.filter((cs: any) => cs.id !== chatSession.id);
+    return fail(res, 409, "Hãy ghi ý riêng của bạn trước khi hỏi trợ lý AI.");
+  }
   const userMsg: any = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
   if (isL2) userMsg.phase = phase;
+  const pasted = Number(req.body?.pasted_chars);
+  if (Number.isFinite(pasted) && pasted > 0) userMsg.pasted_chars = Math.min(Math.round(pasted), message_content.length);
   chatSession.messages.push(userMsg);
 
-  const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase!) : assignment.ai_submode === "socratic"
-    ? `Bạn là trợ lý học tập AI trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}.
-Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước. Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
-Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`
-    : `Bạn là trợ lý học tập AI nhiệt tình trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}.
-Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài liệu tham khảo chính xác. Trả lời bằng tiếng Việt chuyên nghiệp, ngắn gọn.`;
+  const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase!) : chatInstruction(assignment, course, chatSession);
 
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
@@ -1902,7 +1990,8 @@ app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
   if (assignment.submission_mode === "writing_l2" && assignment.l2) return submitL2(req, res, assignment, sub, isLate);
 
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
-  const userTurns = chatSession ? chatSession.messages.filter((m: any) => m.role === "user").length : 0;
+  // The student's own first-ideas message (input friction) is not counted as a chat turn
+  const userTurns = chatSession ? chatSession.messages.filter((m: any) => m.role === "user" && m.kind !== "intent").length : 0;
   if (assignment.submission_mode !== "file_only" && userTurns < 3) return fail(res, 400, "Bạn cần trao đổi ít nhất 3 lượt với trợ lý AI trước khi nộp.");
   if (assignment.submission_mode === "file_only" && !(submitted_files?.length || submitted_text?.trim())) return fail(res, 400, "Vui lòng đính kèm file hoặc nhập nội dung bài làm.");
 
@@ -1950,6 +2039,46 @@ app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
 });
 
 // ---- Stats (real data only) ----
+/** Aggregated, anonymous behaviour indicators. Never per student; hidden below this many students. */
+const BEHAVIOR_MIN_STUDENTS = 5;
+const PASTE_HEAVY_CHARS = 200;
+
+function behaviorStats(assignments: any[], members: any[], subs: any[]) {
+  const chatAssignments = assignments.filter((a: any) => a.submission_mode === "ai_chat_only" || a.submission_mode === "both");
+  const memberIds = new Set(members.map((m: any) => m.student_id));
+  const sessions = db.chat_sessions.filter((cs: any) => chatAssignments.some((a: any) => a.id === cs.assignment_id) && memberIds.has(cs.student_id)
+    && cs.messages.some((m: any) => m.role === "user"));
+  const students = new Set(sessions.map((cs: any) => cs.student_id)).size;
+  if (students < BEHAVIOR_MIN_STUDENTS) return { enough: false, students, min_students: BEHAVIOR_MIN_STUDENTS };
+
+  const frictionSessions = sessions.filter((cs: any) => chatAssignments.find((a: any) => a.id === cs.assignment_id)?.friction !== "none"
+    && chatAssignments.find((a: any) => a.id === cs.assignment_id)?.friction);
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : null);
+  const wrote = frictionSessions.filter((cs: any) => cs.intent && !cs.intent.skipped).length;
+  const skipped = frictionSessions.filter((cs: any) => cs.intent?.skipped).length;
+
+  const userMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.role === "user" && m.kind !== "intent"));
+  const heavy = userMsgs.filter((m: any) => (m.pasted_chars || 0) >= PASTE_HEAVY_CHARS).length;
+
+  // Calibration: self-rated confidence (1-5 -> 0-100) vs the AI process score of the same submission
+  const pairs = subs.map((s: any) => {
+    const cs = sessions.find((c: any) => c.assignment_id === s.assignment_id && c.student_id === s.student_id);
+    return cs?.intent?.confidence && s.process_score_result ? { c: cs.intent.confidence * 20, p: s.process_score_result.process_score } : null;
+  }).filter(Boolean) as { c: number; p: number }[];
+  const avgOf = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+
+  return {
+    enough: true,
+    students,
+    friction_sessions: frictionSessions.length,
+    wrote_first_rate: pct(wrote, frictionSessions.length),
+    skipped_rate: pct(skipped, frictionSessions.length),
+    paste_heavy_rate: pct(heavy, userMsgs.length),
+    paste_heavy_chars: PASTE_HEAVY_CHARS,
+    calibration: pairs.length >= BEHAVIOR_MIN_STUDENTS ? { n: pairs.length, avg_confidence: avgOf(pairs.map((x) => x.c)), avg_process_score: avgOf(pairs.map((x) => x.p)) } : null,
+  };
+}
+
 app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
   const course = findCourse(req.params.id);
   if (!course) return fail(res, 404, "Môn học không tồn tại.");
@@ -2021,6 +2150,7 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
   res.json({
     success: true,
     data: {
+      behavior: behaviorStats(assignments, members, subs),
       total_students: members.length,
       total_assignments: assignments.length,
       submission_rate: pct(subs.length),

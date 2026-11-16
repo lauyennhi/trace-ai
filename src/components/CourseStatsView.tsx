@@ -96,6 +96,25 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
         </div>
       </motion.div>
 
+      {stats.behavior && (
+        <motion.div variants={riseItem} className="card p-6 space-y-4" data-testid="behavior-stats">
+          <div><h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-brand" />Chỉ báo hành vi khi làm bài với AI</h3>
+            <p className="text-xs text-mute">Số liệu tổng hợp ẩn danh cho cả lớp, không hiện theo từng sinh viên. Chỉ mang tính tham khảo, không dùng để kết luận về một cá nhân.</p></div>
+          {!stats.behavior.enough ? (
+            <p className="text-sm text-mute">Cần ít nhất {stats.behavior.min_students} sinh viên có dữ liệu chat để hiển thị (hiện có {stats.behavior.students}). Ngưỡng này giúp không lộ hành vi của từng em trong lớp nhỏ.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="rounded-2xl border border-line p-4"><div className="text-xs text-mute">Tự ghi ý trước khi hỏi AI</div><div className="text-2xl font-medium mt-1">{stats.behavior.wrote_first_rate ?? "—"}{stats.behavior.wrote_first_rate != null && <span className="text-sm text-mute">%</span>}</div><div className="text-[11px] text-mute mt-1">trên {stats.behavior.friction_sessions} lượt làm bài có bật ma sát</div></div>
+              <div className="rounded-2xl border border-line p-4"><div className="text-xs text-mute">Bỏ qua bước ghi ý</div><div className="text-2xl font-medium mt-1">{stats.behavior.skipped_rate ?? "—"}{stats.behavior.skipped_rate != null && <span className="text-sm text-mute">%</span>}</div><div className="text-[11px] text-mute mt-1">mức "Nhắc nhẹ" cho phép bỏ qua</div></div>
+              <div className="rounded-2xl border border-line p-4"><div className="text-xs text-mute">Tin nhắn dán nhiều chữ</div><div className="text-2xl font-medium mt-1">{stats.behavior.paste_heavy_rate ?? "—"}{stats.behavior.paste_heavy_rate != null && <span className="text-sm text-mute">%</span>}</div><div className="text-[11px] text-mute mt-1">dán từ {stats.behavior.paste_heavy_chars} ký tự trở lên</div></div>
+              <div className="rounded-2xl border border-line p-4"><div className="text-xs text-mute">Độ tự tin so với tư duy (AI)</div>
+                {stats.behavior.calibration ? <div className="text-2xl font-medium mt-1">{stats.behavior.calibration.avg_confidence}<span className="text-sm text-mute"> vs </span>{stats.behavior.calibration.avg_process_score}</div> : <div className="text-sm text-mute mt-2">Chưa đủ dữ liệu</div>}
+                <div className="text-[11px] text-mute mt-1">tự tin (quy 0-100) so với điểm quá trình TB</div></div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {stats.l2 && (
         <motion.div variants={riseItem} className="card p-6 space-y-5">
           <div><h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-brand" />Bài Viết L2: phân bố điểm theo từng chiều</h3>

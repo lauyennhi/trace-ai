@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Send, Bot, Sparkles, Paperclip, CheckCircle2, Lock, FileText, Upload, ChevronDown, Award, Clock,
-  PartyPopper, Save, BookOpenText, ListChecks, AlertTriangle, MessageSquareText,
+  PartyPopper, Save, BookOpenText, ListChecks, AlertTriangle, MessageSquareText, PenLine,
 } from "lucide-react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import { Assignment, Submission, ChatSession, ProcessScoreResult } from "../types";
@@ -19,14 +19,21 @@ interface Props {
   chatSession: ChatSession | null;
   onSubmitAssignment: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string; notes?: string }) => Promise<Submission>;
   onSaveDraft: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string }) => Promise<void>;
-  onSendMessage: (data: { assignment_id: string; message_content: string }) => Promise<{ chat_session: ChatSession }>;
+  onSendMessage: (data: { assignment_id: string; message_content: string; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
+  onSubmitIntent: (data: { assignment_id: string; answers?: string[]; confidence?: number; skip?: boolean; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
 }
 
 const MIN_TURNS = 3;
 
-export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, userName, userAvatar, submission, chatSession, onSubmitAssignment, onSaveDraft, onSendMessage }) => {
+export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, userName, userAvatar, submission, chatSession, onSubmitAssignment, onSaveDraft, onSendMessage, onSubmitIntent }) => {
   const toast = useToast();
   const [messages, setMessages] = useState<any[]>(chatSession?.messages || []);
+  const [intentDone, setIntentDone] = useState<boolean>(!!chatSession?.intent);
+  const [ideas, setIdeas] = useState<string[]>(["", "", ""]);
+  const [confidence, setConfidence] = useState<number | undefined>(undefined);
+  const [intentBusy, setIntentBusy] = useState(false);
+  const ideasPasted = useRef(0);
+  const pastedRef = useRef(0);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<UploadedFileItem[]>((submission?.submitted_files || []).map((f) => ({ id: f.id, name: f.name, size: f.size || "Đã đính kèm", url: f.url, type: f.type || "file" })));
@@ -44,11 +51,14 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const pastDue = new Date(assignment.due_date) < new Date();
   const locked = submitted || (pastDue && assignment.allow_late === false);
   const chatEnabled = assignment.submission_mode !== "file_only";
-  const turns = messages.filter((m) => m.role === "user").length;
+  const friction = assignment.friction || "none";
+  const frictionPrompts = assignment.friction_prompts?.length ? assignment.friction_prompts : ["Luận điểm cốt lõi của em về đề bài này là gì?", "Em định dùng dẫn chứng hoặc ví dụ nào?", "Điểm nào em còn băn khoăn hoặc chưa chắc?"];
+  const needIntent = chatEnabled && friction !== "none" && !intentDone && !locked;
+  const turns = messages.filter((m) => m.role === "user" && m.kind !== "intent").length;
   const needTurns = chatEnabled ? Math.max(0, MIN_TURNS - turns) : 0;
   const canSubmit = !locked && !sending && needTurns === 0;
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, sending]);
+  useEffect(() => { if (!needIntent) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, sending, needIntent]);
 
   // Autosave draft (debounced) when file / text content changes
   useEffect(() => {
@@ -71,17 +81,33 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
       content += files.map((f) => `\n\n[File đính kèm: ${f.name} (${f.size})]${f.textContent ? `\nNội dung file:\n${f.textContent}` : ""}`).join("");
     }
     const tempId = "temp_" + Date.now();
-    setInput(""); setSending(true);
+    const pasted = pastedRef.current;
+    setInput(""); setSending(true); pastedRef.current = 0;
     setMessages((p) => [...p, { id: tempId, role: "user", content: userText, timestamp: new Date().toISOString() }]);
     try {
-      const res = await onSendMessage({ assignment_id: assignment.id, message_content: content });
+      const res = await onSendMessage({ assignment_id: assignment.id, message_content: content, pasted_chars: pasted });
       setMessages(res.chat_session.messages);
     } catch (err: any) {
       setMessages((p) => p.filter((m) => m.id !== tempId));
-      setInput(userText);
+      setInput(userText); pastedRef.current = pasted;
       toast.error(err.message || "Không gửi được tin nhắn.");
     } finally { setSending(false); }
   }, [input, sending, locked, files, messages.length, assignment.id]);
+
+  const submitIntent = async (skip: boolean) => {
+    setIntentBusy(true);
+    try {
+      const res = await onSubmitIntent(skip
+        ? { assignment_id: assignment.id, skip: true, confidence }
+        : { assignment_id: assignment.id, answers: ideas, confidence, pasted_chars: ideasPasted.current });
+      setMessages(res.chat_session.messages); setIntentDone(true);
+    } catch (err: any) { toast.error(err.message || "Không gửi được ý của bạn."); }
+    finally { setIntentBusy(false); }
+  };
+
+  const ideaChars = ideas.reduce((n, x) => n + x.trim().length, 0);
+  const ideaCount = ideas.slice(0, frictionPrompts.length).filter((x) => x.trim()).length;
+  const ideasOk = ideaCount >= Math.min(2, frictionPrompts.length) && ideaChars >= 40;
 
   const doSubmit = async () => {
     setSubmitting(true);
@@ -209,7 +235,40 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                 <span className="text-xs text-mute">{messages.length} tin nhắn</span>
               </div>
               <div className="overflow-y-auto p-4 md:p-5 space-y-5 min-h-[22rem] max-h-[60vh] bg-surface-2/40">
-                {messages.length === 0 && (
+                {needIntent && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="intent-panel" className="rounded-2xl border border-brand/30 bg-surface p-4 md:p-5 space-y-4">
+                    <div>
+                      <div className="flex items-center gap-2 font-bold text-brand"><PenLine className="w-4 h-4" />Trước khi hỏi trợ lý, hãy ghi ý riêng của em</div>
+                      <p className="text-xs text-ink-2 mt-1">Chỉ cần vài dòng, chưa cần hoàn chỉnh. Trợ lý sẽ dùng chính ý của em để giúp em nâng cấp lập luận, thay vì viết thay.{friction === "required" ? " Bài này yêu cầu ghi ý trước." : ""}</p>
+                    </div>
+                    {frictionPrompts.map((q, i) => (
+                      <div key={i}>
+                        <label className="label">{q}</label>
+                        <textarea rows={2} className="input resize-none" value={ideas[i] || ""} disabled={intentBusy}
+                          onPaste={(e) => { ideasPasted.current += e.clipboardData.getData("text").length; }}
+                          onChange={(e) => setIdeas(ideas.map((x, k) => (k === i ? e.target.value : x)))} />
+                      </div>
+                    ))}
+                    <div>
+                      <label className="label">Hiện giờ em tự tin về bài này đến mức nào?</label>
+                      <div className="flex gap-2" role="radiogroup" aria-label="Mức tự tin">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button key={n} type="button" role="radio" aria-checked={confidence === n} onClick={() => setConfidence(n)}
+                            className={`w-10 h-10 rounded-xl border font-semibold transition-all ${confidence === n ? "border-brand bg-brand text-white" : "border-line hover:border-brand/40"}`}>{n}</button>
+                        ))}
+                        <span className="text-xs text-mute self-center ml-1">1 = chưa chắc · 5 = rất chắc</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-mute">{ideasOk ? "Đủ ý để mở trợ lý." : `Viết ít nhất ${Math.min(2, frictionPrompts.length)} ô, tổng tối thiểu 40 ký tự.`}</span>
+                      <div className="flex gap-2">
+                        {friction === "nudge" && <button type="button" className="btn btn-ghost btn-sm" disabled={intentBusy} onClick={() => submitIntent(true)}>Bỏ qua (sẽ được ghi nhận)</button>}
+                        <button type="button" className="btn btn-primary" disabled={!ideasOk || intentBusy} onClick={() => submitIntent(false)}>{intentBusy ? "Trợ lý đang đọc ý của em…" : "Gửi ý và mở trợ lý"}</button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+                {messages.length === 0 && !needIntent && (
                   <div className="h-72 flex flex-col items-center justify-center text-center gap-3">
                     <motion.div animate={{ y: [0, -8, 0], rotate: [0, 4, -4, 0] }} transition={{ repeat: Infinity, duration: 4 }} className="w-16 h-16 rounded-3xl bg-gradient-to-br bg-brand text-white flex items-center justify-center shadow-xl shadow-brand/30"><Sparkles className="w-8 h-8" /></motion.div>
                     <h4 className="font-bold">Bắt đầu cuộc trao đổi</h4>
@@ -250,11 +309,12 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                   <div className="rounded-xl bg-surface-2 text-center text-sm font-medium text-mute py-3 flex items-center justify-center gap-2"><Lock className="w-4 h-4" />{submitted ? "Đã nộp bài. Toàn bộ hội thoại được lưu trong nhật ký quá trình." : "Bài tập đã khóa sau hạn nộp."}</div>
                 ) : (
                   <form onSubmit={send} className="flex items-end gap-2">
-                    <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={sending}
+                    <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={sending || needIntent}
+                      onPaste={(e) => { pastedRef.current += e.clipboardData.getData("text").length; }}
                       onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                      placeholder={assignment.ai_submode === "socratic" ? "Hỏi hoặc phản biện lại trợ lý… (Enter để gửi, Shift+Enter xuống dòng)" : "Nhập tin nhắn… (Enter để gửi)"}
+                      placeholder={needIntent ? "Hãy ghi ý riêng của em ở phía trên trước…" : assignment.ai_submode === "socratic" ? "Hỏi hoặc phản biện lại trợ lý… (Enter để gửi, Shift+Enter xuống dòng)" : "Nhập tin nhắn… (Enter để gửi)"}
                       className="input resize-none max-h-40 min-h-[48px]" style={{ fieldSizing: "content" } as React.CSSProperties} />
-                    <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={!input.trim() || sending} className="btn btn-primary btn-icon h-12 w-12 shrink-0" aria-label="Gửi"><Send className="w-5 h-5" /></motion.button>
+                    <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={!input.trim() || sending || needIntent} className="btn btn-primary btn-icon h-12 w-12 shrink-0" aria-label="Gửi"><Send className="w-5 h-5" /></motion.button>
                   </form>
                 )}
               </div>

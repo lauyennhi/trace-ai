@@ -4,6 +4,7 @@ import { Assignment, SubmissionMode, AISubmode, AssignmentAttachment } from "../
 import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { Modal } from "./ui";
 import { DEFAULT_L2_DIMENSIONS, L2_ERROR_LABEL, L2_ERROR_TYPES, findPhraseRange, type L2Dimension, type L2ErrorType } from "../lib/l2";
+import { DEFAULT_FRICTION_PROMPTS, FRICTION_LABEL, FRICTION_LEVELS, type FrictionLevel } from "../lib/friction";
 
 export interface L2FormError { id: string; type: L2ErrorType; text: string; answer: string }
 export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions: L2Dimension[]; prompt_language: "en" | "bilingual" }
@@ -11,6 +12,7 @@ export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions
 export interface AssignmentFormData {
   title: string; description: string; rubric: string; due_date: string;
   attachments: AssignmentAttachment[]; submission_mode: SubmissionMode; ai_submode: AISubmode; allow_late: boolean;
+  friction: FrictionLevel; friction_prompts: string[];
   l2?: L2FormData;
 }
 interface Props {
@@ -34,6 +36,8 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
   const [mode, setMode] = useState<SubmissionMode>("both");
   const [aiMode, setAiMode] = useState<AISubmode>("socratic");
   const [allowLate, setAllowLate] = useState(true);
+  const [friction, setFriction] = useState<FrictionLevel>("nudge");
+  const [frictionPrompts, setFrictionPrompts] = useState<string[]>(DEFAULT_FRICTION_PROMPTS);
   const [files, setFiles] = useState<UploadedFileItem[]>([]);
   const [l2Text, setL2Text] = useState("");
   const [l2Errors, setL2Errors] = useState<L2FormError[]>([]);
@@ -49,6 +53,9 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
     setTitle(assignment?.title || ""); setDescription(assignment?.description || ""); setRubric(assignment?.rubric || "");
     setDueDate(toLocalInput(assignment?.due_date)); setMode(assignment?.submission_mode || "both");
     setAiMode(assignment?.ai_submode || "socratic"); setAllowLate(assignment?.allow_late !== false);
+    // New assignments default to the gentle "nudge"; existing ones keep what they had (missing = none)
+    setFriction(assignment ? assignment.friction || "none" : "nudge");
+    setFrictionPrompts(assignment?.friction_prompts?.length ? assignment.friction_prompts : DEFAULT_FRICTION_PROMPTS);
     setL2Text(assignment?.l2?.ai_text || ""); setL2Lang(assignment?.l2?.prompt_language || "en");
     setL2Errors((assignment?.l2?.errors || []).map((e) => ({ id: e.id, type: e.type, text: e.text, answer: e.answer })));
     setL2Dims(assignment?.l2?.dimensions?.length === 5 ? assignment.l2.dimensions : DEFAULT_L2_DIMENSIONS);
@@ -70,6 +77,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
         title: title.trim(), description, rubric, due_date: new Date(dueDate).toISOString(),
         attachments: files.map((f) => ({ id: f.id, name: f.name, url: f.url, size: f.size, type: f.type })),
         submission_mode: mode, ai_submode: aiMode, allow_late: allowLate,
+        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean),
         ...(mode === "writing_l2" ? { l2: { ai_text: l2Text, errors: l2Errors, dimensions: l2Dims, prompt_language: l2Lang } } : {}),
       });
       onClose();
@@ -141,6 +149,28 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
                 </button>
               ))}
             </div>
+          </div>
+        )}
+        {mode !== "file_only" && mode !== "writing_l2" && (
+          <div>
+            <label className="label">Ma sát đầu vào: sinh viên ghi ý riêng trước khi hỏi AI</label>
+            <div className="grid grid-cols-3 gap-2">
+              {FRICTION_LEVELS.map((id) => (
+                <button key={id} type="button" onClick={() => setFriction(id)}
+                  className={`rounded-2xl border p-3 text-left transition-all ${friction === id ? "border-brand bg-brand-soft ring-4 ring-brand/10" : "border-line hover:border-brand/40"}`}>
+                  <div className={`text-sm font-semibold ${friction === id ? "text-brand" : ""}`}>{FRICTION_LABEL[id].label}</div>
+                  <div className="text-[11px] text-mute mt-1">{FRICTION_LABEL[id].hint}</div>
+                </button>
+              ))}
+            </div>
+            {friction !== "none" && (
+              <div className="mt-3 rounded-2xl border border-line bg-surface-2 p-3 space-y-2">
+                <div className="text-xs text-ink-2">Câu hỏi định hướng sinh viên sẽ thấy (tối đa 3, bạn có thể sửa). AI sẽ dùng chính ý của sinh viên để nâng cấp câu trả lời.</div>
+                {frictionPrompts.map((p, i) => (
+                  <input key={i} className="input !py-2" value={p} aria-label={`Câu hỏi định hướng ${i + 1}`} onChange={(e) => setFrictionPrompts(frictionPrompts.map((x, k) => (k === i ? e.target.value : x)))} />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {mode === "writing_l2" && (

@@ -40,6 +40,7 @@ export interface CourseMember {
 }
 
 import type { L2Config, L2Work, L2Result, L2ErrorReport } from './lib/l2';
+import type { FrictionLevel, ChatIntent } from './lib/friction';
 
 export type SubmissionMode = 'file_only' | 'ai_chat_only' | 'both' | 'writing_l2';
 export type AISubmode = 'normal' | 'socratic';
@@ -63,6 +64,9 @@ export interface Assignment {
   submission_mode: SubmissionMode;
   ai_submode: AISubmode;
   allow_late?: boolean;
+  /** Input friction for AI-chat assignments: how much the student must write before the AI answers. Missing = "none". */
+  friction?: FrictionLevel;
+  friction_prompts?: string[];
   /** Only for submission_mode 'writing_l2'. The answer key (errors) is stripped for students. */
   l2?: L2Config;
   created_at: string;
@@ -131,6 +135,10 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
   phase?: 'prompt' | 'critique';
+  /** "intent" = the student's own first ideas written before the AI answered (input friction). */
+  kind?: 'intent';
+  /** Characters pasted into this message (not typed). */
+  pasted_chars?: number;
   content: string;
   timestamp: string;
 }
@@ -141,6 +149,7 @@ export interface ChatSession {
   assignment_id: string;
   student_id: string;
   messages: ChatMessage[];
+  intent?: ChatIntent;
 }
 
 export interface StudentStat {
@@ -175,6 +184,18 @@ export interface ClassStats {
     recommendation: string;
   }[];
   students: StudentStat[];
+  /** Anonymous, aggregated behaviour indicators (never per student; hidden below a minimum cohort). */
+  behavior?: {
+    enough: boolean;
+    students: number;
+    min_students?: number;
+    friction_sessions?: number;
+    wrote_first_rate?: number | null;
+    skipped_rate?: number | null;
+    paste_heavy_rate?: number | null;
+    paste_heavy_chars?: number;
+    calibration?: { n: number; avg_confidence: number | null; avg_process_score: number | null } | null;
+  };
   l2?: {
     assignments: number;
     evaluated: number;
