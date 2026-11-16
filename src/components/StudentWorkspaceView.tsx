@@ -9,6 +9,7 @@ import { Assignment, Submission, ChatSession, ProcessScoreResult } from "../type
 import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ThinkingTrace } from "./ThinkingTrace";
+import { StudentResultSection } from "./StudentResultSection";
 import { Avatar, Modal, Bar, fmtDate, relTime, useToast } from "./ui";
 
 interface Props {
@@ -30,6 +31,8 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const toast = useToast();
   const [messages, setMessages] = useState<any[]>(chatSession?.messages || []);
   const [intentDone, setIntentDone] = useState<boolean>(!!chatSession?.intent);
+  const [intentData, setIntentData] = useState<ChatSession["intent"]>(chatSession?.intent);
+  const [tab, setTab] = useState<"de" | "rubric" | "doc">("de");
   const [ideas, setIdeas] = useState<string[]>(["", "", ""]);
   const [confidence, setConfidence] = useState<number | undefined>(undefined);
   const [intentBusy, setIntentBusy] = useState(false);
@@ -101,7 +104,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
       const res = await onSubmitIntent(skip
         ? { assignment_id: assignment.id, skip: true, confidence }
         : { assignment_id: assignment.id, answers: ideas, confidence, pasted_chars: ideasPasted.current });
-      setMessages(res.chat_session.messages); setIntentDone(true);
+      setMessages(res.chat_session.messages); setIntentDone(true); setIntentData(res.chat_session.intent);
     } catch (err: any) { toast.error(err.message || "Không gửi được ý của bạn."); }
     finally { setIntentBusy(false); }
   };
@@ -136,28 +139,33 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           <p className="text-xs text-ink-2 mt-1.5 leading-relaxed">Trợ lý sẽ hỏi gợi mở thay vì đưa đáp án. Hãy phản biện, đào sâu và diễn giải bằng lời của bạn — đó là điều được chấm.</p>
         </div>
       )}
-      <section>
-        <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-mute mb-2"><BookOpenText className="w-4 h-4" />Đề bài</h3>
-        <div className="rounded-2xl bg-surface-2 border border-line p-4"><MarkdownRenderer content={assignment.description || "Không có mô tả bổ sung."} /></div>
-      </section>
-      {assignment.rubric && (
-        <section>
-          <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-mute mb-2"><ListChecks className="w-4 h-4" />Rubric</h3>
-          <div className="rounded-2xl bg-surface-2 border border-line p-4"><MarkdownRenderer content={assignment.rubric} /></div>
-        </section>
+      <div className="flex gap-1.5 p-1 rounded-full bg-surface-2" role="tablist" aria-label="Thông tin bài tập">
+        {([["de", "Yêu cầu đề bài", true], ["rubric", "Rubric", !!assignment.rubric], ["doc", "Tài liệu", assignment.attachments?.length > 0]] as const).filter((t) => t[2]).map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+            className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${tab === id ? "bg-surface text-brand shadow-sm" : "text-ink-2 hover:text-ink"}`}>{label}</button>
+        ))}
+      </div>
+      {tab === "de" && <div className="rounded-2xl bg-surface-2/60 border border-line p-4"><MarkdownRenderer content={assignment.description || "Không có mô tả bổ sung."} /></div>}
+      {tab === "rubric" && assignment.rubric && <div className="rounded-2xl bg-surface-2/60 border border-line p-4"><MarkdownRenderer content={assignment.rubric} /></div>}
+      {tab === "doc" && assignment.attachments?.length > 0 && (
+        <div className="space-y-2">
+          {assignment.attachments.map((att) => (
+            <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" download={att.name} className="flex items-center justify-between gap-2 p-3 rounded-xl border border-line hover:border-brand/40 hover:bg-brand-soft/50 transition-colors text-sm">
+              <span className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-brand shrink-0" /><span className="truncate font-medium">{att.name}</span></span>
+              <span className="text-xs text-mute shrink-0">{att.size}</span>
+            </a>
+          ))}
+        </div>
       )}
-      {assignment.attachments?.length > 0 && (
-        <section>
-          <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-mute mb-2"><Paperclip className="w-4 h-4" />Tài liệu</h3>
-          <div className="space-y-2">
-            {assignment.attachments.map((att) => (
-              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" download={att.name} className="flex items-center justify-between gap-2 p-3 rounded-xl border border-line hover:border-brand/40 hover:bg-brand-soft/50 transition-colors text-sm">
-                <span className="flex items-center gap-2 truncate"><FileText className="w-4 h-4 text-brand shrink-0" /><span className="truncate font-medium">{att.name}</span></span>
-                <span className="text-xs text-mute shrink-0">{att.size}</span>
-              </a>
-            ))}
+      {intentDone && intentData && (
+        <div className="rounded-2xl border border-emerald-400/30 bg-[#e7f8ef] dark:bg-[#0e2a1f] p-4" data-testid="ritual-card">
+          <div className="flex items-center gap-2 text-xs font-bold text-[#0f8a55] dark:text-[#4ade9a]"><CheckCircle2 className="w-4 h-4" />{intentData.skipped ? "Đã bỏ qua bước ghi ý đầu vào" : "Đã ghi ý riêng trước khi hỏi AI"}</div>
+          {!intentData.skipped && intentData.answers[0] && <p className="text-xs italic text-ink-2 mt-2 line-clamp-4">“{intentData.answers[0].a}”</p>}
+          <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
+            {intentData.confidence && <span className="chip chip-gray">Mức tự tin ban đầu {intentData.confidence}/5</span>}
+            {!intentData.skipped && <span className="chip chip-green"><Lock className="w-3 h-3" />Luận điểm đã được ghi lại</span>}
           </div>
-        </section>
+        </div>
       )}
     </div>
   );
@@ -175,9 +183,17 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
             {pastDue && !submitted && <span className="chip chip-rose ml-1">Quá hạn</span>}</div>
         </div>
         {chatEnabled && !locked && (
-          <div className="w-44">
-            <div className="flex justify-between text-xs mb-1.5"><span className="text-ink-2 font-medium">Lượt trao đổi</span><span className="font-bold">{Math.min(turns, MIN_TURNS)}/{MIN_TURNS}</span></div>
-            <Bar value={(Math.min(turns, MIN_TURNS) / MIN_TURNS) * 100} from="#10b981" to="#5b5bf0" />
+          <div className="min-w-[10rem]" aria-label={`Tiến trình hội thoại ${Math.min(turns, MIN_TURNS)} trên ${MIN_TURNS} lượt`}>
+            <div className="text-[11px] font-semibold text-ink-2 mb-1.5">Tiến trình hội thoại</div>
+            <div className="flex items-center">
+              {Array.from({ length: MIN_TURNS }, (_, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <span className={`h-0.5 w-8 rounded-full ${turns > i ? "bg-brand" : "bg-line"}`} />}
+                  <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${turns > i ? "bg-brand text-white dark:text-[#062e6f]" : "border border-line text-mute"}`}>{i + 1}</span>
+                </React.Fragment>
+              ))}
+              <span className="text-xs text-mute ml-2">{Math.min(turns, MIN_TURNS)}/{MIN_TURNS} lượt</span>
+            </div>
           </div>
         )}
         <div className="flex items-center gap-3">
@@ -188,6 +204,8 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
         </div>
       </div>
 
+      {submitted && <div className="mb-5"><StudentResultSection userName={userName} submission={current!} messages={messages} late={current?.status === "late"} /></div>}
+
       <div className="grid lg:grid-cols-12 gap-4 items-start">
         {/* Left: prompt */}
         <aside className="lg:col-span-4 lg:sticky lg:top-20">
@@ -197,39 +215,6 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
 
         {/* Right: work area */}
         <div className="lg:col-span-8 space-y-4 min-w-0">
-          {/* Result */}
-          {submitted && (current?.grade !== undefined || result || current?.eval_status === "failed") && (
-            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card p-5 overflow-hidden relative">
-              <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-brand opacity-10" />
-              <h3 className="font-bold flex items-center gap-2 mb-4"><Award className="w-5 h-5 text-amber-500" />Kết quả của bạn</h3>
-              <div className="grid sm:grid-cols-2 gap-5">
-                <div className="space-y-3">
-                  <div className="flex items-end gap-5">
-                    <div><div className="text-xs text-mute">Điểm giảng viên</div><div className="text-4xl font-medium gradient-text">{current?.grade !== undefined ? current.grade : "—"}<span className="text-base text-mute font-semibold">{current?.grade !== undefined ? "/10" : ""}</span></div></div>
-                    {result && <div><div className="text-xs text-mute">Tư duy (AI)</div><div className="text-2xl font-medium">{result.process_score}<span className="text-sm text-mute">/100</span></div></div>}
-                  </div>
-                  {current?.grade === undefined && <p className="text-xs text-mute">Giảng viên chưa chấm điểm. Bạn sẽ nhận được thông báo khi có kết quả.</p>}
-                  {current?.feedback && <div className="rounded-xl bg-surface-2 border border-line p-3 text-sm"><div className="text-xs font-bold text-mute mb-1">Nhận xét của giảng viên</div>{current.feedback}</div>}
-                  {current?.eval_status === "failed" && <div className="rounded-xl bg-[#fff4de] dark:bg-[#33260c] text-[#8a5300] dark:text-[#fbbf4a] p-3 text-xs flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />Phần chấm tư duy bằng AI chưa chạy được. Giảng viên sẽ chạy lại sau, bài nộp của bạn vẫn được lưu đầy đủ.</div>}
-                </div>
-                {result && (
-                  <div>
-                    <div className="h-44"><ResponsiveContainer width="100%" height="100%"><RadarChart outerRadius="68%" data={radar}><PolarGrid stroke="var(--line)" /><PolarAngleAxis dataKey="subject" tick={{ fill: "var(--ink-2)", fontSize: 11 }} /><PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} /><Radar dataKey="v" stroke="#5b5bf0" fill="#5b5bf0" fillOpacity={0.3} animationDuration={900} /></RadarChart></ResponsiveContainer></div>
-                    <p className="text-xs text-ink-2 leading-relaxed">{result.nhan_xet_ngan}</p>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {submitted && messages.some((m) => m.role === "user") && (
-            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card p-5">
-              <h3 className="font-bold mb-1">Dấu vết tư duy của bạn</h3>
-              <p className="text-xs text-mute mb-4">Mỗi điểm là một lượt bạn trao đổi với AI. Khi AI đã nhận định, đường đi lên nếu bạn tự suy nghĩ và phản biện, đi xuống nếu nhờ AI làm hộ.</p>
-              <ThinkingTrace messages={messages} highlights={result?.highlight_segments} studentLabel="bạn" />
-            </motion.div>
-          )}
-
           {assignment.submission_mode === "file_only" ? (
             <div className="card p-5 space-y-4">
               <h3 className="font-bold flex items-center gap-2"><FileText className="w-5 h-5 text-brand" />Nộp file bài làm</h3>
@@ -238,17 +223,21 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                 <textarea rows={4} disabled={locked} className="input resize-none" placeholder="Tóm tắt bài nộp hoặc ghi chú…" value={text} onChange={(e) => setText(e.target.value)} /></div>
             </div>
           ) : (
+            <>
+            {!locked && turns > 0 && (
+              <div className="card p-5" data-testid="live-trace">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold flex items-center gap-2 text-sm"><span className="w-2 h-2 rounded-full bg-brand animate-pulse" />Bản đồ quỹ đạo tư duy</h3>
+                  <span className="text-[11px] text-mute">{turns} lượt · đang được ghi lại</span>
+                </div>
+                <ThinkingTrace live messages={messages} studentLabel="bạn" />
+              </div>
+            )}
             <div className="card overflow-hidden flex flex-col">
               <div className="px-5 py-3 border-b border-line flex items-center justify-between">
                 <div className="flex items-center gap-2 font-bold"><MessageSquareText className="w-5 h-5 text-brand" />Trao đổi với Trợ lý AI</div>
                 <span className="text-xs text-mute">{messages.length} tin nhắn</span>
               </div>
-              {!locked && turns > 0 && (
-                <div className="px-4 pt-3 border-b border-line" data-testid="live-trace">
-                  <div className="flex items-center justify-between text-[11px] text-mute mb-1"><span className="flex items-center gap-1.5 font-semibold text-brand"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />Dấu vết tư duy đang được ghi lại</span><span>{turns} lượt</span></div>
-                  <ThinkingTrace live messages={messages} studentLabel="bạn" />
-                </div>
-              )}
               <div className="overflow-y-auto p-4 md:p-5 space-y-5 min-h-[22rem] max-h-[60vh] bg-surface-2/40">
                 {needIntent && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="intent-panel" className="rounded-2xl border border-brand/30 bg-surface p-4 md:p-5 space-y-4">
@@ -296,11 +285,11 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                     return (
                       <motion.div key={m.id || i} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 26 }} className={`flex gap-3 ${mine ? "flex-row-reverse" : ""}`}>
                         {mine ? <Avatar name={userName} src={userAvatar} size={32} /> : <div className="w-8 h-8 rounded-full bg-gradient-to-br bg-brand text-white flex items-center justify-center shrink-0"><Bot className="w-4 h-4" /></div>}
-                        <div className={`max-w-[85%] ${mine ? "items-end" : ""} flex flex-col gap-1`}>
-                          <div className={`px-4 py-3 rounded-2xl ${mine ? "bg-gradient-to-br bg-brand text-white rounded-tr-md" : "bg-surface border border-line rounded-tl-md shadow-sm"}`}>
-                            <MarkdownRenderer content={m.content} className={mine ? "!text-white [&_*]:!text-white" : ""} />
+                        <div className={`max-w-[88%] ${mine ? "items-end" : ""} flex flex-col gap-1`}>
+                          <span className="text-[11px] text-mute px-1 font-medium">{mine ? (m.kind === "intent" ? `${userName} · ý riêng ghi trước` : userName) : (assignment.ai_submode === "socratic" ? "Trợ lý Socratic" : "Trợ lý AI")} · {new Date(m.timestamp || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
+                          <div className={`px-4 py-3 rounded-2xl ${mine ? `bg-brand-soft/60 text-ink rounded-tr-md ${m.kind === "intent" ? "ring-1 ring-dashed ring-brand/40 border border-dashed border-brand/50" : ""}` : "bg-surface border border-line rounded-tl-md"}`}>
+                            <MarkdownRenderer content={m.content} />
                           </div>
-                          <span className="text-[11px] text-mute px-1">{new Date(m.timestamp || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
                         </div>
                       </motion.div>
                     );
@@ -315,7 +304,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                 <div ref={endRef} />
               </div>
 
-              {assignment.submission_mode === "both" && (
+              {assignment.submission_mode === "both" && !locked && (
                 <div className="p-4 border-t border-line"><FileUploadZone files={files} onFilesChange={setFiles} disabled={locked} label="Đính kèm file bài làm (tùy chọn)" sublabel="Nộp cùng với nhật ký trao đổi AI" /></div>
               )}
 
@@ -329,11 +318,13 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                       onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                       placeholder={needIntent ? "Hãy ghi ý riêng của em ở phía trên trước…" : assignment.ai_submode === "socratic" ? "Hỏi hoặc phản biện lại trợ lý… (Enter để gửi, Shift+Enter xuống dòng)" : "Nhập tin nhắn… (Enter để gửi)"}
                       className="input resize-none max-h-40 min-h-[48px]" style={{ fieldSizing: "content" } as React.CSSProperties} />
+                    <span className="hidden sm:block text-[11px] text-mute self-center w-16 text-right tabular-nums">{input.length ? `${input.length} ký tự` : ""}</span>
                     <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={!input.trim() || sending || needIntent} className="btn btn-primary btn-icon h-12 w-12 shrink-0" aria-label="Gửi"><Send className="w-5 h-5" /></motion.button>
                   </form>
                 )}
               </div>
             </div>
+            </>
           )}
         </div>
       </div>

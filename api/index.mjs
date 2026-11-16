@@ -2228,6 +2228,22 @@ app.post("/api/submissions/submit", async (req, res) => {
     message: evalStatus === "failed" ? "N\u1ED9p b\xE0i th\xE0nh c\xF4ng. Ph\u1EA7n ch\u1EA5m qu\xE1 tr\xECnh b\u1EB1ng AI s\u1EBD \u0111\u01B0\u1EE3c gi\u1EA3ng vi\xEAn ch\u1EA1y l\u1EA1i sau." : "N\u1ED9p b\xE0i th\xE0nh c\xF4ng!"
   });
 });
+var HEAT_COLS = ["3 l\u01B0\u1EE3t", "4 \u2013 5 l\u01B0\u1EE3t", "6 \u2013 7 l\u01B0\u1EE3t", "8+ l\u01B0\u1EE3t"];
+var HEAT_ROWS = ["80 \u2013 100", "60 \u2013 79", "40 \u2013 59", "20 \u2013 39", "0 \u2013 19"];
+function heatmapStats(subs) {
+  const scored = subs.filter((s) => s.process_score_result && s.chat_session_id);
+  if (scored.length < BEHAVIOR_MIN_STUDENTS) return { enough: false, evaluated: scored.length, min: BEHAVIOR_MIN_STUDENTS };
+  const cells = HEAT_ROWS.map(() => HEAT_COLS.map(() => 0));
+  for (const sub of scored) {
+    const cs = db.chat_sessions.find((c) => c.id === sub.chat_session_id);
+    const turns = cs ? cs.messages.filter((m) => m.role === "user" && m.kind !== "intent").length : 0;
+    const col = turns <= 3 ? 0 : turns <= 5 ? 1 : turns <= 7 ? 2 : 3;
+    const v = sub.process_score_result.process_score;
+    cells[v >= 80 ? 0 : v >= 60 ? 1 : v >= 40 ? 2 : v >= 20 ? 3 : 4][col]++;
+  }
+  const band = (a, b) => Math.round(cells.slice(a, b).flat().reduce((x, y) => x + y, 0) / scored.length * 100);
+  return { enough: true, evaluated: scored.length, cols: HEAT_COLS, rows: HEAT_ROWS, cells, share: { high: band(0, 1), mid: band(1, 3), low: band(3, 5) } };
+}
 var BEHAVIOR_MIN_STUDENTS = 5;
 var PASTE_HEAVY_CHARS = 200;
 function behaviorStats(assignments, members, subs) {
@@ -2309,6 +2325,7 @@ app.get("/api/courses/:id/stats", (req, res) => {
       total: assignments.length,
       late: mine.filter((s) => s.status === "late").length,
       avg_process_score: avg(myScores),
+      scores: mine.filter((x) => x.process_score_result).sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).map((x) => x.process_score_result.process_score),
       avg_grade: myGrades.length ? Math.round(myGrades.reduce((a, b) => a + b, 0) / myGrades.length * 10) / 10 : null,
       needs_attention: myScores.length > 0 && avg(myScores) < 60 || assignments.length > 0 && mine.length < assignments.length / 2
     };
@@ -2317,6 +2334,11 @@ app.get("/api/courses/:id/stats", (req, res) => {
     success: true,
     data: {
       behavior: behaviorStats(assignments, members, subs),
+      heatmap: heatmapStats(subs.filter((s) => !assignments.find((a) => a.id === s.assignment_id && a.submission_mode === "writing_l2"))),
+      average_grade: (() => {
+        const g = subs.filter(gradedState).map((s) => s.grade);
+        return g.length ? Math.round(g.reduce((a, b) => a + b, 0) / g.length * 10) / 10 : null;
+      })(),
       total_students: members.length,
       total_assignments: assignments.length,
       submission_rate: pct(subs.length),

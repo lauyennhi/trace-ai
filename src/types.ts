@@ -153,6 +153,8 @@ export interface ChatSession {
 }
 
 export interface StudentStat {
+  /** AI process score of each evaluated submission, oldest first (for the sparkline). */
+  scores?: number[];
   student_id: string;
   student_name: string;
   student_email: string;
@@ -184,6 +186,8 @@ export interface ClassStats {
     recommendation: string;
   }[];
   students: StudentStat[];
+  average_grade?: number | null;
+  heatmap?: { enough: boolean; evaluated: number; min?: number; cols?: string[]; rows?: string[]; cells?: number[][]; share?: { high: number; mid: number; low: number } };
   /** Anonymous, aggregated behaviour indicators (never per student; hidden below a minimum cohort). */
   behavior?: {
     enough: boolean;
