@@ -115,8 +115,6 @@ export const ThinkingTrace: React.FC<{ messages: ChatMessage[]; highlights?: Hig
             </linearGradient>
           </defs>
           {(plain ? [] : [64, 148, 232]).map((y) => <line key={y} x1={16} x2={W - 16} y1={y} y2={y} stroke="var(--line)" strokeDasharray="3 7" />)}
-          {!plain && <text x={20} y={26} fontSize="11" fill="var(--mute)">Tư duy sâu</text>}
-          {!plain && <text x={20} y={H - 30} fontSize="11" fill="var(--mute)">Nhờ làm hộ / sao chép</text>}
           <motion.path d={d} fill="none" stroke={`url(#tt-line-${live ? "l" : "h"})`} strokeWidth={live ? 3 : 4.5} strokeLinecap="round"
             initial={{ pathLength: 0, opacity: 0.4 }} animate={{ pathLength: 1, opacity: 1 }} transition={{ duration: 1.2, ease: "easeInOut" }} />
           {pts.map((p, i) => {
@@ -138,7 +136,7 @@ export const ThinkingTrace: React.FC<{ messages: ChatMessage[]; highlights?: Hig
             );
           })}
         </svg>
-        {!live && <div className="flex items-center justify-between gap-3 px-4 pb-3 text-[11px] text-mute"><span>Khởi đầu {hm(steps[0].at)}</span><span className="text-brand font-medium text-center">Bấm vào từng điểm để đọc lại ngữ cảnh lượt đó</span><span>Lượt cuối {hm(steps[n - 1].at)}</span></div>}
+        {!live && <div className="flex items-center justify-between gap-3 px-4 pb-3 text-[11px] text-mute"><span>Khởi đầu {hm(steps[0].at)}</span><span className="text-brand font-medium text-center">{plain ? "" : "↑ tư duy sâu · ↓ nhờ làm hộ / sao chép · "}Bấm vào từng điểm để đọc lại ngữ cảnh lượt đó</span><span>Lượt cuối {hm(steps[n - 1].at)}</span></div>}
       </div>
 
       {!live && <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-mute">

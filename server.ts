@@ -7,6 +7,7 @@ import {
   DEFAULT_L2_DIMENSIONS, L2_ERROR_TYPES, findPhraseRange, matchErrors, wordSimilarity, normWs,
   type L2Config, type L2Error, type L2Highlight, type L2Work, type L2ErrorReport, type L2Result,
 } from "./src/lib/l2.ts";
+import { generateDemoData, DEMO_PREFIX } from "./src/lib/demoData.ts";
 import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -440,6 +441,24 @@ Kết quả là Gradient triệt tiêu gần như bằng 0, khiến mạng khôn
 
 // Demo accounts (password: 123456)
 for (const u of initialDb.users) u.pwd = hashPassword("123456");
+
+/** Appends the large fake data set (ids "demo_*") to a db-shaped object. Returns the counts, or null if already present. */
+function appendDemoData(target: any, now = Date.now()) {
+  if (target.users.some((u: any) => String(u.id).startsWith(DEMO_PREFIX))) return null;
+  const courseId = "c_1";
+  const d = generateDemoData({
+    hash: hashPassword("123456"), now, teacherId: "u_teacher_1", courseId,
+    existing: {
+      assignmentIds: target.assignments.filter((a: any) => a.course_id === courseId && a.submission_mode !== "file_only" && a.submission_mode !== "writing_l2").map((a: any) => a.id),
+      submissionKeys: new Set(target.submissions.map((x: any) => `${x.assignment_id}:${x.student_id}`)),
+    },
+  });
+  target.users.push(...d.users); target.course_members.push(...d.course_members); target.assignments.unshift(...d.assignments);
+  target.submissions.push(...d.submissions); target.chat_sessions.push(...d.chat_sessions);
+  return d;
+}
+// Large demo data set is on by default in demo mode; set SEED_DEMO_SCALE=small to keep only the 3 original accounts.
+if (process.env.SEED_DEMO_SCALE !== "small") appendDemoData(initialDb);
 
 let db: DB = JSON.parse(JSON.stringify(initialDb));
 function ensureSeedCredentials() {
@@ -2426,6 +2445,44 @@ app.put("/api/admin/settings", (req: AuthedRequest, res) => {
   saveDocument("settings", "global", { ...next });
   audit(req.user, "settings.update", "Cài đặt hệ thống", JSON.stringify({ allow_registration: next.allow_registration, teacher_self_register: next.teacher_self_register }));
   res.json({ success: true, data: next, message: "Đã lưu cấu hình phân quyền." });
+});
+
+app.post("/api/admin/demo-data", (req: AuthedRequest, res) => {
+  if (!db.courses.some((c: any) => c.id === "c_1")) return fail(res, 409, "Cần có môn học mẫu (mã CS101) để nạp dữ liệu demo.");
+  const d = appendDemoData(db);
+  if (!d) return fail(res, 409, "Dữ liệu demo đã được nạp rồi. Hãy xóa trước nếu muốn nạp lại.");
+  for (const u of d.users) saveDocument("users", u.id, u);
+  for (const m of d.course_members) saveDocument("course_members", `${m.course_id}_${m.student_id}`, m);
+  for (const a of d.assignments) saveDocument("assignments", a.id, a);
+  for (const x of d.submissions) saveDocument("submissions", x.id, x);
+  for (const c of d.chat_sessions) saveDocument("chat_sessions", c.id, c);
+  audit(req.user, "demo.load", "Dữ liệu demo", `${d.users.length} sinh viên, ${d.submissions.length} bài nộp`);
+  res.json({ success: true, data: { students: d.users.length, assignments: d.assignments.length, submissions: d.submissions.length, chats: d.chat_sessions.length }, message: "Đã nạp dữ liệu demo." });
+});
+
+app.delete("/api/admin/demo-data", (req: AuthedRequest, res) => {
+  const isDemo = (id: any) => String(id).startsWith(DEMO_PREFIX);
+  const demoUsers = new Set(db.users.filter((u: any) => isDemo(u.id)).map((u: any) => u.id));
+  // Also drop demo-student work that was added to the original seeded assignments
+  const rmSubs = db.submissions.filter((x: any) => isDemo(x.id) || demoUsers.has(x.student_id));
+  const rmChats = db.chat_sessions.filter((c: any) => isDemo(c.id) || demoUsers.has(c.student_id));
+  const rmAssign = db.assignments.filter((a: any) => isDemo(a.id));
+  const rmMembers = db.course_members.filter((m: any) => demoUsers.has(m.student_id));
+  const rmNotif = db.notifications.filter((n: any) => demoUsers.has(n.user_id));
+  for (const u of db.users.filter((u: any) => demoUsers.has(u.id))) deleteDocument("users", u.id);
+  for (const m of rmMembers) deleteDocument("course_members", `${m.course_id}_${m.student_id}`);
+  for (const a of rmAssign) deleteDocument("assignments", a.id);
+  for (const x of rmSubs) deleteDocument("submissions", x.id);
+  for (const c of rmChats) deleteDocument("chat_sessions", c.id);
+  for (const n of rmNotif) deleteDocument("notifications", n.id);
+  db.users = db.users.filter((u: any) => !demoUsers.has(u.id));
+  db.course_members = db.course_members.filter((m: any) => !demoUsers.has(m.student_id));
+  db.assignments = db.assignments.filter((a: any) => !isDemo(a.id));
+  db.submissions = db.submissions.filter((x: any) => !rmSubs.includes(x));
+  db.chat_sessions = db.chat_sessions.filter((c: any) => !rmChats.includes(c));
+  db.notifications = db.notifications.filter((n: any) => !rmNotif.includes(n));
+  audit(req.user, "demo.clear", "Dữ liệu demo", `${demoUsers.size} sinh viên`);
+  res.json({ success: true, data: { students: demoUsers.size }, message: "Đã xóa dữ liệu demo." });
 });
 
 app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.audit_logs.slice(0, 200) }));

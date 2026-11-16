@@ -52,6 +52,12 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
   const [tempPw, setTempPw] = useState<{ name: string; pw: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const demo = async (method: "POST" | "DELETE") => {
+    if (method === "DELETE" && !window.confirm("Xóa toàn bộ sinh viên và bài nộp demo?")) return;
+    setDemoBusy(true);
+    try { await api("/api/admin/demo-data", { method }); toast.success(method === "POST" ? "Đã nạp dữ liệu demo." : "Đã xóa dữ liệu demo."); } catch (e: any) { toast.error(e.message); } finally { setDemoBusy(false); }
+  };
 
   const load = useCallback((what: string) => {
     const err = (e: any) => toast.error(e.message);
@@ -224,6 +230,14 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
                 </table>
               </div>
               <div className="flex justify-end"><button className="btn btn-primary" onClick={saveSettings} disabled={saving}><Save className="w-4 h-4" />{saving ? "Đang lưu…" : "Lưu cấu hình"}</button></div>
+              <div className="panel" data-testid="demo-data-panel">
+                <h3 className="font-bold">Dữ liệu demo để thử giao diện</h3>
+                <p className="text-sm text-ink-2 mt-1">Nạp khoảng 30 sinh viên mẫu vào môn CS101 cùng 6 bài tập, hội thoại, điểm AI và điểm giảng viên, để các trang thống kê có đủ số liệu. Tài khoản mẫu có dạng <code>sv01.demo@student.edu.vn</code>, mật khẩu <code>123456</code>. Dữ liệu này là giả, nên xóa trước khi dùng thật.</p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <button className="btn btn-soft" disabled={demoBusy} onClick={() => demo("POST")}>{demoBusy ? "Đang xử lý…" : "Nạp dữ liệu demo"}</button>
+                  <button className="btn btn-danger" disabled={demoBusy} onClick={() => demo("DELETE")}>Xóa dữ liệu demo</button>
+                </div>
+              </div>
             </div>
           ))}
 

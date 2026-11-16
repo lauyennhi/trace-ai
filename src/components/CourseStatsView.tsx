@@ -6,11 +6,12 @@ import { ClassStats } from "../types";
 import { L2_ERROR_LABEL } from "../lib/l2";
 import { AnimatedNumber, Avatar, Bar as ProgressBar, EmptyState, riseItem, staggerParent } from "./ui";
 
-const COLORS = ["#10b981", "#5b5bf0", "#f59e0b", "#f97316", "#ef4444"];
+// One palette across the app: evidence green / cobalt / violet for good, amber / rose for concern
+const COLORS = ["#10b981", "#0b57d0", "#7c4dff", "#f59e0b", "#f43f5e"];
 const tip = { backgroundColor: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, fontSize: 12, color: "var(--ink)", boxShadow: "var(--shadow-card)" };
 
 
-const HEAT_TONE = ["16,185,129", "91,91,240", "245,158,11", "245,158,11", "244,63,94"]; // emerald, indigo, amber, amber, rose
+const HEAT_TONE = ["16,185,129", "11,87,208", "124,77,255", "245,158,11", "244,63,94"]; // emerald, indigo, amber, amber, rose
 
 const Heatmap: React.FC<{ h: NonNullable<ClassStats["heatmap"]> }> = ({ h }) => {
   if (!h.enough) return <p className="text-sm text-mute py-10 text-center">Cần ít nhất {h.min} bài đã được AI chấm để vẽ bản đồ nhiệt (hiện có {h.evaluated}). Ngưỡng này giúp số liệu không lộ từng bạn trong lớp nhỏ.</p>;
@@ -64,18 +65,18 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
   const pie = [
     { name: "Đúng hạn", value: stats.on_time_rate, color: "#10b981" },
     { name: "Trễ hạn", value: stats.late_rate, color: "#f59e0b" },
-    { name: "Chưa nộp", value: stats.not_submitted_rate, color: "#ef4444" },
+    { name: "Chưa nộp", value: stats.not_submitted_rate, color: "#f43f5e" },
   ].filter((d) => d.value > 0);
   const hasScores = stats.evaluated_count > 0;
   const [studentFilter, setStudentFilter] = useState<"all" | "attention">("all");
   const attentionCount = stats.students.filter((x) => x.needs_attention).length;
   const weakest = stats.per_assignment.find((a) => a.avg_score !== null && a.avg_score < 75);
   const kpis = [
-    { label: "Sinh viên", value: stats.total_students, suffix: "", icon: Users, tone: "from-sky-500 to-indigo-500", hint: `${stats.total_assignments} bài tập đã giao` },
-    { label: "Tỷ lệ nộp bài", value: stats.submission_rate, suffix: "%", icon: CheckCircle2, tone: "from-emerald-500 to-teal-500", hint: `Đúng hạn ${stats.on_time_rate}% · Trễ ${stats.late_rate}%` },
-    { label: "Process Score TB", value: stats.average_process_score ?? 0, suffix: "", icon: Award, tone: "from-amber-500 to-orange-500", hint: hasScores ? `Từ ${stats.evaluated_count} bài đã chấm` : "Chưa có bài nào được chấm", none: !hasScores },
-    { label: "Điểm giảng viên TB", value: stats.average_grade ?? 0, suffix: "", icon: Star, tone: "from-violet-500 to-fuchsia-500", hint: stats.average_grade != null ? "Thang 10, trên các bài đã chấm" : "Chưa có bài nào được chấm điểm", none: stats.average_grade == null },
-    { label: "Chưa nộp", value: stats.not_submitted_rate, suffix: "%", icon: AlertTriangle, tone: "from-rose-500 to-pink-500", hint: "Trên tổng số bài được giao" },
+    { label: "Sinh viên", value: stats.total_students, suffix: "", icon: Users, tone: "from-[#0b57d0] to-[#1a73e8]", hint: `${stats.total_assignments} bài tập đã giao` },
+    { label: "Tỷ lệ nộp bài", value: stats.submission_rate, suffix: "%", icon: CheckCircle2, tone: "from-[#10b981] to-[#0f8a55]", hint: `Đúng hạn ${stats.on_time_rate}% · Trễ ${stats.late_rate}%` },
+    { label: "Process Score TB", value: stats.average_process_score ?? 0, suffix: "", icon: Award, tone: "from-[#5b5bf0] to-[#7c4dff]", hint: hasScores ? `Từ ${stats.evaluated_count} bài đã chấm` : "Chưa có bài nào được chấm", none: !hasScores },
+    { label: "Điểm giảng viên TB", value: stats.average_grade ?? 0, suffix: "", icon: Star, tone: "from-[#7c4dff] to-[#ec4899]", hint: stats.average_grade != null ? "Thang 10, trên các bài đã chấm" : "Chưa có bài nào được chấm điểm", none: stats.average_grade == null },
+    { label: "Chưa nộp", value: stats.not_submitted_rate, suffix: "%", icon: AlertTriangle, tone: "from-[#f43f5e] to-[#e11d48]", hint: "Trên tổng số bài được giao" },
   ];
   return (
     <motion.div variants={staggerParent} initial="initial" animate="animate" className="space-y-6">
@@ -84,7 +85,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
           <motion.div key={k.label} variants={riseItem} className="card p-5 relative overflow-hidden">
             <div className={`absolute -right-5 -top-5 w-20 h-20 rounded-full bg-gradient-to-br ${k.tone} opacity-15`} />
             <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${k.tone} text-white flex items-center justify-center mb-3 shadow-lg`}><k.icon className="w-5 h-5" /></div>
-            <div className="text-3xl font-medium tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.value} suffix={k.suffix} />}</div>
+            <div className="text-3xl font-medium tracking-tight">{k.none ? "—" : <AnimatedNumber value={k.value} suffix={k.suffix} decimals={k.label === "Điểm giảng viên TB" ? 1 : 0} />}</div>
             <div className="text-sm font-semibold mt-0.5">{k.label}</div>
             <div className="text-xs text-mute mt-1">{k.hint}</div>
           </motion.div>
@@ -140,7 +141,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><div className="text-2xl font-medium">{stats.submission_rate}%</div><div className="text-[11px] text-mute">đã nộp</div></div>
           </div>
           <div className="space-y-2 text-sm mt-2">
-            {[["Đúng hạn", stats.on_time_rate, "#10b981"], ["Trễ hạn", stats.late_rate, "#f59e0b"], ["Chưa nộp", stats.not_submitted_rate, "#ef4444"]].map(([n, v, c]) => (
+            {[["Đúng hạn", stats.on_time_rate, "#10b981"], ["Trễ hạn", stats.late_rate, "#f59e0b"], ["Chưa nộp", stats.not_submitted_rate, "#f43f5e"]].map(([n, v, c]) => (
               <div key={n as string} className="flex items-center justify-between"><span className="flex items-center gap-2 text-ink-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c as string }} />{n}</span><strong>{v}%</strong></div>
             ))}
           </div>
@@ -148,7 +149,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
       </div>
 
       <motion.div variants={riseItem} className="card p-6">
-        <h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-500" />Hiệu quả từng bài tập & gợi ý ra đề</h3>
+        <h3 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-violet-500" />Hiệu quả từng bài tập & gợi ý ra đề</h3>
         <p className="text-xs text-mute mb-4">Sắp xếp từ điểm quá trình thấp nhất — những bài này sinh viên có xu hướng xin đáp án</p>
         <div className="space-y-3">
           {stats.per_assignment.map((a) => (
@@ -158,7 +159,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
                 <span className="text-xs text-mute">{a.submitted}/{a.total} đã nộp</span>
               </div>
               <div className="flex items-center gap-3 mt-3">
-                <ProgressBar value={a.avg_score ?? 0} className="flex-1" from={a.avg_score !== null && a.avg_score < 75 ? "#f59e0b" : "var(--brand)"} to={a.avg_score !== null && a.avg_score < 75 ? "#ef4444" : "var(--brand-2)"} />
+                <ProgressBar value={a.avg_score ?? 0} className="flex-1" from={a.avg_score !== null && a.avg_score < 75 ? "#f59e0b" : "var(--brand)"} to={a.avg_score !== null && a.avg_score < 75 ? "#f43f5e" : "var(--brand-2)"} />
                 <span className="text-sm font-bold w-16 text-right">{a.avg_score === null ? "—" : `${a.avg_score}/100`}</span>
               </div>
               <p className="text-xs text-ink-2 mt-2.5 flex gap-1.5"><TrendingUp className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand" />{a.recommendation}</p>
@@ -205,7 +206,7 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
               <div className="space-y-2">{stats.l2.missed_errors.map((m, i) => (
                 <div key={i} className="rounded-xl border border-line p-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1"><p className="text-sm italic break-words">“{m.text}”</p><p className="text-xs text-mute">{L2_ERROR_LABEL[m.type as keyof typeof L2_ERROR_LABEL] || m.type} · {m.assignment_title}</p></div>
-                  <div className="w-36 shrink-0"><div className="flex justify-between text-xs mb-1"><span className="text-ink-2">Bỏ sót</span><strong>{m.missed}/{m.total}</strong></div><ProgressBar value={(m.missed / m.total) * 100} from="#f59e0b" to="#ef4444" /></div>
+                  <div className="w-36 shrink-0"><div className="flex justify-between text-xs mb-1"><span className="text-ink-2">Bỏ sót</span><strong>{m.missed}/{m.total}</strong></div><ProgressBar value={(m.missed / m.total) * 100} from="#f59e0b" to="#f43f5e" /></div>
                 </div>))}</div></div>
           )}
         </motion.div>

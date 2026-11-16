@@ -112,6 +112,274 @@ function wordSimilarity(a, b) {
   return 2 * prev[y.length] / (x.length + y.length);
 }
 
+// src/lib/demoData.ts
+var DEMO_PREFIX = "demo_";
+var NAMES = [
+  "Nguy\u1EC5n Minh Tri\u1EBFt",
+  "Tr\u1EA7n Th\u1ECB Ph\u01B0\u01A1ng Anh",
+  "L\xEA Qu\u1ED1c H\u01B0ng",
+  "Ph\u1EA1m Ho\xE0ng Long",
+  "V\xF5 Ng\u1ECDc H\xE2n",
+  "\u0110\u1EB7ng Gia B\u1EA3o",
+  "B\xF9i Thanh T\xE2m",
+  "Ho\xE0ng Kh\xE1nh Linh",
+  "Phan \u0110\u1EE9c Th\u1ECBnh",
+  "V\u0169 Mai Chi",
+  "\u0110\u1ED7 Anh Khoa",
+  "Ng\xF4 Thu H\xE0",
+  "D\u01B0\u01A1ng Tu\u1EA5n Ki\u1EC7t",
+  "L\xFD B\u1EA3o Ch\xE2u",
+  "Tr\u1ECBnh H\u1EA3i \u0110\u0103ng",
+  "Mai Ng\u1ECDc \xC1nh",
+  "Cao Minh Qu\xE2n",
+  "T\xF4 Di\u1EC5m My",
+  "L\u01B0\u01A1ng Gia Huy",
+  "Ch\xE2u Th\u1EA3o Vy",
+  "Hu\u1EF3nh Nh\u1EADt Nam",
+  "\u0110inh Y\u1EBFn Nhi",
+  "Qu\xE1ch Th\u1EBF Vinh",
+  "Ki\u1EC1u Ph\u01B0\u01A1ng Th\u1EA3o",
+  "La Ho\xE0ng Ph\xFAc",
+  "T\u1EA1 Ng\xE2n H\xE0",
+  "Chu V\u0103n To\xE0n",
+  "L\xE2m Th\xF9y Dung",
+  "Th\xE1i B\xECnh An",
+  "Di\u1EC7p Kim Ng\xE2n"
+];
+var TOPICS = [
+  { title: "B\xE0i t\u1EADp 3: Thi\xEAn l\u1EC7ch d\u1EEF li\u1EC7u trong h\u1EC7 th\u1ED1ng g\u1EE3i \xFD", what: "thi\xEAn l\u1EC7ch d\u1EEF li\u1EC7u" },
+  { title: "B\xE0i t\u1EADp 4: Quy\u1EC1n ri\xEAng t\u01B0 v\xE0 d\u1EEF li\u1EC7u c\xE1 nh\xE2n", what: "quy\u1EC1n ri\xEAng t\u01B0" },
+  { title: "B\xE0i t\u1EADp 5: Tr\xE1ch nhi\u1EC7m khi AI ra quy\u1EBFt \u0111\u1ECBnh", what: "tr\xE1ch nhi\u1EC7m c\u1EE7a h\u1EC7 th\u1ED1ng t\u1EF1 \u0111\u1ED9ng" },
+  { title: "B\xE0i t\u1EADp 6: AI trong gi\xE1o d\u1EE5c, tr\u1EE3 gi\xFAp hay l\u1EC7 thu\u1ED9c", what: "vi\u1EC7c ph\u1EE5 thu\u1ED9c v\xE0o AI" },
+  { title: "B\xE0i t\u1EADp 7: Minh b\u1EA1ch v\xE0 gi\u1EA3i th\xEDch \u0111\u01B0\u1EE3c c\u1EE7a m\xF4 h\xECnh", what: "t\xEDnh gi\u1EA3i th\xEDch \u0111\u01B0\u1EE3c" },
+  { title: "B\xE0i t\u1EADp 8: Ph\xE2n t\xEDch m\u1ED9t t\xECnh hu\u1ED1ng \u0111\u1EA1o \u0111\u1EE9c AI", what: "t\xECnh hu\u1ED1ng \u0111\u1EA1o \u0111\u1EE9c" }
+];
+var INDEPENDENT = [
+  "Em ngh\u0129 AI \u0111ang ng\u1EA7m \u0111\u1ECBnh r\u1EB1ng {x} ch\u1EC9 c\xF3 m\u1ED9t nguy\xEAn nh\xE2n, nh\u01B0ng \u0111i\u1EC1u n\xE0y c\xF3 th\u1EC3 sai v\xEC d\u1EEF li\u1EC7u l\u1ECBch s\u1EED c\u0169ng ph\u1EA3n \xE1nh thi\xEAn ki\u1EBFn c\u1EE7a con ng\u01B0\u1EDDi.",
+  "Em kh\xF4ng \u0111\u1ED3ng \xFD v\u1EDBi k\u1EBFt lu\u1EADn \u0111\xF3. N\u1EBFu t\u1EF7 l\u1EC7 n\u1EC1n kh\xF4ng \u0111\u1ED3ng \u0111\u1EC1u th\xEC ti\xEAu ch\xED c\xF4ng b\u1EB1ng \u1EDF tr\xEAn c\xF3 th\u1EC3 g\xE2y thi\u1EC7t cho nh\xF3m thi\u1EC3u s\u1ED1, em mu\u1ED1n ki\u1EC3m tra l\u1EA1i gi\u1EA3 \u0111\u1ECBnh n\xE0y.",
+  "V\u1EADy em t\u1EF1 t\xF3m t\u1EAFt l\u1EA1i nh\xE9: {x} x\u1EA3y ra khi d\u1EEF li\u1EC7u hu\u1EA5n luy\u1EC7n l\u1EC7ch, v\xE0 c\xE1ch gi\u1EA3m l\xE0 ki\u1EC3m tra theo t\u1EEBng nh\xF3m tr\u01B0\u1EDBc khi tri\u1EC3n khai.",
+  "Em th\u1EA5y v\xED d\u1EE5 c\u1EE7a b\u1EA1n ch\u01B0a bao qu\xE1t. N\u1EBFu \xE1p d\u1EE5ng v\xE0o b\u1ED1i c\u1EA3nh doanh nghi\u1EC7p nh\u1ECF th\xEC chi ph\xED ki\u1EC3m to\xE1n c\xF3 c\xF2n kh\u1EA3 thi kh\xF4ng, v\xE0 \u0111\xE2u l\xE0 \u0111i\u1EC3m \u0111\xE1nh \u0111\u1ED5i?",
+  "Em mu\u1ED1n ph\u1EA3n bi\u1EC7n \u0111i\u1EC3m th\u1EE9 hai: vi\u1EC7c lo\u1EA1i b\u1ECF bi\u1EBFn nh\u1EA1y c\u1EA3m ch\u01B0a ch\u1EAFc \u0111\u1EE7, v\xEC c\xE1c bi\u1EBFn kh\xE1c v\u1EABn c\xF3 th\u1EC3 thay th\u1EBF gi\xE1n ti\u1EBFp. Em \u0111\u1EC1 xu\u1EA5t ki\u1EC3m tra t\u01B0\u01A1ng quan.",
+  "Theo c\xE1ch hi\u1EC3u c\u1EE7a em th\xEC {x} gi\u1ED1ng nh\u01B0 m\u1ED9t t\u1EA5m g\u01B0\u01A1ng ph\u1EA3n chi\u1EBFu qu\xE1 kh\u1EE9, n\xEAn mu\u1ED1n kh\xE1c \u0111i ph\u1EA3i thay \u0111\u1ED5i d\u1EEF li\u1EC7u ch\u1EE9 kh\xF4ng ch\u1EC9 thay thu\u1EADt to\xE1n."
+];
+var CURIOUS = [
+  "Cho em h\u1ECFi th\xEAm, ngu\u1ED3n n\xE0o \u0111\xE1ng tin \u0111\u1EC3 ki\u1EC3m ch\u1EE9ng nh\u1EADn \u0111\u1ECBnh n\xE0y \u1EA1?",
+  "Em ch\u01B0a r\xF5 kh\xE1i ni\u1EC7m \u0111\xF3 kh\xE1c g\xEC v\u1EDBi c\xE1ch hi\u1EC3u th\xF4ng th\u01B0\u1EDDng, b\u1EA1n gi\u1EA3i th\xEDch th\xEAm gi\xFAp em \u0111\u01B0\u1EE3c kh\xF4ng?",
+  "C\xF3 nghi\xEAn c\u1EE9u n\xE0o \u0111\u1ED1i chi\u1EBFu hai c\xE1ch ti\u1EBFp c\u1EADn n\xE0y kh\xF4ng, \u0111\u1EC3 em t\u1EF1 \u0111\u1ECDc th\xEAm?",
+  "Em \u0111ang ph\xE2n v\xE2n gi\u1EEFa hai h\u01B0\u1EDBng, b\u1EA1n g\u1EE3i \xFD cho em c\xE2u h\u1ECFi \u0111\u1EC3 t\u1EF1 quy\u1EBFt \u0111\u1ECBnh \u0111\u01B0\u1EE3c kh\xF4ng?"
+];
+var DELEGATING = [
+  "Cho em xin \u0111\xE1p \xE1n lu\xF4n \u0111i, vi\u1EBFt gi\xFAp em \u0111o\u1EA1n k\u1EBFt lu\u1EADn cho b\xE0i n\xE0y.",
+  "B\u1EA1n vi\u1EBFt h\u1ED9 em ph\u1EA7n ph\xE2n t\xEDch ho\xE0n ch\u1EC9nh nh\xE9, em s\u1EBD n\u1ED9p lu\xF4n.",
+  "L\xE0m gi\xFAp em c\u1EA3 b\xE0i, kho\u1EA3ng 300 t\u1EEB, em kh\xF4ng c\xF3 th\u1EDDi gian."
+];
+var PASTE_BLOCKS = [
+  "Trong nh\u1EEFng n\u0103m g\u1EA7n \u0111\xE2y, c\xE1c h\u1EC7 th\u1ED1ng h\u1ECDc m\xE1y \u0111\u01B0\u1EE3c tri\u1EC3n khai r\u1ED9ng r\xE3i trong tuy\u1EC3n d\u1EE5ng, t\xEDn d\u1EE5ng v\xE0 gi\xE1o d\u1EE5c. Tuy nhi\xEAn nhi\u1EC1u nghi\xEAn c\u1EE9u cho th\u1EA5y d\u1EEF li\u1EC7u hu\u1EA5n luy\u1EC7n l\u1ECBch s\u1EED c\xF3 th\u1EC3 mang theo thi\xEAn ki\u1EBFn, d\u1EABn t\u1EDBi k\u1EBFt qu\u1EA3 b\u1EA5t c\xF4ng \u0111\u1ED1i v\u1EDBi m\u1ED9t s\u1ED1 nh\xF3m ng\u01B0\u1EDDi d\xF9ng n\u1EBFu kh\xF4ng \u0111\u01B0\u1EE3c ki\u1EC3m so\xE1t v\xE0 \u0111\xE1nh gi\xE1 th\u01B0\u1EDDng xuy\xEAn.",
+  "Theo t\xE0i li\u1EC7u h\u01B0\u1EDBng d\u1EABn, nguy\xEAn t\u1EAFc minh b\u1EA1ch y\xEAu c\u1EA7u t\u1ED5 ch\u1EE9c ph\u1EA3i c\xF4ng b\u1ED1 m\u1EE5c \u0111\xEDch s\u1EED d\u1EE5ng d\u1EEF li\u1EC7u, th\u1EDDi gian l\u01B0u tr\u1EEF v\xE0 quy\u1EC1n c\u1EE7a ch\u1EE7 th\u1EC3 d\u1EEF li\u1EC7u, \u0111\u1ED3ng th\u1EDDi c\xF3 c\u01A1 ch\u1EBF khi\u1EBFu n\u1EA1i khi quy\u1EBFt \u0111\u1ECBnh t\u1EF1 \u0111\u1ED9ng \u1EA3nh h\u01B0\u1EDFng \u0111\u1EBFn quy\u1EC1n l\u1EE3i c\u1EE7a h\u1ECD."
+];
+var AI_REPLIES = [
+  "C\xE2u h\u1ECFi hay. Tr\u01B0\u1EDBc khi \u0111i ti\u1EBFp, em th\u1EED n\xEAu gi\u1EA3 \u0111\u1ECBnh n\xE0o \u0111ang n\u1EB1m sau nh\u1EADn \u0111\u1ECBnh n\xE0y? Sau \u0111\xF3 m\xECnh c\xF9ng ki\u1EC3m tra gi\u1EA3 \u0111\u1ECBnh \u0111\xF3 b\u1EB1ng m\u1ED9t v\xED d\u1EE5 c\u1EE5 th\u1EC3.",
+  "Em \u0111\xE3 ch\u1EA1m t\u1EDBi m\u1ED9t \u0111i\u1EC3m quan tr\u1ECDng. Em th\u1EED di\u1EC5n \u0111\u1EA1t l\u1EA1i b\u1EB1ng l\u1EDDi c\u1EE7a m\xECnh, r\u1ED3i m\xECnh xem c\xF2n thi\u1EBFu m\u1EAFt x\xEDch n\xE0o kh\xF4ng nh\xE9.",
+  "\u0110\xE2y l\xE0 m\u1ED9t h\u01B0\u1EDBng ti\u1EBFp c\u1EADn h\u1EE3p l\xFD. Em c\xF3 th\u1EC3 d\u1EABn th\xEAm m\u1ED9t tr\u01B0\u1EDDng h\u1EE3p \u0111\u1ED1i l\u1EADp \u0111\u1EC3 th\u1EED th\xE1ch l\u1EADp lu\u1EADn c\u1EE7a m\xECnh kh\xF4ng?",
+  "M\xECnh g\u1EE3i \xFD em so s\xE1nh hai c\xE1ch ti\u1EBFp c\u1EADn theo ba ti\xEAu ch\xED: t\xE1c \u0111\u1ED9ng, chi ph\xED v\xE0 r\u1EE7i ro. Em th\u1EA5y ti\xEAu ch\xED n\xE0o \u0111\xE1ng \u01B0u ti\xEAn nh\u1EA5t, v\xE0 v\xEC sao?"
+];
+var FEEDBACKS = [
+  "L\u1EADp lu\u1EADn ph\u1EA3n bi\u1EC7n r\u1EA5t s\u1EAFc \u1EDF gi\u1EEFa b\xE0i, em c\u1EA7n th\xEAm d\u1EABn ch\u1EE9ng th\u1EF1c t\u1EBF \u0111\u1EC3 thuy\u1EBFt ph\u1EE5c h\u01A1n.",
+  "B\xE0i l\xE0m c\xF3 chi\u1EC1u s\xE2u. H\xE3y ch\xFA \xFD tr\xEDch ngu\u1ED3n r\xF5 r\xE0ng cho c\xE1c s\u1ED1 li\u1EC7u em \u0111\u01B0a ra.",
+  "Em \u0111\xE3 bi\u1EBFt \u0111\u1EB7t c\xE2u h\u1ECFi ng\u01B0\u1EE3c l\u1EA1i v\u1EDBi AI, r\u1EA5t t\u1ED1t. L\u1EA7n sau h\xE3y t\u1EF1 t\xF3m t\u1EAFt k\u1EBFt lu\u1EADn b\u1EB1ng l\u1EDDi c\u1EE7a m\xECnh.",
+  "C\u1EA7n t\u1EF1 suy ngh\u0129 nhi\u1EC1u h\u01A1n tr\u01B0\u1EDBc khi h\u1ECFi AI. H\xE3y th\u1EED ghi \xFD ri\xEAng tr\u01B0\u1EDBc r\u1ED3i m\u1EDBi trao \u0111\u1ED5i.",
+  "N\u1ED9i dung \u1ED5n nh\u01B0ng c\xF2n ph\u1EE5 thu\u1ED9c nhi\u1EC1u v\xE0o c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a AI. C\xF4/th\u1EA7y mong th\u1EA5y l\u1EADp tr\u01B0\u1EDDng ri\xEAng c\u1EE7a em."
+];
+var SUMMARIES = {
+  indep: "Sinh vi\xEAn ch\u1EE7 \u0111\u1ED9ng ch\u1EA5t v\u1EA5n c\xE1c gi\u1EA3 \u0111\u1ECBnh c\u1EE7a AI, t\u1EF1 t\xF3m t\u1EAFt v\xE0 ki\u1EC3m ch\u1EE9ng; h\u1EA7u nh\u01B0 kh\xF4ng nh\u1EDD AI vi\u1EBFt h\u1ED9.",
+  mixed: "Sinh vi\xEAn c\xF3 \u0111\u1EB7t c\xE2u h\u1ECFi v\xE0 ph\u1EA3n bi\u1EC7n \u1EDF m\u1ED9t s\u1ED1 l\u01B0\u1EE3t, nh\u01B0ng c\u0169ng c\xF3 l\xFAc nh\u1EADn c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a AI m\xE0 ch\u01B0a ki\u1EC3m ch\u1EE9ng.",
+  deleg: "Sinh vi\xEAn ch\u1EE7 y\u1EBFu xin \u0111\xE1p \xE1n ho\u1EB7c nh\u1EDD AI vi\u1EBFt h\u1ED9, \xEDt t\u1EF1 l\u1EADp lu\u1EADn; c\u1EA7n khuy\u1EBFn kh\xEDch suy ngh\u0129 tr\u01B0\u1EDBc khi h\u1ECFi."
+};
+function rng(seed) {
+  return () => {
+    seed |= 0;
+    seed = seed + 1831565813 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+var DAY = 24 * 3600 * 1e3;
+var clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function generateDemoData(o) {
+  const rand = rng(20260);
+  const pick = (a) => a[Math.floor(rand() * a.length)];
+  const between = (a, b) => a + Math.floor(rand() * (b - a + 1));
+  const iso = (t) => new Date(t).toISOString();
+  const users = [], members = [], assignments = [], submissions = [], chats = [];
+  const personas = [];
+  NAMES.forEach((name, i) => {
+    const id = `${DEMO_PREFIX}u${String(i + 1).padStart(2, "0")}`;
+    const r = rand();
+    personas.push(r < 0.34 ? "indep" : r < 0.84 ? "mixed" : r < 0.96 ? "deleg" : "absent");
+    users.push({ id, name, email: `sv${String(i + 1).padStart(2, "0")}.demo@student.edu.vn`, role: "student", avatar: "", pwd: o.hash, demo: true });
+    members.push({ course_id: o.courseId, student_id: id, student_name: name, student_email: `sv${String(i + 1).padStart(2, "0")}.demo@student.edu.vn`, joined_at: iso(o.now - between(20, 28) * DAY), demo: true });
+  });
+  const plan = [
+    { due: -22, mode: "both", friction: "none", ai: "normal" },
+    { due: -15, mode: "ai_chat_only", friction: "nudge", ai: "socratic" },
+    { due: -9, mode: "both", friction: "nudge", ai: "socratic" },
+    { due: -4, mode: "ai_chat_only", friction: "required", ai: "socratic" },
+    { due: 3, mode: "both", friction: "required", ai: "socratic" },
+    { due: 10, mode: "ai_chat_only", friction: "nudge", ai: "socratic" }
+  ];
+  plan.forEach((p, i) => {
+    assignments.push({
+      id: `${DEMO_PREFIX}a${i + 1}`,
+      course_id: o.courseId,
+      title: TOPICS[i].title,
+      description: `Ph\xE2n t\xEDch **${TOPICS[i].what}** trong m\u1ED9t t\xECnh hu\u1ED1ng th\u1EF1c t\u1EBF.
+
+Y\xEAu c\u1EA7u: n\xEAu \xEDt nh\u1EA5t hai lu\u1EADn \u0111i\u1EC3m, m\u1ED9t ph\u1EA3n bi\u1EC7n, v\xE0 k\u1EBFt lu\u1EADn c\u1EE7a ri\xEAng em.`,
+      rubric: "- Lu\u1EADn \u0111i\u1EC3m r\xF5 r\xE0ng (30%)\n- Ph\u1EA3n bi\u1EC7n v\xE0 ki\u1EC3m ch\u1EE9ng (40%)\n- Di\u1EC5n gi\u1EA3i b\u1EB1ng l\u1EDDi c\u1EE7a em (30%)",
+      due_date: iso(o.now + p.due * DAY),
+      attachments: [],
+      submission_mode: p.mode,
+      ai_submode: p.ai,
+      allow_late: true,
+      friction: p.friction,
+      friction_prompts: ["Lu\u1EADn \u0111i\u1EC3m c\u1ED1t l\xF5i c\u1EE7a em v\u1EC1 \u0111\u1EC1 b\xE0i n\xE0y l\xE0 g\xEC?", "Em \u0111\u1ECBnh d\xF9ng d\u1EABn ch\u1EE9ng ho\u1EB7c v\xED d\u1EE5 n\xE0o?", "\u0110i\u1EC3m n\xE0o em c\xF2n b\u0103n kho\u0103n ho\u1EB7c ch\u01B0a ch\u1EAFc?"],
+      created_at: iso(o.now + (p.due - 6) * DAY),
+      demo: true
+    });
+  });
+  const targets = [
+    ...o.existing.assignmentIds.map((id) => ({ id, due: null, topic: TOPICS[0], friction: "none", mode: "both", existing: true })),
+    ...assignments.map((a, i) => ({ id: a.id, due: new Date(a.due_date).getTime(), topic: TOPICS[i], friction: a.friction, mode: a.submission_mode, existing: false }))
+  ];
+  const trend = (idx) => Math.min(8, idx * 1.5);
+  let uid2 = 0;
+  const mid = () => `${DEMO_PREFIX}m${++uid2}`;
+  targets.forEach((t, ti) => {
+    const dueMs = t.due ?? o.now + 3 * DAY;
+    const isFuture = dueMs > o.now;
+    users.forEach((u, si) => {
+      const persona = personas[si];
+      if (o.existing.submissionKeys.has(`${t.id}:${u.id}`)) return;
+      const partic = { indep: 0.96, mixed: 0.86, deleg: 0.78, absent: 0.3 }[persona] * (isFuture ? 0.72 : 1);
+      if (rand() > partic) return;
+      if (!members.some((m) => m.student_id === u.id)) return;
+      const turns = persona === "indep" ? between(5, 9) : persona === "mixed" ? between(4, 7) : between(3, 4);
+      const submittedAt = isFuture ? o.now - between(1, 20) * 3600 * 1e3 : dueMs - between(2, 60) * 3600 * 1e3 + (rand() < 0.12 ? between(20, 60) * 3600 * 1e3 : 0);
+      const startAt = submittedAt - turns * between(4, 9) * 60 * 1e3 - 20 * 60 * 1e3;
+      const draft = isFuture && rand() < 0.22;
+      const msgs = [];
+      let clock = startAt;
+      const tick = () => clock += between(1, 5) * 60 * 1e3 + between(0, 50) * 1e3;
+      const userMsgs = [];
+      let intent = void 0;
+      if (t.friction !== "none") {
+        const skip = t.friction === "nudge" && (persona === "deleg" ? rand() < 0.7 : persona === "mixed" ? rand() < 0.15 : false);
+        const conf = persona === "deleg" ? between(4, 5) : persona === "indep" ? between(3, 4) : between(2, 5);
+        if (skip) intent = { answers: [], confidence: conf, skipped: true, at: iso(clock) };
+        else {
+          const answers = [
+            { q: "Lu\u1EADn \u0111i\u1EC3m c\u1ED1t l\xF5i c\u1EE7a em v\u1EC1 \u0111\u1EC1 b\xE0i n\xE0y l\xE0 g\xEC?", a: persona === "deleg" ? `Em ngh\u0129 ${t.topic.what} l\xE0 v\u1EA5n \u0111\u1EC1 quan tr\u1ECDng.` : `Lu\u1EADn \u0111i\u1EC3m c\u1EE7a em l\xE0 ${t.topic.what} xu\u1EA5t ph\xE1t t\u1EEB c\xE1ch d\u1EEF li\u1EC7u v\xE0 quy tr\xECnh \u0111\u01B0\u1EE3c thi\u1EBFt k\u1EBF, ch\u1EE9 kh\xF4ng ch\u1EC9 do c\xF4ng ngh\u1EC7.` },
+            { q: "Em \u0111\u1ECBnh d\xF9ng d\u1EABn ch\u1EE9ng ho\u1EB7c v\xED d\u1EE5 n\xE0o?", a: persona === "deleg" ? "Em ch\u01B0a ngh\u0129 ra." : "Em \u0111\u1ECBnh d\xF9ng v\xED d\u1EE5 v\u1EC1 h\u1EC7 th\u1ED1ng l\u1ECDc h\u1ED3 s\u01A1 v\xE0 m\u1ED9t b\xE1o c\xE1o ki\u1EC3m to\xE1n thu\u1EADt to\xE1n." }
+          ];
+          intent = { answers, confidence: conf, skipped: false, at: iso(clock), pasted_chars: persona === "deleg" && rand() < 0.3 ? 120 : void 0 };
+          const m = { id: mid(), role: "user", kind: "intent", timestamp: iso(clock), content: "**\xDD ban \u0111\u1EA7u c\u1EE7a em (tr\u01B0\u1EDBc khi h\u1ECFi AI)**\n\n" + answers.map((x) => `- ${x.q}
+  ${x.a}`).join("\n") };
+          msgs.push(m);
+          tick();
+          msgs.push({ id: mid(), role: "model", timestamp: iso(clock), content: pick(AI_REPLIES) });
+        }
+      }
+      for (let k = 0; k < turns; k++) {
+        let kind;
+        if (persona === "indep") kind = rand() < 0.65 ? "indep" : "curious";
+        else if (persona === "mixed") kind = rand() < 0.4 ? "indep" : rand() < 0.7 ? "curious" : "deleg";
+        else kind = rand() < 0.65 ? "deleg" : "curious";
+        let text = (kind === "indep" ? pick(INDEPENDENT) : kind === "curious" ? pick(CURIOUS) : pick(DELEGATING)).replace("{x}", t.topic.what);
+        let pasted = 0;
+        if (kind === "deleg" && rand() < 0.6) {
+          const blk = pick(PASTE_BLOCKS);
+          text = `${text}
+
+${blk}`;
+          pasted = blk.length;
+        } else if (persona === "mixed" && rand() < 0.1) {
+          const blk = pick(PASTE_BLOCKS);
+          text = `${text} ${blk}`;
+          pasted = blk.length;
+        }
+        tick();
+        const m = { id: mid(), role: "user", timestamp: iso(clock), content: text, kind_demo: kind };
+        if (pasted) m.pasted_chars = pasted;
+        msgs.push(m);
+        userMsgs.push(m);
+        tick();
+        msgs.push({ id: mid(), role: "model", timestamp: iso(clock), content: pick(AI_REPLIES) });
+      }
+      const chatId = `${DEMO_PREFIX}cs${chats.length + 1}`, subId = `${DEMO_PREFIX}sub${submissions.length + 1}`;
+      const cleanMsgs = msgs.map(({ kind_demo, ...m }) => m);
+      const chat = { id: chatId, assignment_id: t.id, student_id: u.id, submission_id: draft ? void 0 : subId, messages: cleanMsgs, demo: true };
+      if (intent) chat.intent = intent;
+      chats.push(chat);
+      const late = !isFuture && submittedAt > dueMs;
+      const sub = {
+        id: subId,
+        assignment_id: t.id,
+        student_id: u.id,
+        student_name: u.name,
+        student_email: u.email,
+        student_avatar: "",
+        submitted_files: [],
+        submitted_text: draft ? "" : `Em t\u1ED5ng h\u1EE3p l\u1EA1i: ${t.topic.what} c\u1EA7n \u0111\u01B0\u1EE3c xem x\xE9t c\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u l\u1EABn quy tr\xECnh ra quy\u1EBFt \u0111\u1ECBnh.`,
+        chat_session_id: chatId,
+        status: draft ? "draft" : late ? "late" : "submitted",
+        notes: "",
+        demo: true
+      };
+      if (!draft) sub.submitted_at = iso(submittedAt);
+      else sub.draft_saved_at = iso(o.now - 3600 * 1e3);
+      if (draft) {
+        submissions.push(sub);
+        return;
+      }
+      if (rand() < 0.04) {
+        sub.eval_status = "failed";
+        sub.eval_error = "M\xF4 h\xECnh AI qu\xE1 t\u1EA3i, vui l\xF2ng ch\u1EA5m l\u1EA1i.";
+      } else {
+        const base = persona === "indep" ? between(80, 95) : persona === "mixed" ? between(60, 80) : persona === "deleg" ? between(28, 56) : between(40, 65);
+        const sc = clamp(base + trend(ti) - (persona === "deleg" ? 0.5 * trend(ti) : 0), 8, 98);
+        const c = (d) => clamp(Math.round(sc + d + between(-7, 7)), 5, 100);
+        const hl = [];
+        const take = (m, mau, why) => {
+          const q = m.content.split("\n")[0].slice(0, 130).trim();
+          if (q.length >= 12 && !hl.some((h) => h.doan_van_ban === q)) hl.push({ doan_van_ban: q, mau, ly_do: why });
+        };
+        userMsgs.forEach((m) => {
+          const f = INDEPENDENT.some((s) => m.content.startsWith(s.replace("{x}", t.topic.what).slice(0, 25))), cu = CURIOUS.some((s) => m.content.startsWith(s.slice(0, 20))), de = DELEGATING.some((s) => m.content.startsWith(s.slice(0, 20)));
+          if (f && hl.filter((h) => h.mau === "xanh").length < 2) take(m, "xanh", "Ch\u1EA5t v\u1EA5n gi\u1EA3 \u0111\u1ECBnh c\u1EE7a AI v\xE0 \u0111\u01B0a ra l\u1EADp lu\u1EADn ri\xEAng.");
+          else if (cu && hl.filter((h) => h.mau === "vang").length < 1) take(m, "vang", "T\xF2 m\xF2, mu\u1ED1n l\xE0m r\xF5 ho\u1EB7c ki\u1EC3m ch\u1EE9ng th\xEAm.");
+          else if (de && hl.filter((h) => h.mau === "do").length < 1) take(m, "do", "Nh\u1EDD AI vi\u1EBFt h\u1ED9 ho\u1EB7c xin \u0111\xE1p \xE1n tr\u1EF1c ti\u1EBFp.");
+        });
+        sub.process_score_result = {
+          process_score: Math.round(sc),
+          tieu_chi: { tu_duy_phan_bien: c(persona === "deleg" ? -10 : 2), dao_sau_van_de: c(0), kiem_chung_thong_tin: c(-4), noi_hoa_kien_thuc: c(persona === "indep" ? 4 : -2), tinh_chu_dong: c(persona === "deleg" ? -8 : 3) },
+          noi_dung_ngoai_luong: null,
+          nhan_xet_ngan: persona === "indep" ? SUMMARIES.indep : persona === "mixed" ? SUMMARIES.mixed : SUMMARIES.deleg,
+          highlight_segments: hl
+        };
+        sub.eval_status = "ok";
+        if (!isFuture && rand() < 0.78) {
+          sub.grade = Math.round(clamp(sc / 10 + (rand() - 0.5) * 1.6, 3, 10) * 2) / 2;
+          sub.graded_at = iso(Math.min(o.now, submittedAt + between(3, 40) * 3600 * 1e3));
+          if (rand() < 0.5) sub.feedback = persona === "deleg" ? FEEDBACKS[between(3, 4)] : FEEDBACKS[between(0, 2)];
+        }
+      }
+      submissions.push(sub);
+    });
+  });
+  return { users, course_members: members, assignments, submissions, chat_sessions: chats };
+}
+
 // src/lib/friction.ts
 var FRICTION_LEVELS = ["none", "nudge", "required"];
 var DEFAULT_FRICTION_PROMPTS = [
@@ -709,6 +977,27 @@ K\u1EBFt qu\u1EA3 l\xE0 Gradient tri\u1EC7t ti\xEAu g\u1EA7n nh\u01B0 b\u1EB1ng 
   ]
 };
 for (const u of initialDb.users) u.pwd = hashPassword("123456");
+function appendDemoData(target, now = Date.now()) {
+  if (target.users.some((u) => String(u.id).startsWith(DEMO_PREFIX))) return null;
+  const courseId = "c_1";
+  const d = generateDemoData({
+    hash: hashPassword("123456"),
+    now,
+    teacherId: "u_teacher_1",
+    courseId,
+    existing: {
+      assignmentIds: target.assignments.filter((a) => a.course_id === courseId && a.submission_mode !== "file_only" && a.submission_mode !== "writing_l2").map((a) => a.id),
+      submissionKeys: new Set(target.submissions.map((x) => `${x.assignment_id}:${x.student_id}`))
+    }
+  });
+  target.users.push(...d.users);
+  target.course_members.push(...d.course_members);
+  target.assignments.unshift(...d.assignments);
+  target.submissions.push(...d.submissions);
+  target.chat_sessions.push(...d.chat_sessions);
+  return d;
+}
+if (process.env.SEED_DEMO_SCALE !== "small") appendDemoData(initialDb);
 var db = JSON.parse(JSON.stringify(initialDb));
 function ensureSeedCredentials() {
   for (const seed of initialDb.users) {
@@ -1668,9 +1957,9 @@ ${evalPrompt}` }] }],
   });
   if (!response.text) throw new Error("AI tr\u1EA3 v\u1EC1 n\u1ED9i dung r\u1ED7ng.");
   const parsed = JSON.parse(response.text.trim());
-  const clamp = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
-  parsed.process_score = clamp(parsed.process_score);
-  for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp(parsed.tieu_chi[k]);
+  const clamp2 = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+  parsed.process_score = clamp2(parsed.process_score);
+  for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp2(parsed.tieu_chi[k]);
   parsed.noi_dung_ngoai_luong = parsed.noi_dung_ngoai_luong?.trim() ? parsed.noi_dung_ngoai_luong : null;
   parsed.highlight_segments = (parsed.highlight_segments || []).map((h) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang" }));
   return parsed;
@@ -2585,6 +2874,41 @@ app.put("/api/admin/settings", (req, res) => {
   saveDocument("settings", "global", { ...next });
   audit(req.user, "settings.update", "C\xE0i \u0111\u1EB7t h\u1EC7 th\u1ED1ng", JSON.stringify({ allow_registration: next.allow_registration, teacher_self_register: next.teacher_self_register }));
   res.json({ success: true, data: next, message: "\u0110\xE3 l\u01B0u c\u1EA5u h\xECnh ph\xE2n quy\u1EC1n." });
+});
+app.post("/api/admin/demo-data", (req, res) => {
+  if (!db.courses.some((c) => c.id === "c_1")) return fail(res, 409, "C\u1EA7n c\xF3 m\xF4n h\u1ECDc m\u1EABu (m\xE3 CS101) \u0111\u1EC3 n\u1EA1p d\u1EEF li\u1EC7u demo.");
+  const d = appendDemoData(db);
+  if (!d) return fail(res, 409, "D\u1EEF li\u1EC7u demo \u0111\xE3 \u0111\u01B0\u1EE3c n\u1EA1p r\u1ED3i. H\xE3y x\xF3a tr\u01B0\u1EDBc n\u1EBFu mu\u1ED1n n\u1EA1p l\u1EA1i.");
+  for (const u of d.users) saveDocument("users", u.id, u);
+  for (const m of d.course_members) saveDocument("course_members", `${m.course_id}_${m.student_id}`, m);
+  for (const a of d.assignments) saveDocument("assignments", a.id, a);
+  for (const x of d.submissions) saveDocument("submissions", x.id, x);
+  for (const c of d.chat_sessions) saveDocument("chat_sessions", c.id, c);
+  audit(req.user, "demo.load", "D\u1EEF li\u1EC7u demo", `${d.users.length} sinh vi\xEAn, ${d.submissions.length} b\xE0i n\u1ED9p`);
+  res.json({ success: true, data: { students: d.users.length, assignments: d.assignments.length, submissions: d.submissions.length, chats: d.chat_sessions.length }, message: "\u0110\xE3 n\u1EA1p d\u1EEF li\u1EC7u demo." });
+});
+app.delete("/api/admin/demo-data", (req, res) => {
+  const isDemo = (id) => String(id).startsWith(DEMO_PREFIX);
+  const demoUsers = new Set(db.users.filter((u) => isDemo(u.id)).map((u) => u.id));
+  const rmSubs = db.submissions.filter((x) => isDemo(x.id) || demoUsers.has(x.student_id));
+  const rmChats = db.chat_sessions.filter((c) => isDemo(c.id) || demoUsers.has(c.student_id));
+  const rmAssign = db.assignments.filter((a) => isDemo(a.id));
+  const rmMembers = db.course_members.filter((m) => demoUsers.has(m.student_id));
+  const rmNotif = db.notifications.filter((n) => demoUsers.has(n.user_id));
+  for (const u of db.users.filter((u2) => demoUsers.has(u2.id))) deleteDocument("users", u.id);
+  for (const m of rmMembers) deleteDocument("course_members", `${m.course_id}_${m.student_id}`);
+  for (const a of rmAssign) deleteDocument("assignments", a.id);
+  for (const x of rmSubs) deleteDocument("submissions", x.id);
+  for (const c of rmChats) deleteDocument("chat_sessions", c.id);
+  for (const n of rmNotif) deleteDocument("notifications", n.id);
+  db.users = db.users.filter((u) => !demoUsers.has(u.id));
+  db.course_members = db.course_members.filter((m) => !demoUsers.has(m.student_id));
+  db.assignments = db.assignments.filter((a) => !isDemo(a.id));
+  db.submissions = db.submissions.filter((x) => !rmSubs.includes(x));
+  db.chat_sessions = db.chat_sessions.filter((c) => !rmChats.includes(c));
+  db.notifications = db.notifications.filter((n) => !rmNotif.includes(n));
+  audit(req.user, "demo.clear", "D\u1EEF li\u1EC7u demo", `${demoUsers.size} sinh vi\xEAn`);
+  res.json({ success: true, data: { students: demoUsers.size }, message: "\u0110\xE3 x\xF3a d\u1EEF li\u1EC7u demo." });
 });
 app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.audit_logs.slice(0, 200) }));
 app.use("/api", (req, res) => fail(res, 404, "API kh\xF4ng t\u1ED3n t\u1EA1i."));
