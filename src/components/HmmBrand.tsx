@@ -7,6 +7,12 @@ export const GRAD = "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)";
 
 const H_PATH = "M207 395 V175 M207 312 C207 272 232 257 262 257 C292 257 312 275 312 312 V395";
 const M_PATH = "M378 395 V237 M378 312 C378 272 400 257 419 257 C440 257 460 275 460 312 V395 M460 312 C460 272 484 257 511 257 C540 257 562 275 562 312 V336 A39 39 0 0 0 640 336 V312 C640 272 662 257 681 257 C702 257 722 275 722 312 V395 M722 312 C722 272 744 257 764 257 C788 257 805 275 805 312 V395";
+/** The three letters of the logo as separate paths (the second m ends at the U, the third starts after it). */
+export const LETTERS = [
+  { key: "h", d: H_PATH, bx: 187, by: 175, bw: 145, bh: 220 },
+  { key: "m1", d: "M378 395 V237 M378 312 C378 272 400 257 419 257 C440 257 460 275 460 312 V395 M460 312 C460 272 484 257 511 257 C540 257 562 275 562 312 V395", bx: 358, by: 237, bw: 224, bh: 158 },
+  { key: "m2", d: "M640 395 V237 M640 312 C640 272 662 257 681 257 C702 257 722 275 722 312 V395 M722 312 C722 272 744 257 764 257 C788 257 805 275 805 312 V395", bx: 620, by: 237, bw: 205, bh: 158 },
+] as const;
 export const MARK_LIGHT_BG: [string, string, string] = ["#0a35a0", "#6a55c8", "#a87be0"];
 export const MARK_DARK_BG: [string, string, string] = ["#5b94ff", "#8b6cff", "#d08af0"];
 
