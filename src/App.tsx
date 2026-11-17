@@ -300,6 +300,7 @@ function Shell() {
                         userName={user.name} userAvatar={user.avatar} submission={assignmentDetail.submission} chatSession={assignmentDetail.chat_session}
                         onSendMessage={(d) => api("/api/chat/message", { method: "POST", body: d })}
                         onSubmitIntent={(d) => api("/api/chat/intent", { method: "POST", body: d })}
+                        onUnlock={(d) => api("/api/chat/unlock", { method: "POST", body: d })}
                         onSaveDraft={async (d) => { await api("/api/submissions/draft", { method: "POST", body: d }); }}
                         onSubmitAssignment={async (d) => { const s = await api<Submission>("/api/submissions/submit", { method: "POST", body: d }); loadOverview(); loadCourses(); return s; }} />
                     )}

@@ -10,6 +10,7 @@ import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ThinkingTrace } from "./ThinkingTrace";
 import { StudentResultSection } from "./StudentResultSection";
+import { GatedAnswer } from "./GatedAnswer";
 import { Avatar, Modal, Bar, fmtDate, relTime, useToast } from "./ui";
 
 interface Props {
@@ -22,12 +23,13 @@ interface Props {
   onSubmitAssignment: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string; notes?: string }) => Promise<Submission>;
   onSaveDraft: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string }) => Promise<void>;
   onSendMessage: (data: { assignment_id: string; message_content: string; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
+  onUnlock: (data: { assignment_id: string; message_id: string; answers?: string[]; skip?: boolean }) => Promise<{ chat_session: ChatSession }>;
   onSubmitIntent: (data: { assignment_id: string; answers?: string[]; confidence?: number; skip?: boolean; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
 }
 
 const MIN_TURNS = 3;
 
-export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, userName, userAvatar, submission, chatSession, onSubmitAssignment, onSaveDraft, onSendMessage, onSubmitIntent }) => {
+export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, userName, userAvatar, submission, chatSession, onSubmitAssignment, onSaveDraft, onSendMessage, onSubmitIntent, onUnlock }) => {
   const toast = useToast();
   const [messages, setMessages] = useState<any[]>(chatSession?.messages || []);
   const [intentDone, setIntentDone] = useState<boolean>(!!chatSession?.intent);
@@ -57,6 +59,16 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const chatEnabled = assignment.submission_mode !== "file_only";
   const friction = assignment.friction || "none";
   const frictionPrompts = assignment.friction_prompts?.length ? assignment.friction_prompts : ["Luận điểm cốt lõi của em về đề bài này là gì?", "Em định dùng dẫn chứng hoặc ví dụ nào?", "Điểm nào em còn băn khoăn hoặc chưa chắc?"];
+  const answerGate = assignment.answer_gate && assignment.answer_gate !== "none" ? assignment.answer_gate : null;
+  const lastModel = [...messages].reverse().find((m) => m.role === "model");
+  const gateLocked = !!answerGate && lastModel?.gate?.state === "locked";
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const unlock = async (messageId: string, data: { answers?: string[]; skip?: boolean }) => {
+    setUnlockBusy(true);
+    try { const res = await onUnlock({ assignment_id: assignment.id, message_id: messageId, ...data }); setMessages(res.chat_session.messages); }
+    catch (err: any) { toast.error(err.message || "Không mở khóa được câu trả lời."); }
+    finally { setUnlockBusy(false); }
+  };
   const needIntent = chatEnabled && friction !== "none" && !intentDone && !locked;
   const turns = messages.filter((m) => m.role === "user" && m.kind !== "intent").length;
   const needTurns = chatEnabled ? Math.max(0, MIN_TURNS - turns) : 0;
@@ -288,7 +300,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                         <div className={`max-w-[88%] ${mine ? "items-end" : ""} flex flex-col gap-1`}>
                           <span className="text-[11px] text-mute px-1 font-medium">{mine ? (m.kind === "intent" ? `${userName} · ý riêng ghi trước` : userName) : (assignment.ai_submode === "socratic" ? "Trợ lý Socratic" : "Trợ lý AI")} · {new Date(m.timestamp || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
                           <div className={`px-4 py-3 rounded-2xl ${mine ? `bg-brand-soft/60 text-ink rounded-tr-md ${m.kind === "intent" ? "ring-1 ring-dashed ring-brand/40 border border-dashed border-brand/50" : ""}` : "bg-surface border border-line rounded-tl-md"}`}>
-                            <MarkdownRenderer content={m.content} />
+                            {m.gate && answerGate ? <GatedAnswer message={m} gate={answerGate} busy={unlockBusy} onUnlock={(d) => unlock(m.id, d)} /> : <MarkdownRenderer content={m.content} />}
                           </div>
                         </div>
                       </motion.div>
@@ -313,13 +325,13 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                   <div className="rounded-xl bg-surface-2 text-center text-sm font-medium text-mute py-3 flex items-center justify-center gap-2"><Lock className="w-4 h-4" />{submitted ? "Đã nộp bài. Toàn bộ hội thoại được lưu trong nhật ký quá trình." : "Bài tập đã khóa sau hạn nộp."}</div>
                 ) : (
                   <form onSubmit={send} className="flex items-end gap-2">
-                    <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={sending || needIntent}
+                    <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} disabled={sending || needIntent || gateLocked}
                       onPaste={(e) => { pastedRef.current += e.clipboardData.getData("text").length; }}
                       onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                      placeholder={needIntent ? "Hãy ghi ý riêng của em ở phía trên trước…" : assignment.ai_submode === "socratic" ? "Hỏi hoặc phản biện lại trợ lý… (Enter để gửi, Shift+Enter xuống dòng)" : "Nhập tin nhắn… (Enter để gửi)"}
+                      placeholder={gateLocked ? "Hãy mở khóa câu trả lời phía trên trước khi hỏi tiếp…" : needIntent ? "Hãy ghi ý riêng của em ở phía trên trước…" : assignment.ai_submode === "socratic" ? "Hỏi hoặc phản biện lại trợ lý… (Enter để gửi, Shift+Enter xuống dòng)" : "Nhập tin nhắn… (Enter để gửi)"}
                       className="input resize-none max-h-40 min-h-[48px]" style={{ fieldSizing: "content" } as React.CSSProperties} />
                     <span className="hidden sm:block text-[11px] text-mute self-center w-16 text-right tabular-nums">{input.length ? `${input.length} ký tự` : ""}</span>
-                    <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={!input.trim() || sending || needIntent} className="btn btn-primary btn-icon h-12 w-12 shrink-0" aria-label="Gửi"><Send className="w-5 h-5" /></motion.button>
+                    <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={!input.trim() || sending || needIntent || gateLocked} className="btn btn-primary btn-icon h-12 w-12 shrink-0" aria-label="Gửi"><Send className="w-5 h-5" /></motion.button>
                   </form>
                 )}
               </div>

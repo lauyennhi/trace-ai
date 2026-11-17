@@ -380,6 +380,28 @@ ${blk}`;
   return { users, course_members: members, assignments, submissions, chat_sessions: chats };
 }
 
+// src/lib/gate.ts
+var ANSWER_GATES = ["none", "optional", "required"];
+var GATE_SHOW_RATIO = 0.3;
+var GATE_MIN_ANSWERS = 2;
+var GATE_MIN_CHARS = 30;
+var isAnswerGate = (v) => ANSWER_GATES.includes(v);
+function makeTeaser(full, ratio = GATE_SHOW_RATIO) {
+  const text = full.trim();
+  if (!text) return "";
+  const ends = [];
+  const re = /[.!?…。](?=\s)|\n{2,}/g;
+  let m;
+  while (m = re.exec(text)) ends.push(m[0].length === 1 ? m.index + 1 : m.index);
+  const target = text.length * ratio, hard = text.length * 0.4;
+  const usable = ends.filter((e) => e > 20 && e < text.length);
+  if (usable.length === 0) return text.slice(0, Math.max(40, Math.floor(target))).trim() + "\u2026";
+  const reach = usable.find((e) => e >= target && e <= hard);
+  const under = [...usable].reverse().find((e) => e <= hard);
+  const cut = reach ?? under ?? usable[0];
+  return text.slice(0, cut).trim() + "\u2026";
+}
+
 // src/lib/friction.ts
 var FRICTION_LEVELS = ["none", "nudge", "required"];
 var DEFAULT_FRICTION_PROMPTS = [
@@ -1743,7 +1765,7 @@ function publicAssignment(a, user) {
   return a;
 }
 function sanitizeAssignmentInput(body) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
   return {
@@ -1756,7 +1778,8 @@ function sanitizeAssignmentInput(body) {
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true,
     friction: level,
-    friction_prompts: cleanFrictionPrompts(friction_prompts)
+    friction_prompts: cleanFrictionPrompts(friction_prompts),
+    answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none"
   };
 }
 app.post("/api/courses/:id/assignments", (req, res) => {
@@ -1822,7 +1845,7 @@ app.get("/api/assignments/:id", (req, res) => {
   }
   const extra = {};
   if (req.user.role === "student" && assignment.l2 && submission && isSubmitted(submission)) extra.l2_feedback = studentL2Feedback(assignment, submission);
-  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: chatSession, ...extra } });
+  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: publicChat(chatSession, req.user), ...extra } });
 });
 app.get("/api/assignments/:id/submissions", (req, res) => {
   const assignment = db.assignments.find((a) => a.id === req.params.id);
@@ -1852,7 +1875,7 @@ app.get("/api/submissions/:id", (req, res) => {
   const course = assignment && findCourse(assignment.course_id);
   if (!isOwner(course, req.user) && sub.student_id !== req.user.id) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem b\xE0i n\u1ED9p n\xE0y.");
   const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
-  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: chatSession } });
+  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: publicChat(chatSession, req.user) } });
 });
 app.put("/api/submissions/:id/grade", (req, res) => {
   const sub = db.submissions.find((s) => s.id === req.params.id);
@@ -1906,7 +1929,18 @@ app.post("/api/submissions/:id/reevaluate", async (req, res) => {
   }
 });
 function transcriptOf(chat) {
-  return chat.messages.map((m) => `${m.role === "user" ? "Sinh vi\xEAn" : "AI Assistant"}: ${m.content}`).join("\n");
+  return chat.messages.map((m) => {
+    const g = m.gate;
+    if (m.role === "user" || !g) return `${m.role === "user" ? "Sinh vi\xEAn" : "AI Assistant"}: ${m.content}`;
+    if (g.state === "locked") return `AI Assistant: ${m.content} [ph\u1EA7n c\xF2n l\u1EA1i ch\u01B0a \u0111\u01B0\u1EE3c m\u1EDF kh\xF3a]`;
+    if (g.skipped) return `AI Assistant: ${m.content}
+(Sinh vi\xEAn b\u1ECF qua c\xE1c c\xE2u h\u1ECFi m\u1EDF kh\xF3a v\xE0 xem lu\xF4n \u0111\xE1p \xE1n.)`;
+    const ans = (g.answers || []).map((x) => `- ${x.q} ${x.a}`).join("\n");
+    return `AI Assistant (ph\u1EA7n \u0111\u1EA7u b\u1EA3n nh\xE1p, ph\u1EA7n c\xF2n l\u1EA1i b\u1ECB che): ${g.teaser}
+Sinh vi\xEAn t\u1EF1 tr\u1EA3 l\u1EDDi c\xE1c c\xE2u h\u1ECFi \u0111\u1EC3 m\u1EDF kh\xF3a:
+${ans}
+AI Assistant (\u0111\xE1p \xE1n \u0111\xE3 tinh ch\u1EC9nh theo \xFD c\u1EE7a sinh vi\xEAn): ${m.content}`;
+  }).join("\n");
 }
 async function evaluateProcess(assignment, chat, submittedText) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
@@ -2306,6 +2340,78 @@ function chatRateLimited(userId) {
   chatHits.set(userId, hits);
   return false;
 }
+function publicChat(cs, user) {
+  if (!cs || user?.role !== "student") return cs;
+  return {
+    ...cs,
+    messages: cs.messages.map((m) => {
+      const g = m.gate;
+      if (!g) return m;
+      if (g.state === "locked") return { ...m, content: g.teaser, gate: { state: "locked", questions: g.questions, teaser: g.teaser, hidden_chars: Math.max(0, (g.draft?.length || 0) - (g.teaser?.length || 0)) } };
+      const { draft, ...rest } = g;
+      return { ...m, gate: rest };
+    })
+  };
+}
+var parseJson = (t) => {
+  try {
+    return JSON.parse(t || "");
+  } catch {
+    return null;
+  }
+};
+var strList = (v, max, len = 400) => Array.isArray(v) ? v.map((x) => typeof x === "string" ? x.trim().slice(0, len) : "").filter(Boolean).slice(0, max) : [];
+async function generateGatedAnswer(assignment, course, chatSession) {
+  const addendum = `
+QUY T\u1EAEC RI\xCANG CHO L\u01AF\u1EE2T N\xC0Y (\u01B0u ti\xEAn h\u01A1n c\xE1c ch\u1EC9 d\u1EABn tr\xEAn): c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a b\u1EA1n s\u1EBD \u0111\u01B0\u1EE3c chia hai ph\u1EA7n. Kho\u1EA3ng 30% \u0111\u1EA7u sinh vi\xEAn \u0111\u1ECDc ngay; ph\u1EA7n c\xF2n l\u1EA1i b\u1ECB kh\xF3a cho t\u1EDBi khi sinh vi\xEAn n\xEAu \xFD ri\xEAng.
+- Vi\u1EBFt c\xE2u tr\u1EA3 l\u1EDDi \u0110\u1EA6Y \u0110\u1EE6 v\xE0 CH\xCDNH X\xC1C v\u1EC1 ki\u1EBFn th\u1EE9c, kho\u1EA3ng 200-350 t\u1EEB, markdown g\u1ECDn, kh\xF4ng d\xF9ng ti\xEAu \u0111\u1EC1 \u1EDF \u0111\u1EA7u.
+- 30% \u0110\u1EA6U ph\u1EA3i l\xE0 ph\u1EA7n hay nh\u1EA5t v\xE0 g\xE2y t\xF2 m\xF2: m\u1EDF b\u1EB1ng m\u1ED9t nh\u1EADn \u0111\u1ECBnh b\u1EA5t ng\u1EDD, m\u1ED9t v\xED d\u1EE5 s\u1ED1ng \u0111\u1ED9ng ho\u1EB7c m\u1ED9t c\xE2u h\u1ECFi s\u1EAFc; d\u1EEBng \u1EDF ch\u1ED7 khi\u1EBFn ng\u01B0\u1EDDi \u0111\u1ECDc mu\u1ED1n bi\u1EBFt ti\u1EBFp, nh\u01B0ng v\u1EABn \u0111\xFAng v\xE0 t\u1EF1 \u0111\u1EE7 ngh\u0129a. Kh\xF4ng ti\u1EBFt l\u1ED9 k\u1EBFt lu\u1EADn \u1EDF ph\u1EA7n n\xE0y, kh\xF4ng chi\xEAu tr\xF2 c\xE2u kh\xE1ch.
+- \u0110\u01B0a 2-3 "questions": m\u1ED7i c\xE2u ng\u1EAFn, c\u1EE5 th\u1EC3 cho ch\u1EE7 \u0111\u1EC1 n\xE0y, \u0111\u1EC3 sinh vi\xEAn n\xEAu quan \u0111i\u1EC3m c\u1EE7a ch\xEDnh m\xECnh (v\xED d\u1EE5: em nghi\xEAng v\u1EC1 h\u01B0\u1EDBng n\xE0o v\xE0 v\xEC sao; em \u0111\u1ECBnh d\xF9ng v\xED d\u1EE5 n\xE0o). Kh\xF4ng h\u1ECFi chung chung.`;
+  const response = await generateWithFallback({
+    contents: chatSession.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
+    config: {
+      systemInstruction: chatInstruction(assignment, course, chatSession) + addendum,
+      temperature: 0.8,
+      responseMimeType: "application/json",
+      responseSchema: { type: Type.OBJECT, properties: { answer: { type: Type.STRING }, questions: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["answer", "questions"] }
+    }
+  });
+  const j = parseJson(response.text);
+  const answer = typeof j?.answer === "string" ? j.answer.trim() : "";
+  const questions = strList(j?.questions, 3, 200);
+  if (answer.length < 120 || questions.length === 0) throw new Error("AI tr\u1EA3 v\u1EC1 c\xE2u tr\u1EA3 l\u1EDDi kh\xF4ng h\u1EE3p l\u1EC7.");
+  return { answer, questions };
+}
+async function generatePersonalized(assignment, course, chatSession, askedBy, draft, answers) {
+  const rules = `
+NHI\u1EC6M V\u1EE4: sinh vi\xEAn \u0111\xE3 \u0111\u1ECDc ph\u1EA7n m\u1EDF \u0111\u1EA7u c\u1EE7a m\u1ED9t c\xE2u tr\u1EA3 l\u1EDDi nh\xE1p v\xE0 \u0111\xE3 n\xEAu \xFD ri\xEAng c\u1EE7a h\u1ECD. H\xE3y vi\u1EBFt \u0110\xC1P \xC1N CU\u1ED0I C\xD9NG cho sinh vi\xEAn \u0111\u1ECDc:
+- D\xF9ng ch\xEDnh \xFD t\u01B0\u1EDFng, quan \u0111i\u1EC3m v\xE0 c\xE1ch \u0111\u1EB7t v\u1EA5n \u0111\u1EC1 c\u1EE7a sinh vi\xEAn l\xE0m khung; tinh ch\u1EC9nh b\u1EA3n nh\xE1p cho kh\u1EDBp v\u1EDBi \xFD h\u1ECD, gi\u1ECDng v\u0103n t\u1EF1 nhi\xEAn, g\u1ECDi sinh vi\xEAn l\xE0 "em" n\u1EBFu h\u1EE3p.
+- N\u1ED8I DUNG PH\u1EA2I CH\xCDNH X\xC1C. N\u1EBFu \xFD n\xE0o c\u1EE7a sinh vi\xEAn ch\u01B0a \u0111\xFAng ho\u1EB7c thi\u1EBFu c\u0103n c\u1EE9, \u0111\u1EEBng chi\u1EC1u theo: n\xEAu nh\u1EB9 nh\xE0ng trong "correction" \u0111i\u1EC1u c\u1EA7n ch\u1EC9nh, v\xE0 \u0111\xE1p \xE1n v\u1EABn ph\u1EA3i \u0111\xFAng.
+- "used_ideas": 1-4 \xFD c\u1EE7a sinh vi\xEAn m\xE0 \u0111\xE1p \xE1n \u0111\xE3 d\xF9ng (di\u1EC5n \u0111\u1EA1t ng\u1EAFn).
+- "alternatives": 2-3 h\u01B0\u1EDBng kh\xE1c sinh vi\xEAn c\xF3 th\u1EC3 c\xE2n nh\u1EAFc khi tr\u1EA3 l\u1EDDi b\xE0i n\xE0y, m\u1ED7i h\u01B0\u1EDBng 1-2 c\xE2u, n\xEAu v\xEC sao \u0111\xE1ng th\u1EED.
+- "correction": chu\u1ED7i r\u1ED7ng n\u1EBFu \xFD c\u1EE7a sinh vi\xEAn \u0111\u1EC1u \u1ED5n.`;
+  const prompt = `C\xE2u h\u1ECFi c\u1EE7a sinh vi\xEAn: ${askedBy}
+
+B\u1EA3n nh\xE1p c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a AI:
+${draft}
+
+\xDD ri\xEAng c\u1EE7a sinh vi\xEAn:
+${answers.map((x) => `- ${x.q}
+  ${x.a}`).join("\n")}`;
+  const response = await generateWithFallback({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: chatInstruction(assignment, course, chatSession) + rules,
+      temperature: 0.6,
+      responseMimeType: "application/json",
+      responseSchema: { type: Type.OBJECT, properties: { answer: { type: Type.STRING }, used_ideas: { type: Type.ARRAY, items: { type: Type.STRING } }, alternatives: { type: Type.ARRAY, items: { type: Type.STRING } }, correction: { type: Type.STRING } }, required: ["answer", "used_ideas", "alternatives", "correction"] }
+    }
+  });
+  const j = parseJson(response.text);
+  const answer = typeof j?.answer === "string" ? j.answer.trim() : "";
+  if (answer.length < 80) throw new Error("AI tr\u1EA3 v\u1EC1 \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+  return { answer, used_ideas: strList(j?.used_ideas, 4, 200), alternatives: strList(j?.alternatives, 3, 400), correction: typeof j?.correction === "string" ? j.correction.trim().slice(0, 600) : "" };
+}
 function chatInstruction(assignment, course, chatSession) {
   const base = assignment.ai_submode === "socratic" ? `B\u1EA1n l\xE0 tr\u1EE3 l\xFD h\u1ECDc t\u1EADp AI trong m\xF4n ${course.name}, h\u1ED7 tr\u1EE3 sinh vi\xEAn l\xE0m b\xE0i t\u1EADp: ${assignment.title}. M\xF4 t\u1EA3 b\xE0i t\u1EADp: ${assignment.description}.
 Khi sinh vi\xEAn h\u1ECFi, \u0111\u1EEBng \u0111\u01B0a \u0111\xE1p \xE1n ngay. \u0110\u1EB7t 1-2 c\xE2u h\u1ECFi g\u1EE3i m\u1EDF \u0111\u1EC3 sinh vi\xEAn t\u1EF1 suy ngh\u0129 tr\u01B0\u1EDBc. Ch\u1EC9 \u0111\u01B0a \u0111\xE1p \xE1n/h\u01B0\u1EDBng d\u1EABn chi ti\u1EBFt sau khi sinh vi\xEAn \u0111\xE3 th\u1EED tr\u1EA3 l\u1EDDi. N\u1EBFu sinh vi\xEAn y\xEAu c\u1EA7u \u0111\xE1p \xE1n ngay, nh\u1EAFc nh\u1EB9 nh\xE0ng v\u1EC1 l\u1EE3i \xEDch t\u1EF1 t\u01B0 duy tr\u01B0\u1EDBc, sau \u0111\xF3 v\u1EABn h\u1ED7 tr\u1EE3 n\u1EBFu h\u1ECD th\u1EF1c s\u1EF1 c\u1EA7n.
@@ -2342,7 +2448,7 @@ app.post("/api/chat/intent", async (req, res) => {
     }
     chatSession.intent = { answers: [], confidence, skipped: true, at: nowIso() };
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    return res.json({ success: true, data: { chat_session: chatSession } });
+    return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
   }
   const raw = Array.isArray(req.body?.answers) ? req.body.answers : [];
   const answers = prompts.map((q, i) => ({ q, a: typeof raw[i] === "string" ? raw[i].trim().slice(0, 2e3) : "" })).filter((x) => x.a);
@@ -2373,12 +2479,56 @@ app.post("/api/chat/intent", async (req, res) => {
     const aiMsg = { id: uid("m"), role: "model", content: replyText, timestamp: nowIso() };
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+    res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user), new_message: aiMsg } });
   } catch (err) {
     console.error("Gemini Intent Error:", err?.message || err);
     chatSession.messages = prevMessages;
     chatSession.intent = prevIntent;
     if (isNew) db.chat_sessions = db.chat_sessions.filter((cs) => cs.id !== chatSession.id);
+    fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng ph\u1EA3n h\u1ED3i \u0111\u01B0\u1EE3c. \xDD c\u1EE7a b\u1EA1n ch\u01B0a \u0111\u01B0\u1EE3c ghi nh\u1EADn, h\xE3y th\u1EED g\u1EEDi l\u1EA1i.");
+  }
+});
+app.post("/api/chat/unlock", async (req, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi tr\xF2 chuy\u1EC7n trong b\xE0i t\u1EADp.");
+  if (!can(req.user, "use_ai_chat")) return denied(res);
+  const { assignment_id, message_id } = req.body || {};
+  const assignment = db.assignments.find((a) => a.id === assignment_id);
+  if (!assignment) return fail(res, 404, "B\xE0i t\u1EADp kh\xF4ng t\xECm th\u1EA5y.");
+  const course = findCourse(assignment.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "B\u1EA1n kh\xF4ng thu\u1ED9c m\xF4n h\u1ECDc n\xE0y.");
+  if (!assignment.answer_gate || assignment.answer_gate === "none") return fail(res, 400, "B\xE0i t\u1EADp n\xE0y kh\xF4ng che c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a AI.");
+  const existing = db.submissions.find((s) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (existing && isSubmitted(existing)) return fail(res, 409, "B\xE0i \u0111\xE3 n\u1ED9p, cu\u1ED9c tr\xF2 chuy\u1EC7n \u0111\xE3 \u0111\u01B0\u1EE3c kh\xF3a.");
+  const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
+  const idx = chatSession ? chatSession.messages.findIndex((m) => m.id === message_id) : -1;
+  const msg = idx >= 0 ? chatSession.messages[idx] : null;
+  if (!msg || msg.role !== "model" || !msg.gate) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y c\xE2u tr\u1EA3 l\u1EDDi c\u1EA7n m\u1EDF kh\xF3a.");
+  const g = msg.gate;
+  if (g.state !== "locked") return fail(res, 409, "C\xE2u tr\u1EA3 l\u1EDDi n\xE0y \u0111\xE3 \u0111\u01B0\u1EE3c m\u1EDF kh\xF3a r\u1ED3i.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "B\u1EA1n g\u1EEDi qu\xE1 nhanh, vui l\xF2ng \u0111\u1EE3i v\xE0i ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.");
+  if (req.body?.skip === true) {
+    if (assignment.answer_gate === "required") return fail(res, 400, "B\xE0i t\u1EADp n\xE0y y\xEAu c\u1EA7u b\u1EA1n tr\u1EA3 l\u1EDDi c\xE1c c\xE2u h\u1ECFi tr\u01B0\u1EDBc.");
+    msg.content = g.draft;
+    msg.gate = { ...g, state: "unlocked", skipped: true, unlocked_at: nowIso() };
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
+  }
+  const raw = Array.isArray(req.body?.answers) ? req.body.answers : [];
+  const answers = g.questions.map((q, i) => ({ q, a: typeof raw[i] === "string" ? raw[i].trim().slice(0, 2e3) : "" })).filter((x) => x.a);
+  const need = Math.min(GATE_MIN_ANSWERS, g.questions.length);
+  if (answers.length < need || answers.reduce((n, x) => n + x.a.length, 0) < GATE_MIN_CHARS) {
+    return fail(res, 400, `H\xE3y tr\u1EA3 l\u1EDDi \xEDt nh\u1EA5t ${need} c\xE2u v\xE0 vi\u1EBFt \u0111\u1EE7 \xFD (t\u1ED1i thi\u1EC3u ${GATE_MIN_CHARS} k\xFD t\u1EF1) \u0111\u1EC3 m\u1EDF kh\xF3a.`);
+  }
+  const askedBy = [...chatSession.messages.slice(0, idx)].reverse().find((m) => m.role === "user" && m.kind !== "intent")?.content || "";
+  try {
+    if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
+    const out = await generatePersonalized(assignment, course, chatSession, askedBy, g.draft || "", answers);
+    msg.content = out.answer;
+    msg.gate = { ...g, state: "unlocked", answers, used_ideas: out.used_ideas, alternatives: out.alternatives, correction: out.correction || void 0, unlocked_at: nowIso() };
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
+  } catch (err) {
+    console.error("Gemini Unlock Error:", err?.message || err);
     fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng ph\u1EA3n h\u1ED3i \u0111\u01B0\u1EE3c. \xDD c\u1EE7a b\u1EA1n ch\u01B0a \u0111\u01B0\u1EE3c ghi nh\u1EADn, h\xE3y th\u1EED g\u1EEDi l\u1EA1i.");
   }
 });
@@ -2412,6 +2562,11 @@ app.post("/api/chat/message", async (req, res) => {
     if (!chatSession.messages.length) db.chat_sessions = db.chat_sessions.filter((cs) => cs.id !== chatSession.id);
     return fail(res, 409, "H\xE3y ghi \xFD ri\xEAng c\u1EE7a b\u1EA1n tr\u01B0\u1EDBc khi h\u1ECFi tr\u1EE3 l\xFD AI.");
   }
+  const gated = !isL2 && !!assignment.answer_gate && assignment.answer_gate !== "none";
+  if (gated) {
+    const lastModel = [...chatSession.messages].reverse().find((m) => m.role === "model");
+    if (lastModel?.gate?.state === "locked") return fail(res, 409, "H\xE3y tr\u1EA3 l\u1EDDi c\xE1c c\xE2u h\u1ECFi \u0111\u1EC3 m\u1EDF kh\xF3a c\xE2u tr\u1EA3 l\u1EDDi tr\u01B0\u1EDBc, r\u1ED3i m\u1EDBi h\u1ECFi ti\u1EBFp.");
+  }
   const userMsg = { id: uid("m"), role: "user", content: message_content, timestamp: nowIso() };
   if (isL2) userMsg.phase = phase;
   const pasted = Number(req.body?.pasted_chars);
@@ -2420,17 +2575,25 @@ app.post("/api/chat/message", async (req, res) => {
   const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase) : chatInstruction(assignment, course, chatSession);
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
-    const response = await generateWithFallback({
-      contents: chatSession.messages.filter((m) => !isL2 || m.phase === phase).map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
-      config: { systemInstruction, temperature: 0.7 }
-    });
-    const replyText = response.text;
-    if (!replyText) throw new Error("AI tr\u1EA3 v\u1EC1 n\u1ED9i dung r\u1ED7ng.");
-    const aiMsg = { id: uid("m"), role: "model", content: replyText, timestamp: nowIso() };
-    if (isL2) aiMsg.phase = phase;
+    let aiMsg;
+    if (gated) {
+      const { answer, questions } = await generateGatedAnswer(assignment, course, chatSession);
+      const teaser = makeTeaser(answer);
+      aiMsg = { id: uid("m"), role: "model", content: teaser, timestamp: nowIso(), gate: { state: "locked", questions, teaser, draft: answer } };
+    } else {
+      const response = await generateWithFallback({
+        contents: chatSession.messages.filter((m) => !isL2 || m.phase === phase).map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
+        config: { systemInstruction, temperature: 0.7 }
+      });
+      const replyText = response.text;
+      if (!replyText) throw new Error("AI tr\u1EA3 v\u1EC1 n\u1ED9i dung r\u1ED7ng.");
+      aiMsg = { id: uid("m"), role: "model", content: replyText, timestamp: nowIso() };
+      if (isL2) aiMsg.phase = phase;
+    }
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+    const pub = publicChat(chatSession, req.user);
+    res.json({ success: true, data: { chat_session: pub, new_message: pub.messages.find((m) => m.id === aiMsg.id) } });
   } catch (err) {
     console.error("Gemini Chat Error:", err?.message || err);
     chatSession.messages = chatSession.messages.filter((m) => m.id !== userMsg.id);
@@ -2552,9 +2715,12 @@ function behaviorStats(assignments, members, subs) {
     return cs?.intent?.confidence && s.process_score_result ? { c: cs.intent.confidence * 20, p: s.process_score_result.process_score } : null;
   }).filter(Boolean);
   const avgOf = (xs) => xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+  const gatedMsgs = sessions.flatMap((cs) => cs.messages.filter((m) => m.role === "model" && m.gate && m.gate.state === "unlocked"));
+  const gateAnswered = gatedMsgs.filter((m) => !m.gate.skipped).length;
   return {
     enough: true,
     students,
+    gate: gatedMsgs.length ? { total: gatedMsgs.length, answered_rate: pct(gateAnswered, gatedMsgs.length), skipped_rate: pct(gatedMsgs.length - gateAnswered, gatedMsgs.length) } : null,
     friction_sessions: frictionSessions.length,
     wrote_first_rate: pct(wrote, frictionSessions.length),
     skipped_rate: pct(skipped, frictionSessions.length),

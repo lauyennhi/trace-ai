@@ -41,6 +41,7 @@ export interface CourseMember {
 
 import type { L2Config, L2Work, L2Result, L2ErrorReport } from './lib/l2';
 import type { FrictionLevel, ChatIntent } from './lib/friction';
+import type { AnswerGate, GateInfo } from './lib/gate';
 
 export type SubmissionMode = 'file_only' | 'ai_chat_only' | 'both' | 'writing_l2';
 export type AISubmode = 'normal' | 'socratic';
@@ -67,6 +68,8 @@ export interface Assignment {
   /** Input friction for AI-chat assignments: how much the student must write before the AI answers. Missing = "none". */
   friction?: FrictionLevel;
   friction_prompts?: string[];
+  /** Blur-to-Unlock: how the AI's answer is gated. Missing = "none". */
+  answer_gate?: AnswerGate;
   /** Only for submission_mode 'writing_l2'. The answer key (errors) is stripped for students. */
   l2?: L2Config;
   created_at: string;
@@ -139,6 +142,8 @@ export interface ChatMessage {
   kind?: 'intent';
   /** Characters pasted into this message (not typed). */
   pasted_chars?: number;
+  /** Present on AI answers that were gated (Blur-to-Unlock). */
+  gate?: GateInfo;
   content: string;
   timestamp: string;
 }
@@ -193,6 +198,7 @@ export interface ClassStats {
     enough: boolean;
     students: number;
     min_students?: number;
+    gate?: { total: number; answered_rate: number | null; skipped_rate: number | null } | null;
     friction_sessions?: number;
     wrote_first_rate?: number | null;
     skipped_rate?: number | null;

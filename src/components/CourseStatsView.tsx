@@ -184,6 +184,13 @@ export const CourseStatsView: React.FC<{ stats: ClassStats }> = ({ stats }) => {
                 <div className="text-[11px] text-mute mt-1">tự tin (quy 0-100) so với điểm quá trình TB</div></div>
             </div>
           )}
+          {stats.behavior.enough && stats.behavior.gate && (
+            <p className="text-xs text-ink-2 flex flex-wrap gap-x-4 gap-y-1" data-testid="gate-stats">
+              <span>Câu trả lời AI bị che mờ: <strong>{stats.behavior.gate.total}</strong> lượt đã mở khóa</span>
+              <span>Trả lời câu hỏi để mở khóa: <strong>{stats.behavior.gate.answered_rate}%</strong></span>
+              <span>Bấm xem luôn không trả lời: <strong>{stats.behavior.gate.skipped_rate}%</strong></span>
+            </p>
+          )}
         </motion.div>
       )}
 

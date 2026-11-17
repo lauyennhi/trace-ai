@@ -31,6 +31,14 @@ export function buildSteps(messages: ChatMessage[], highlights: HighlightSegment
   const hl = highlights.map((h) => ({ ...h, n: norm(h.doan_van_ban) })).filter((h) => h.n.length >= 6);
   const out: Step[] = [];
   for (const m of messages) {
+    // The student's own ideas written to unlock a blurred AI answer count as a turn of independent thinking
+    if (m.role === "model" && m.gate?.answers?.length) {
+      const text = m.gate.answers.map((x) => x.a).join("\n");
+      const n0 = norm(text);
+      const hit0 = hl.find((h) => n0.includes(h.n) || (n0.length >= 12 && h.n.includes(n0)));
+      out.push({ idx: out.length + 1, text, mau: hit0 ? (hit0.mau as Mau) : null, intent: true, paste: false, pastedChars: 0, len: text.length, reason: hit0?.ly_do, at: m.gate.unlocked_at || m.timestamp });
+      continue;
+    }
     if (m.role !== "user") continue;
     const n = norm(m.content);
     // A highlight belongs to a turn when the quoted excerpt appears in it (or the turn is contained in the excerpt)

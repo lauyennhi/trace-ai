@@ -4,6 +4,7 @@ import { Assignment, SubmissionMode, AISubmode, AssignmentAttachment } from "../
 import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { Modal } from "./ui";
 import { DEFAULT_L2_DIMENSIONS, L2_ERROR_LABEL, L2_ERROR_TYPES, findPhraseRange, type L2Dimension, type L2ErrorType } from "../lib/l2";
+import { ANSWER_GATES, GATE_LABEL, type AnswerGate } from "../lib/gate";
 import { DEFAULT_FRICTION_PROMPTS, FRICTION_LABEL, FRICTION_LEVELS, type FrictionLevel } from "../lib/friction";
 
 export interface L2FormError { id: string; type: L2ErrorType; text: string; answer: string }
@@ -12,7 +13,7 @@ export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions
 export interface AssignmentFormData {
   title: string; description: string; rubric: string; due_date: string;
   attachments: AssignmentAttachment[]; submission_mode: SubmissionMode; ai_submode: AISubmode; allow_late: boolean;
-  friction: FrictionLevel; friction_prompts: string[];
+  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate;
   l2?: L2FormData;
 }
 interface Props {
@@ -37,6 +38,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
   const [aiMode, setAiMode] = useState<AISubmode>("socratic");
   const [allowLate, setAllowLate] = useState(true);
   const [friction, setFriction] = useState<FrictionLevel>("nudge");
+  const [answerGate, setAnswerGate] = useState<AnswerGate>("none");
   const [frictionPrompts, setFrictionPrompts] = useState<string[]>(DEFAULT_FRICTION_PROMPTS);
   const [files, setFiles] = useState<UploadedFileItem[]>([]);
   const [l2Text, setL2Text] = useState("");
@@ -55,6 +57,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
     setAiMode(assignment?.ai_submode || "socratic"); setAllowLate(assignment?.allow_late !== false);
     // New assignments default to the gentle "nudge"; existing ones keep what they had (missing = none)
     setFriction(assignment ? assignment.friction || "none" : "nudge");
+    setAnswerGate(assignment?.answer_gate || "none");
     setFrictionPrompts(assignment?.friction_prompts?.length ? assignment.friction_prompts : DEFAULT_FRICTION_PROMPTS);
     setL2Text(assignment?.l2?.ai_text || ""); setL2Lang(assignment?.l2?.prompt_language || "en");
     setL2Errors((assignment?.l2?.errors || []).map((e) => ({ id: e.id, type: e.type, text: e.text, answer: e.answer })));
@@ -77,7 +80,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
         title: title.trim(), description, rubric, due_date: new Date(dueDate).toISOString(),
         attachments: files.map((f) => ({ id: f.id, name: f.name, url: f.url, size: f.size, type: f.type })),
         submission_mode: mode, ai_submode: aiMode, allow_late: allowLate,
-        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean),
+        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate,
         ...(mode === "writing_l2" ? { l2: { ai_text: l2Text, errors: l2Errors, dimensions: l2Dims, prompt_language: l2Lang } } : {}),
       });
       onClose();
@@ -171,6 +174,21 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {mode !== "file_only" && mode !== "writing_l2" && (
+          <div>
+            <label className="label">Che mờ câu trả lời của AI (Blur-to-Unlock)</label>
+            <div className="grid grid-cols-3 gap-2">
+              {ANSWER_GATES.map((id) => (
+                <button key={id} type="button" onClick={() => setAnswerGate(id)}
+                  className={`rounded-2xl border p-3 text-left transition-all ${answerGate === id ? "border-brand bg-brand-soft ring-4 ring-brand/10" : "border-line hover:border-brand/40"}`}>
+                  <div className={`text-sm font-semibold ${answerGate === id ? "text-brand" : ""}`}>{GATE_LABEL[id].label}</div>
+                  <div className="text-[11px] text-mute mt-1">{GATE_LABEL[id].hint}</div>
+                </button>
+              ))}
+            </div>
+            {answerGate !== "none" && <p className="text-xs text-mute mt-2">AI soạn đáp án đầy đủ nhưng chỉ cho xem khoảng 30% đầu. Sinh viên trả lời vài câu hỏi để mở phần còn lại, AI sẽ viết lại theo ý của sinh viên (vẫn đúng kiến thức) và gợi ý thêm hướng khác. Phần bị che nằm trên máy chủ, không gửi về trình duyệt sinh viên.</p>}
           </div>
         )}
         {mode === "writing_l2" && (

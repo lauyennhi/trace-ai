@@ -8,6 +8,7 @@ import {
   type L2Config, type L2Error, type L2Highlight, type L2Work, type L2ErrorReport, type L2Result,
 } from "./src/lib/l2.ts";
 import { generateDemoData, DEMO_PREFIX } from "./src/lib/demoData.ts";
+import { isAnswerGate, makeTeaser, GATE_MIN_ANSWERS, GATE_MIN_CHARS, type GateInfo } from "./src/lib/gate.ts";
 import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -1292,7 +1293,7 @@ function publicAssignment(a: any, user: any) {
 }
 
 function sanitizeAssignmentInput(body: any) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   // Input friction only applies to plain AI-chat assignments (not file-only, not the 3-step L2 flow)
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
@@ -1307,6 +1308,7 @@ function sanitizeAssignmentInput(body: any) {
     allow_late: allow_late === false ? false : true,
     friction: level,
     friction_prompts: cleanFrictionPrompts(friction_prompts),
+    answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none",
   };
 }
 
@@ -1376,7 +1378,7 @@ app.get("/api/assignments/:id", (req: AuthedRequest, res) => {
   }
   const extra: any = {};
   if (req.user.role === "student" && assignment.l2 && submission && isSubmitted(submission)) extra.l2_feedback = studentL2Feedback(assignment, submission);
-  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: chatSession, ...extra } });
+  res.json({ success: true, data: { assignment: publicAssignment(assignment, req.user), course_name: course.name, submission, chat_session: publicChat(chatSession, req.user), ...extra } });
 });
 
 app.get("/api/assignments/:id/submissions", (req: AuthedRequest, res) => {
@@ -1411,7 +1413,7 @@ app.get("/api/submissions/:id", (req: AuthedRequest, res) => {
   const course = assignment && findCourse(assignment.course_id);
   if (!isOwner(course, req.user) && sub.student_id !== req.user.id) return fail(res, 403, "Bạn không có quyền xem bài nộp này.");
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
-  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: chatSession } });
+  res.json({ success: true, data: { submission: sub, assignment: publicAssignment(assignment, req.user), chat_session: publicChat(chatSession, req.user) } });
 });
 
 app.put("/api/submissions/:id/grade", (req: AuthedRequest, res) => {
@@ -1466,7 +1468,15 @@ app.post("/api/submissions/:id/reevaluate", async (req: AuthedRequest, res) => {
 });
 
 function transcriptOf(chat: any) {
-  return chat.messages.map((m: any) => `${m.role === "user" ? "Sinh viên" : "AI Assistant"}: ${m.content}`).join("\n");
+  return chat.messages.map((m: any) => {
+    const g: GateInfo | undefined = m.gate;
+    if (m.role === "user" || !g) return `${m.role === "user" ? "Sinh viên" : "AI Assistant"}: ${m.content}`;
+    // Gated answers: the grader must see what the student actually did to read the rest
+    if (g.state === "locked") return `AI Assistant: ${m.content} [phần còn lại chưa được mở khóa]`;
+    if (g.skipped) return `AI Assistant: ${m.content}\n(Sinh viên bỏ qua các câu hỏi mở khóa và xem luôn đáp án.)`;
+    const ans = (g.answers || []).map((x) => `- ${x.q} ${x.a}`).join("\n");
+    return `AI Assistant (phần đầu bản nháp, phần còn lại bị che): ${g.teaser}\nSinh viên tự trả lời các câu hỏi để mở khóa:\n${ans}\nAI Assistant (đáp án đã tinh chỉnh theo ý của sinh viên): ${m.content}`;
+  }).join("\n");
 }
 
 async function evaluateProcess(assignment: any, chat: any, submittedText: string) {
@@ -1826,6 +1836,75 @@ function chatRateLimited(userId: string): boolean {
   return false;
 }
 
+/**
+ * What a user may see of a chat. Students never receive the hidden part of a gated answer:
+ * the server keeps the full draft, and sends only the opening plus how many characters are hidden.
+ */
+function publicChat(cs: any, user: any) {
+  if (!cs || user?.role !== "student") return cs;
+  return {
+    ...cs,
+    messages: cs.messages.map((m: any) => {
+      const g: GateInfo | undefined = m.gate;
+      if (!g) return m;
+      if (g.state === "locked") return { ...m, content: g.teaser, gate: { state: "locked", questions: g.questions, teaser: g.teaser, hidden_chars: Math.max(0, (g.draft?.length || 0) - (g.teaser?.length || 0)) } };
+      const { draft, ...rest } = g;
+      return { ...m, gate: rest };
+    }),
+  };
+}
+
+const parseJson = (t: string | undefined) => { try { return JSON.parse(t || ""); } catch { return null; } };
+const strList = (v: any, max: number, len = 400): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x.trim().slice(0, len) : "")).filter(Boolean).slice(0, max) : []);
+
+/** Writes a complete, correct answer whose first ~30% is the most intriguing part, plus the questions that unlock the rest. */
+async function generateGatedAnswer(assignment: any, course: any, chatSession: any): Promise<{ answer: string; questions: string[] }> {
+  const addendum = `
+QUY TẮC RIÊNG CHO LƯỢT NÀY (ưu tiên hơn các chỉ dẫn trên): câu trả lời của bạn sẽ được chia hai phần. Khoảng 30% đầu sinh viên đọc ngay; phần còn lại bị khóa cho tới khi sinh viên nêu ý riêng.
+- Viết câu trả lời ĐẦY ĐỦ và CHÍNH XÁC về kiến thức, khoảng 200-350 từ, markdown gọn, không dùng tiêu đề ở đầu.
+- 30% ĐẦU phải là phần hay nhất và gây tò mò: mở bằng một nhận định bất ngờ, một ví dụ sống động hoặc một câu hỏi sắc; dừng ở chỗ khiến người đọc muốn biết tiếp, nhưng vẫn đúng và tự đủ nghĩa. Không tiết lộ kết luận ở phần này, không chiêu trò câu khách.
+- Đưa 2-3 "questions": mỗi câu ngắn, cụ thể cho chủ đề này, để sinh viên nêu quan điểm của chính mình (ví dụ: em nghiêng về hướng nào và vì sao; em định dùng ví dụ nào). Không hỏi chung chung.`;
+  const response = await generateWithFallback({
+    contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+    config: {
+      systemInstruction: chatInstruction(assignment, course, chatSession) + addendum,
+      temperature: 0.8,
+      responseMimeType: "application/json",
+      responseSchema: { type: Type.OBJECT, properties: { answer: { type: Type.STRING }, questions: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["answer", "questions"] },
+    },
+  });
+  const j = parseJson(response.text);
+  const answer = typeof j?.answer === "string" ? j.answer.trim() : "";
+  const questions = strList(j?.questions, 3, 200);
+  if (answer.length < 120 || questions.length === 0) throw new Error("AI trả về câu trả lời không hợp lệ.");
+  return { answer, questions };
+}
+
+/** Rewrites the draft around the student's own ideas, keeping it correct, and suggests other angles. */
+async function generatePersonalized(assignment: any, course: any, chatSession: any, askedBy: string, draft: string, answers: { q: string; a: string }[]) {
+  const rules = `
+NHIỆM VỤ: sinh viên đã đọc phần mở đầu của một câu trả lời nháp và đã nêu ý riêng của họ. Hãy viết ĐÁP ÁN CUỐI CÙNG cho sinh viên đọc:
+- Dùng chính ý tưởng, quan điểm và cách đặt vấn đề của sinh viên làm khung; tinh chỉnh bản nháp cho khớp với ý họ, giọng văn tự nhiên, gọi sinh viên là "em" nếu hợp.
+- NỘI DUNG PHẢI CHÍNH XÁC. Nếu ý nào của sinh viên chưa đúng hoặc thiếu căn cứ, đừng chiều theo: nêu nhẹ nhàng trong "correction" điều cần chỉnh, và đáp án vẫn phải đúng.
+- "used_ideas": 1-4 ý của sinh viên mà đáp án đã dùng (diễn đạt ngắn).
+- "alternatives": 2-3 hướng khác sinh viên có thể cân nhắc khi trả lời bài này, mỗi hướng 1-2 câu, nêu vì sao đáng thử.
+- "correction": chuỗi rỗng nếu ý của sinh viên đều ổn.`;
+  const prompt = `Câu hỏi của sinh viên: ${askedBy}\n\nBản nháp câu trả lời của AI:\n${draft}\n\nÝ riêng của sinh viên:\n${answers.map((x) => `- ${x.q}\n  ${x.a}`).join("\n")}`;
+  const response = await generateWithFallback({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: chatInstruction(assignment, course, chatSession) + rules,
+      temperature: 0.6,
+      responseMimeType: "application/json",
+      responseSchema: { type: Type.OBJECT, properties: { answer: { type: Type.STRING }, used_ideas: { type: Type.ARRAY, items: { type: Type.STRING } }, alternatives: { type: Type.ARRAY, items: { type: Type.STRING } }, correction: { type: Type.STRING } }, required: ["answer", "used_ideas", "alternatives", "correction"] },
+    },
+  });
+  const j = parseJson(response.text);
+  const answer = typeof j?.answer === "string" ? j.answer.trim() : "";
+  if (answer.length < 80) throw new Error("AI trả về đáp án không hợp lệ.");
+  return { answer, used_ideas: strList(j?.used_ideas, 4, 200), alternatives: strList(j?.alternatives, 3, 400), correction: typeof j?.correction === "string" ? j.correction.trim().slice(0, 600) : "" };
+}
+
 /** System prompt for plain (non-L2) assignment chat. When the student wrote their own ideas first, the AI builds on them. */
 function chatInstruction(assignment: any, course: any, chatSession: any): string {
   const base = assignment.ai_submode === "socratic"
@@ -1866,7 +1945,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
     if (!chatSession) { chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] }; db.chat_sessions.push(chatSession); }
     chatSession.intent = { answers: [], confidence, skipped: true, at: nowIso() } satisfies ChatIntent;
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    return res.json({ success: true, data: { chat_session: chatSession } });
+    return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
   }
 
   const raw = Array.isArray(req.body?.answers) ? req.body.answers : [];
@@ -1896,12 +1975,60 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
     const aiMsg: any = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+    res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user), new_message: aiMsg } });
   } catch (err: any) {
     console.error("Gemini Intent Error:", err?.message || err);
     // Roll back so the student can simply retry
     chatSession.messages = prevMessages; chatSession.intent = prevIntent;
     if (isNew) db.chat_sessions = db.chat_sessions.filter((cs: any) => cs.id !== chatSession.id);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Ý của bạn chưa được ghi nhận, hãy thử gửi lại.");
+  }
+});
+
+app.post("/api/chat/unlock", async (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
+  if (!can(req.user, "use_ai_chat")) return denied(res);
+  const { assignment_id, message_id } = req.body || {};
+  const assignment = db.assignments.find((a: any) => a.id === assignment_id);
+  if (!assignment) return fail(res, 404, "Bài tập không tìm thấy.");
+  const course = findCourse(assignment.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  if (!assignment.answer_gate || assignment.answer_gate === "none") return fail(res, 400, "Bài tập này không che câu trả lời của AI.");
+  const existing = db.submissions.find((s: any) => s.assignment_id === assignment_id && s.student_id === req.user.id);
+  if (existing && isSubmitted(existing)) return fail(res, 409, "Bài đã nộp, cuộc trò chuyện đã được khóa.");
+  const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
+  const idx = chatSession ? chatSession.messages.findIndex((m: any) => m.id === message_id) : -1;
+  const msg = idx >= 0 ? chatSession.messages[idx] : null;
+  if (!msg || msg.role !== "model" || !msg.gate) return fail(res, 404, "Không tìm thấy câu trả lời cần mở khóa.");
+  const g: GateInfo = msg.gate;
+  if (g.state !== "locked") return fail(res, 409, "Câu trả lời này đã được mở khóa rồi.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
+
+  // Optional gate: the student may read the full draft without answering; the skip is recorded
+  if (req.body?.skip === true) {
+    if (assignment.answer_gate === "required") return fail(res, 400, "Bài tập này yêu cầu bạn trả lời các câu hỏi trước.");
+    msg.content = g.draft;
+    msg.gate = { ...g, state: "unlocked", skipped: true, unlocked_at: nowIso() };
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
+  }
+
+  const raw = Array.isArray(req.body?.answers) ? req.body.answers : [];
+  const answers = g.questions.map((q, i) => ({ q, a: typeof raw[i] === "string" ? raw[i].trim().slice(0, 2000) : "" })).filter((x) => x.a);
+  const need = Math.min(GATE_MIN_ANSWERS, g.questions.length);
+  if (answers.length < need || answers.reduce((n, x) => n + x.a.length, 0) < GATE_MIN_CHARS) {
+    return fail(res, 400, `Hãy trả lời ít nhất ${need} câu và viết đủ ý (tối thiểu ${GATE_MIN_CHARS} ký tự) để mở khóa.`);
+  }
+  const askedBy = [...chatSession.messages.slice(0, idx)].reverse().find((m: any) => m.role === "user" && m.kind !== "intent")?.content || "";
+  try {
+    if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+    const out = await generatePersonalized(assignment, course, chatSession, askedBy, g.draft || "", answers);
+    msg.content = out.answer;
+    msg.gate = { ...g, state: "unlocked", answers, used_ideas: out.used_ideas, alternatives: out.alternatives, correction: out.correction || undefined, unlocked_at: nowIso() } satisfies GateInfo;
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
+  } catch (err: any) {
+    console.error("Gemini Unlock Error:", err?.message || err);
     fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Ý của bạn chưa được ghi nhận, hãy thử gửi lại.");
   }
 });
@@ -1938,6 +2065,11 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
     if (!chatSession.messages.length) db.chat_sessions = db.chat_sessions.filter((cs: any) => cs.id !== chatSession.id);
     return fail(res, 409, "Hãy ghi ý riêng của bạn trước khi hỏi trợ lý AI.");
   }
+  const gated = !isL2 && !!assignment.answer_gate && assignment.answer_gate !== "none";
+  if (gated) {
+    const lastModel = [...chatSession.messages].reverse().find((m: any) => m.role === "model");
+    if (lastModel?.gate?.state === "locked") return fail(res, 409, "Hãy trả lời các câu hỏi để mở khóa câu trả lời trước, rồi mới hỏi tiếp.");
+  }
   const userMsg: any = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
   if (isL2) userMsg.phase = phase;
   const pasted = Number(req.body?.pasted_chars);
@@ -1948,17 +2080,26 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
 
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
-    const response = await generateWithFallback({
-      contents: chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
-      config: { systemInstruction, temperature: 0.7 },
-    });
-    const replyText = response.text;
-    if (!replyText) throw new Error("AI trả về nội dung rỗng.");
-    const aiMsg: any = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
-    if (isL2) aiMsg.phase = phase;
+    let aiMsg: any;
+    if (gated) {
+      // Full answer stays on the server; the student gets the opening ~30% and the unlock questions
+      const { answer, questions } = await generateGatedAnswer(assignment, course, chatSession);
+      const teaser = makeTeaser(answer);
+      aiMsg = { id: uid("m"), role: "model" as const, content: teaser, timestamp: nowIso(), gate: { state: "locked", questions, teaser, draft: answer } satisfies GateInfo };
+    } else {
+      const response = await generateWithFallback({
+        contents: chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+        config: { systemInstruction, temperature: 0.7 },
+      });
+      const replyText = response.text;
+      if (!replyText) throw new Error("AI trả về nội dung rỗng.");
+      aiMsg = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+      if (isL2) aiMsg.phase = phase;
+    }
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { chat_session: chatSession, new_message: aiMsg } });
+    const pub = publicChat(chatSession, req.user);
+    res.json({ success: true, data: { chat_session: pub, new_message: pub.messages.find((m: any) => m.id === aiMsg.id) } });
   } catch (err: any) {
     console.error("Gemini Chat Error:", err?.message || err);
     // Roll back the unanswered message so the student can simply retry
@@ -2104,9 +2245,12 @@ function behaviorStats(assignments: any[], members: any[], subs: any[]) {
   }).filter(Boolean) as { c: number; p: number }[];
   const avgOf = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 
+  const gatedMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.role === "model" && m.gate && m.gate.state === "unlocked"));
+  const gateAnswered = gatedMsgs.filter((m: any) => !m.gate.skipped).length;
   return {
     enough: true,
     students,
+    gate: gatedMsgs.length ? { total: gatedMsgs.length, answered_rate: pct(gateAnswered, gatedMsgs.length), skipped_rate: pct(gatedMsgs.length - gateAnswered, gatedMsgs.length) } : null,
     friction_sessions: frictionSessions.length,
     wrote_first_rate: pct(wrote, frictionSessions.length),
     skipped_rate: pct(skipped, frictionSessions.length),

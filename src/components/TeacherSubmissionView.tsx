@@ -155,6 +155,21 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
                     <div className={`max-w-[88%] rounded-2xl px-4 py-3 ${mine ? "bg-brand-soft rounded-tr-md" : "bg-surface-2 border border-line rounded-tl-md"}`}>
                       <div className="text-[11px] font-bold text-mute mb-1">{mine ? submission.student_name : "Trợ lý AI"} · {new Date(m.timestamp).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</div>
                       <MarkdownRenderer content={m.content} />
+                      {m.gate && (
+                        <div className="mt-2 space-y-2 text-xs">
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="chip chip-brand">Câu trả lời bị che mờ 70%</span>
+                            {m.gate.state === "locked" && <span className="chip chip-amber">Chưa mở khóa</span>}
+                            {m.gate.skipped && <span className="chip chip-rose">Bỏ qua câu hỏi, xem luôn</span>}
+                            {m.gate.answers && m.gate.answers.length > 0 && <span className="chip chip-green">Trả lời câu hỏi để mở khóa</span>}
+                          </div>
+                          {m.gate.answers && m.gate.answers.length > 0 && (
+                            <div className="rounded-xl bg-surface border border-line p-2.5"><div className="font-bold text-mute mb-1">Ý của sinh viên khi mở khóa</div>{m.gate.answers.map((x, i) => <p key={i} className="text-ink-2"><strong>{x.q}</strong> {x.a}</p>)}</div>
+                          )}
+                          {m.gate.correction && <p className="text-[#8a5300] dark:text-[#fbbf4a]"><strong>AI lưu ý sinh viên: </strong>{m.gate.correction}</p>}
+                          {m.gate.draft && <details className="rounded-xl bg-surface border border-line p-2.5"><summary className="cursor-pointer font-bold text-mute">Bản AI soạn ban đầu (trước khi tinh chỉnh)</summary><div className="mt-2"><MarkdownRenderer content={m.gate.draft} /></div></details>}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ); })}
