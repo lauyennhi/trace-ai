@@ -7,12 +7,11 @@ import { ArrowRight, Lock } from "lucide-react";
  * copied or delegated. Each stop on the way is a real Trace strength, shown on a card beside its node.
  * Canvas 2D (no assets); one rAF loop that only runs while the stage is on screen.
  */
-type Tone = "up" | "down" | "flat";
-interface Chapter { id: string; tone: Tone; y: number; eyebrow: string; title: string; text: string; bullets: string[]; visual: React.ReactNode }
+interface Chapter { id: string; color: string; y: number; eyebrow: string; name: string; en: string; status: string[]; desc: string; core: string }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const smooth = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-const TONE: Record<Tone, string> = { up: "#34d399", flat: "#a78bfa", down: "#f43f5e" };
+const UP = "#34d399", DOWN = "#f43f5e", MID = "#a78bfa";
 const STOPS: [number, [number, number, number]][] = [[0, [79, 140, 255]], [0.38, [124, 77, 255]], [0.72, [236, 72, 153]], [1, [52, 211, 153]]];
 const colorAt = (f: number): [number, number, number] => {
   const x = clamp(f, 0, 1);
@@ -23,27 +22,12 @@ const colorAt = (f: number): [number, number, number] => {
   return STOPS[STOPS.length - 1][1];
 };
 
-const Line: React.FC<{ w: string }> = ({ w }) => <div className={`h-2 rounded-full bg-white/15 ${w}`} />;
-const V = {
-  intent: <div className="space-y-2"><Line w="w-5/6" /><Line w="w-3/5" /><div className="flex items-center gap-1.5 pt-1">{[1, 2, 3, 4, 5].map((n) => <span key={n} className={`h-6 w-6 rounded-md text-[10px] flex items-center justify-center ${n === 4 ? "bg-[#7c4dff] text-white" : "bg-white/10 text-white/55"}`}>{n}</span>)}<span className="text-[10px] text-white/50 ml-1">mức tự tin</span></div></div>,
-  paste: <div className="flex items-center gap-3"><span className="h-5 w-5 rotate-45 rounded-[3px] bg-[#f43f5e]" /><div><div className="text-[11px] text-white/80">Dán 412 ký tự</div><div className="text-[10px] text-white/45">lượt 3 · đường đi xuống</div></div></div>,
-  blur: <div className="space-y-1.5"><Line w="w-full" /><Line w="w-11/12" /><Line w="w-4/5" /><div className="space-y-1.5 blur-[3px] opacity-70 pt-1"><Line w="w-full" /><Line w="w-5/6" /><Line w="w-2/3" /></div><span className="inline-block mt-1 rounded-full bg-white/10 px-2.5 py-1 text-[10px] text-white/80">Nói ý của em để đọc tiếp</span></div>,
-  chat: <div className="space-y-1.5 text-[10.5px]"><div className="ml-auto w-fit max-w-[85%] rounded-xl rounded-tr-sm bg-[#7c4dff]/40 px-2.5 py-1.5 text-white/90">Em nghĩ AI đang ngầm định…</div><div className="w-fit max-w-[85%] rounded-xl rounded-tl-sm bg-white/10 px-2.5 py-1.5 text-white/75">Giả định đó dựa trên dữ liệu nào?</div></div>,
-  bars: <div className="space-y-1.5">{[["Phản biện", 82, "#4f8cff"], ["Đào sâu", 70, "#7c4dff"], ["Kiểm chứng", 64, "#f59e0b"], ["Nội hóa", 75, "#34d399"], ["Chủ động", 79, "#ec4899"]].map(([l, v, c]) => <div key={l as string} className="flex items-center gap-2 text-[10px] text-white/60"><span className="w-14 shrink-0">{l}</span><div className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${v}%`, background: c as string }} /></div></div>)}</div>,
-  l2: <div className="flex items-center gap-1.5 text-[10.5px]">{["1 Prompt", "2 Phản biện", "3 Chỉnh sửa"].map((s, i) => <React.Fragment key={s}>{i > 0 && <span className="text-white/30">→</span>}<span className="rounded-full bg-white/10 px-2.5 py-1 text-white/80">{s}</span></React.Fragment>)}</div>,
-  heat: <div className="grid grid-cols-4 gap-1">{[0, 1, 3, 2, 1, 3, 4, 2, 1, 2, 2, 0].map((c, i) => <span key={i} className="h-5 rounded-md" style={{ background: c ? `rgba(${i < 4 ? "52,211,153" : i < 8 ? "124,77,255" : "236,72,153"},${0.15 + c * 0.17})` : "rgba(255,255,255,0.06)" }} />)}</div>,
-  lock: <div className="space-y-1.5 text-[10.5px]">{[["Sinh viên", "dấu vết của mình", true], ["Giảng viên", "bài và chat của lớp mình", true], ["Quản trị viên", "không đọc được chat", false]].map(([r, d, ok]) => <div key={r as string} className="flex items-center justify-between gap-2"><span className="text-white/80">{r}</span><span className={`flex items-center gap-1 ${ok ? "text-white/50" : "text-[#fda4af]"}`}>{!ok && <Lock className="h-3 w-3" />}{d}</span></div>)}</div>,
-};
-
 const CHAPTERS: Chapter[] = [
-  { id: "nghi-truoc", tone: "up", y: 0.3, eyebrow: "01 · Nghĩ trước, hỏi sau", title: "Sinh viên ghi ý của mình trước khi hỏi AI.", text: "Luận điểm và mức tự tin được ghi lại trước mỗi câu hỏi. Ý riêng đã nằm trong nhật ký, nên không cần đoán ai nghĩ ra nó.", bullets: ["3 mức: không có, nhắc nhẹ, bắt buộc", "Máy chủ khóa khung chat tới khi sinh viên ghi ý", "AI nâng cấp chính ý của em, không viết thay"], visual: V.intent },
-  { id: "dan", tone: "down", y: 0.74, eyebrow: "02 · Cám dỗ dán và nhờ làm hộ", title: "Trace không đoán. Trace ghi lại.", text: "Mỗi lần dán nhiều chữ hay xin đáp án là một điểm đi xuống trên đường tư duy. Giảng viên đọc được từng lượt thay vì tin vào một con số.", bullets: ["Đếm lượng chữ dán theo từng tin nhắn", "Chỉ báo hành vi ẩn danh cho cả lớp", "Không gắn nhãn \"lười\" lên một cá nhân"], visual: V.paste },
-  { id: "che-mo", tone: "up", y: 0.36, eyebrow: "03 · Che mờ, mở bằng ý của mình", title: "AI hé lộ vài dòng đầu. Phần còn lại chờ ý của em.", text: "AI soạn đáp án đầy đủ nhưng chỉ cho xem 3-4 dòng. Sinh viên nói ý của mình, AI viết lại theo ý đó, vẫn đúng kiến thức, kèm các hướng khác.", bullets: ["Phần bị che nằm ở máy chủ, không gửi về trình duyệt", "Cho phép xem luôn (có ghi nhận) hoặc bắt buộc", "Giảng viên xem được bản nháp gốc và ý của sinh viên"], visual: V.blur },
-  { id: "phan-bien", tone: "up", y: 0.2, eyebrow: "04 · Phản biện cùng AI", title: "Trợ lý Socratic hỏi ngược, không đưa đáp án ngay.", text: "Phải trao đổi ít nhất 3 lượt mới nộp được. Mỗi lượt là một điểm trên dấu vết, tô màu theo bằng chứng: xanh độc lập, vàng tò mò, đỏ nhờ làm hộ.", bullets: ["Nhật ký trao đổi được lưu đầy đủ", "Giới hạn tốc độ để chống lạm dụng", "Giảng viên chọn Socratic hoặc trợ lý thường theo bài"], visual: V.chat },
-  { id: "diem", tone: "up", y: 0.3, eyebrow: "05 · Điểm tư duy có bằng chứng", title: "5 tiêu chí, mỗi điểm đi kèm trích đoạn.", text: "Phản biện, đào sâu, kiểm chứng, nội hóa, chủ động. Nếu AI lỗi thì không có điểm giả: bài vẫn nộp, giảng viên chấm lại. Điểm chính thức luôn do giảng viên.", bullets: ["Trích nguyên văn từ chính lời sinh viên", "Chấm lại bằng AI khi cần", "Điểm AI chỉ là gợi ý tham khảo"], visual: V.bars },
-  { id: "l2", tone: "flat", y: 0.62, eyebrow: "06 · Viết L2", title: "Viết prompt, bắt lỗi cài sẵn, rồi chỉnh sửa.", text: "Ba bước tuần tự do máy chủ kiểm tra. Lỗi được đối chiếu tự động, không phải AI phán xét. Chấm theo 5 chiều.", bullets: ["Đáp án lỗi không gửi về sinh viên", "Lỗi bỏ sót chỉ hiện sau hạn nộp", "Giảng viên chỉnh được điểm từng chiều"], visual: V.l2 },
-  { id: "lop", tone: "up", y: 0.28, eyebrow: "07 · Cả lớp trong một cái nhìn", title: "Thấy lớp đang nghĩ sâu hay đang dựa vào AI.", text: "Bản đồ nhiệt số lượt × điểm tư duy, gợi ý sư phạm từ số liệu thật, chỉ báo hành vi. Chỉ hiện khi có từ 5 sinh viên để không lộ từng em.", bullets: ["Tổng hợp ẩn danh, không hiện tên", "Gợi ý ra đề từ điểm trung bình từng bài", "Xuất bảng điểm CSV và Google Sheets"], visual: V.heat },
-  { id: "rieng-tu", tone: "flat", y: 0.4, eyebrow: "08 · Công bằng và riêng tư", title: "Giảng viên quyết định. Quản trị viên không đọc chat.", text: "AI chỉ đưa bằng chứng. Quyền được kiểm tra ở máy chủ, không chỉ ẩn nút trên giao diện.", bullets: ["Quản trị viên không đọc được bài nộp và chat", "Khóa tài khoản có hiệu lực ngay", "Nhật ký thao tác quản trị minh bạch"], visual: V.lock },
+  { id: "lang-kinh", color: "#4f8cff", y: 0.34, eyebrow: "01 · Mô-đun Đầu vào", name: "Lăng kính Đối lập", en: "Counter-Perspective Lens", status: ["Sắp có"], desc: "Không chỉ tra cứu. Chủ động bóc tách thiên kiến và đối chiếu góc nhìn từ các nghiên cứu học thuật ngay trên trang web bạn đang đọc.", core: "Đập tan buồng âm vang (echo chamber) ngay từ bước thu thập tài liệu." },
+  { id: "ma-sat", color: "#7c4dff", y: 0.47, eyebrow: "02 · Mô-đun Khởi tạo", name: "Ma sát Nhận thức", en: "Cognitive Friction", status: ["Đã có"], desc: "Không để đáp án đến quá dễ. AI bị làm mờ 70% và chỉ mở khóa khi người học tự định hình được khung lập luận sơ bộ của riêng mình.", core: "Giàn giáo nhận thức (Scaffolding): lực cản có chủ đích để không thể copy-paste một cách vô thức." },
+  { id: "socratic", color: "#ec4899", y: 0.26, eyebrow: "03 · Mô-đun Thử thách", name: "Kiểm định Socratic", en: "Socratic Validation", status: ["Đã có", "Cổng 3 câu hỏi: sắp có"], desc: "AI không giải sẵn đáp án. AI đóng vai người chất vấn, liên tục đặt câu hỏi để đo độ sâu trong tư duy của người học.", core: "Biến AI từ \"người làm thuê\" thành \"người rèn luyện tư duy\" (Sparring Partner), giúp người học nhận ra giới hạn của chính mình." },
+  { id: "kiem-toan", color: "#f59e0b", y: 0.46, eyebrow: "04 · Mô-đun X-Quang", name: "Kiểm toán Lập luận", en: "Argument Auditing", status: ["Sắp có"], desc: "Truy vết nguồn dẫn, vẽ bản đồ logic, phát hiện lập luận đứt gãy và tài liệu \"ma\" do AI bịa ra.", core: "Chống \"Academic Slop\": văn mượt nhưng rỗng tuếch và sai sự thật." },
+  { id: "ho-so", color: "#34d399", y: 0.22, eyebrow: "05 · Mô-đun Đầu ra", name: "Hồ sơ Minh bạch", en: "Transparency Portfolio", status: ["Đã có"], desc: "Vượt ra khỏi điểm số khô khan. Đánh giá năng lực qua 5 chiều tư duy và độ minh bạch trong quá trình dùng AI.", core: "Trả lại giá trị cho sự trung thực học thuật: người đọc thấy năng lực thực tế, không phải sản phẩm của máy móc." },
 ];
 
 interface Props { onStart: () => void; onMethods: () => void }
@@ -73,10 +57,10 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
       small = vw < 700;
       spacing = small ? vw * 1.1 : clamp(vw * 0.92, 800, 1500);
       marker = small ? vw * 0.5 : vw * 0.36;
-      nodes = [{ x: 0, y: vh * 0.6 }, ...CHAPTERS.map((c, i) => ({ x: (i + 1) * spacing, y: vh * c.y })), { x: (n + 1) * spacing, y: vh * 0.42 }];
+      nodes = [{ x: 0, y: vh * 0.68 }, ...CHAPTERS.map((c, i) => ({ x: (i + 1) * spacing, y: vh * c.y })), { x: (n + 1) * spacing, y: vh * 0.3 }];
       CHAPTERS.forEach((c, i) => {
         const el = cards.current[i]; if (!el) return;
-        const up = c.y < 0.5;
+        const up = true;   // cards always sit under their node, clear of the top navigation
         el.style.top = `${nodes[i + 1].y + (up ? 56 : -56)}px`;
         (el.firstElementChild as HTMLElement).style.transform = up ? "translate(-50%,0)" : "translate(-50%,-100%)";
       });
@@ -165,7 +149,7 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
       nodes.forEach((nd, i) => {
         if (i === 0 || i > n) return;
         const sx = nd.x - camX; if (sx < -60 || sx > vw + 60) return;
-        const d = Math.abs(sx - marker), near = 1 - smooth(0, spacing * 0.35, d), col = TONE[CHAPTERS[i - 1].tone];
+        const d = Math.abs(sx - marker), near = 1 - smooth(0, spacing * 0.35, d), col = CHAPTERS[i - 1].color;
         if (d < best) { best = d; active = i - 1; }
         ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.setLineDash([2, 6]); ctx.beginPath(); ctx.moveTo(sx, nd.y); ctx.lineTo(sx, CHAPTERS[i - 1].y < 0.5 ? vh : 0); ctx.stroke(); ctx.setLineDash([]);
         ctx.fillStyle = col; ctx.globalAlpha = 0.25 + 0.2 * near; ctx.beginPath(); ctx.arc(sx, nd.y, 20 + 14 * near, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1;
@@ -178,7 +162,7 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
       grad.addColorStop(0, "rgba(255,255,255,0.95)"); grad.addColorStop(0.25, "rgba(196,181,253,0.55)"); grad.addColorStop(1, "rgba(124,77,255,0)");
       ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(marker, oy, 44, 0, 6.283); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(marker, oy, 8, 0, 6.283); ctx.fill();
-      const lvl = oy / vh, label = lvl < 0.42 ? "Tư duy độc lập" : lvl > 0.56 ? "Nhờ làm hộ, dán" : "Đang suy nghĩ", lcol = lvl < 0.42 ? TONE.up : lvl > 0.56 ? TONE.down : TONE.flat;
+      const lvl = oy / vh, label = lvl < 0.42 ? "Tư duy độc lập" : lvl > 0.56 ? "Nhờ làm hộ, dán" : "Đang suy nghĩ", lcol = lvl < 0.42 ? UP : lvl > 0.56 ? DOWN : MID;
       const ol = orbLabel.current; if (ol) {
         ol.style.transform = `translate3d(${marker + 22}px,${oy - 38}px,0)`;
         if (label !== lastLabel) { lastLabel = label; ol.textContent = label; ol.style.color = lcol; ol.style.borderColor = lcol + "88"; }
@@ -205,7 +189,7 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
   }, []);
 
   return (
-    <section ref={wrap} className="relative bg-[#060914] text-white" style={{ height: `${100 + CHAPTERS.length * 95}svh`, fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }} aria-label="Hành trình tư duy của Trace">
+    <section ref={wrap} className="relative bg-[#060914] text-white" style={{ height: `${100 + CHAPTERS.length * 100}svh`, fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }} aria-label="Hành trình tư duy của Trace">
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         <div className="absolute -top-40 -left-32 w-[42rem] h-[42rem] rounded-full bg-[#0b57d0] opacity-[0.22] blur-[130px]" />
         <div className="absolute top-1/4 -right-40 w-[38rem] h-[38rem] rounded-full bg-[#7c4dff] opacity-[0.2] blur-[130px]" />
@@ -219,9 +203,9 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
         {/* hero copy: fades out as the line starts to move */}
         <div ref={hero} className="absolute inset-0 z-10 flex flex-col justify-end px-5 pb-14 md:pb-16 sm:px-8 md:px-16 lg:px-20 pt-28 pointer-events-auto">
           <div className="max-w-3xl">
-            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#0b0f1c]/60 backdrop-blur px-3.5 py-1.5 text-[12px] text-white/75"><span className="h-1.5 w-1.5 rounded-full bg-[#34d399]" />Nền tảng đánh giá quá trình tư duy với AI</span>
-            <h1 className="font-semibold tracking-[-0.045em] leading-[0.95] text-[clamp(3rem,9vw,8.6rem)]">Less <span className="relative inline-block text-white/40">paste<span className="absolute left-[-2%] right-[-2%] top-[56%] h-[0.07em] rounded-full bg-[#f43f5e]" /></span>,<br />more <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)" }}>Trace.</span></h1>
-            <p className="mt-5 max-w-xl text-[15px] md:text-[17px] leading-relaxed text-white/70">Mỗi câu hỏi, mỗi lần phản biện, mỗi lần dán đều là một điểm trên đường tư duy. Trace vẽ ra đường đó cho giảng viên đọc, và cho sinh viên thấy mình đang đi lên hay đi xuống.</p>
+            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#0b0f1c]/60 backdrop-blur px-3.5 py-1.5 text-[12px] text-white/75"><span className="h-1.5 w-1.5 rounded-full bg-[#34d399]" />Đừng để AI nghĩ thay bạn.</span>
+            <h1 className="font-semibold tracking-[-0.045em] leading-[0.95] text-[clamp(3rem,9.4vw,9rem)] pb-[0.08em]">Beyond<br /><span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)" }}>Prompting.</span></h1>
+            <p className="mt-6 max-w-xl text-[15px] md:text-[18px] leading-relaxed text-white/65">Khi AI có thể đưa ra mọi đáp án, cách bạn đặt câu hỏi mới là thước đo giáo dục duy nhất.</p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button onClick={onStart} className="rounded-full px-6 py-3 text-[14px] font-semibold text-white inline-flex items-center gap-2 transition-[filter] hover:brightness-110" style={{ background: "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)" }}>Bắt đầu với Trace <ArrowRight className="h-4 w-4" /></button>
               <button onClick={onMethods} className="rounded-full border border-white/15 bg-[#0b0f1c]/60 backdrop-blur px-6 py-3 text-[14px] font-medium text-white/90 hover:bg-white/10 transition-colors">Xem phương pháp</button>
@@ -233,12 +217,18 @@ export const TraceJourney: React.FC<Props> = ({ onStart, onMethods }) => {
         {/* chapter cards */}
         {CHAPTERS.map((c, i) => (
           <div key={c.id} ref={(el) => { cards.current[i] = el; }} className="absolute left-0 z-10 pointer-events-none invisible will-change-transform">
-            <div className="w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-white/12 bg-[#0b0f1c]/78 backdrop-blur-xl p-5 sm:p-6 shadow-[0_20px_60px_-20px_rgba(124,77,255,0.5)]">
-              <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide" style={{ color: TONE[c.tone] }}><span className="h-2 w-2 rounded-full" style={{ background: TONE[c.tone] }} />{c.eyebrow}</div>
-              <h2 className="mt-2 text-[20px] sm:text-[24px] font-medium leading-[1.15] tracking-[-0.02em]">{c.title}</h2>
-              <p className="mt-2 text-[12.5px] sm:text-[13.5px] leading-relaxed text-white/65">{c.text}</p>
-              <div className="mt-3 hidden sm:block rounded-2xl bg-white/[0.04] border border-white/8 p-3">{c.visual}</div>
-              <ul className="mt-3 space-y-1.5">{c.bullets.map((b) => <li key={b} className="flex gap-2 text-[11.5px] sm:text-[12px] text-white/70"><span className="mt-1.5 h-1 w-1 rounded-full shrink-0" style={{ background: TONE[c.tone] }} />{b}</li>)}</ul>
+            <div className="w-[min(400px,calc(100vw-2rem))] rounded-3xl border border-white/12 bg-[#0b0f1c]/78 backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_60px_-20px_rgba(124,77,255,0.5)]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide" style={{ color: c.color }}><span className="h-2 w-2 rounded-full" style={{ background: c.color }} />{c.eyebrow}</div>
+                <div className="flex gap-1.5">{c.status.map((st) => <span key={st} className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${st === "Đã có" ? "bg-[#34d399]/15 text-[#6ee7b7]" : "bg-white/10 text-white/60"}`}>{st}</span>)}</div>
+              </div>
+              <h2 className="mt-4 text-[26px] sm:text-[32px] font-medium leading-[1.08] tracking-[-0.03em]">{c.name}</h2>
+              <div className="mt-1 text-[12px] italic text-white/40">{c.en}</div>
+              <p className="mt-4 text-[13px] sm:text-[14.5px] leading-relaxed text-white/70">{c.desc}</p>
+              <div className="mt-5 pt-4 border-t border-white/10">
+                <div className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/40">Giá trị lõi</div>
+                <p className="mt-1.5 text-[12.5px] sm:text-[13.5px] leading-relaxed text-white/60">{c.core}</p>
+              </div>
             </div>
           </div>
         ))}
