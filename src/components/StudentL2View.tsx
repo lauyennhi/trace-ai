@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HmmLoader } from "./HmmBrand";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Send, Bot, Check, Lock, Clock, Highlighter, Trash2, PenLine, Sparkles, MessageSquareText, ListChecks, Upload,
@@ -59,7 +60,7 @@ const ChatBox: React.FC<{
             </div>
           );
         })}
-        {sending && <div className="flex gap-2.5"><div className="w-7 h-7 rounded-full bg-brand text-on-brand flex items-center justify-center"><Bot className="w-3.5 h-3.5" /></div><div className="px-4 py-3 rounded-2xl rounded-tl-md bg-surface border border-line flex gap-1.5"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></div></div>}
+        {sending && <div className="flex gap-2.5"><div className="w-7 h-7 rounded-full bg-brand text-on-brand flex items-center justify-center"><Bot className="w-3.5 h-3.5" /></div><div className="px-4 py-3 rounded-2xl rounded-tl-md bg-surface border border-line text-ink-2 text-lg"><HmmLoader label="AI đang nghĩ" /></div></div>}
         <div ref={end} />
       </div>
       <div className="p-3 border-t border-line flex items-end gap-2 bg-surface">

@@ -9,6 +9,7 @@ import { Assignment, Submission, ChatSession, ProcessScoreResult } from "../type
 import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ThinkingTrace } from "./ThinkingTrace";
+import { HmmLoader } from "./HmmBrand";
 import { StudentResultSection } from "./StudentResultSection";
 import { GatedAnswer } from "./GatedAnswer";
 import { Avatar, Modal, Bar, fmtDate, relTime, useToast } from "./ui";
@@ -309,7 +310,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                   {sending && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex gap-3">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br bg-brand text-white flex items-center justify-center"><Bot className="w-4 h-4" /></div>
-                      <div className="px-4 py-3.5 rounded-2xl rounded-tl-md bg-surface border border-line flex items-center gap-1.5" aria-label="AI đang trả lời"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></div>
+                      <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-surface border border-line text-ink-2 text-lg"><HmmLoader label="AI đang nghĩ" /></div>
                     </motion.div>
                   )}
                 </AnimatePresence>

@@ -59,7 +59,7 @@ export const Header: React.FC<Props> = ({ user, crumbs, theme, onToggleTheme, on
           <button onClick={onToggleMenu} className="p-3 rounded-full text-ink-2 hover:bg-surface-2" aria-label="Mở/đóng menu"><Menu className="w-6 h-6" /></button>
           <button onClick={onGoHome} className="flex items-center gap-2 px-1 rounded-lg shrink-0">
             <span className="w-9 h-9 rounded-xl bg-brand text-white dark:text-[#062e6f] flex items-center justify-center"><Sparkles className="w-5 h-5" /></span>
-            <span className="text-[1.4rem] font-normal tracking-tight text-ink-2 hidden sm:inline">Trace</span>
+            <span className="text-[1.4rem] font-normal tracking-tight text-ink-2 hidden sm:inline">hmm</span>
           </button>
           {crumbs.length > 0 && (
             <nav className="flex items-center gap-1 text-sm min-w-0 ml-1 sm:ml-3" aria-label="Breadcrumb">

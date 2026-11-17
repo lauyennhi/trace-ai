@@ -49,26 +49,26 @@ export const LandingModals: React.FC<Props> = ({ kind, onClose, onSwitch, onLogi
   }, [kind, onClose]);
   if (!kind) return null;
   const m = METHODS.find((x) => x.id === method) ?? METHODS[0];
-  const title = { approach: "Cách tiếp cận của Trace", methods: "Phương pháp", journey: "Bắt đầu với Trace", account: "Tài khoản Trace" }[kind];
+  const title = { approach: "Cách tiếp cận của hmm", methods: "Phương pháp", journey: "Bắt đầu với hmm", account: "Tài khoản hmm" }[kind];
   const btn = "liquid-glass rounded-full px-6 py-2.5 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer";
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="landing-modal-title" className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-[#120d2b]/60 backdrop-blur-md" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="landing-modal">
       <div className="liquid-glass bg-[#16113a]/85 rounded-2xl w-full max-w-lg max-h-[88svh] overflow-y-auto p-6 sm:p-8 text-white shadow-2xl" style={{ fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }}>
         <div className="flex items-start justify-between gap-4 mb-6">
-          <div><p className="text-xs font-medium text-white/50 tracking-wide">Trace</p><h2 id="landing-modal-title" className="text-2xl font-normal tracking-tight mt-1">{title}</h2></div>
+          <div><p className="text-xs font-medium text-white/50 tracking-wide">hmm</p><h2 id="landing-modal-title" className="text-2xl font-normal tracking-tight mt-1">{title}</h2></div>
           <button type="button" onClick={onClose} aria-label="Đóng" className="liquid-glass h-9 w-9 rounded-full flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"><X className="h-4 w-4" strokeWidth={1.75} /></button>
         </div>
 
         {kind === "approach" && (
           <div className="space-y-5">
-            <p className="text-sm font-light text-white/75 leading-relaxed">Trace không cấm AI và cũng không đoán xem văn bản có do AI viết hay không. Trace ghi lại quá trình sinh viên nghĩ cùng AI, để giảng viên đọc được bằng chứng.</p>
+            <p className="text-sm font-light text-white/75 leading-relaxed">hmm không cấm AI và cũng không đoán xem văn bản có do AI viết hay không. hmm ghi lại quá trình sinh viên nghĩ cùng AI, để giảng viên đọc được bằng chứng.</p>
             <div className="space-y-4 pt-1">{PILLARS.map((p) => (
               <div key={p.n} className="border-t border-white/10 pt-4 first:border-t-0 first:pt-0">
                 <div className="flex items-baseline gap-3"><span className="text-xs font-medium text-white/45 tabular-nums">{p.n}.</span><h3 className="text-sm font-medium">{p.t}</h3></div>
                 <p className="mt-1.5 pl-6 text-xs sm:text-sm font-light text-white/65 leading-relaxed">{p.d}</p>
               </div>))}</div>
-            <div className="pt-2 flex justify-end"><button type="button" onClick={() => onSwitch("journey")} className={btn}>Bắt đầu với Trace</button></div>
+            <div className="pt-2 flex justify-end"><button type="button" onClick={() => onSwitch("journey")} className={btn}>Bắt đầu với hmm</button></div>
           </div>
         )}
 
@@ -82,13 +82,13 @@ export const LandingModals: React.FC<Props> = ({ kind, onClose, onSwitch, onLogi
               <p className="text-sm font-light text-white/75 leading-relaxed">{m.summary}</p>
               <ul className="space-y-1.5 pt-1">{m.benefits.map((b) => <li key={b} className="flex items-start gap-2 text-xs text-white/75"><Check className="h-3.5 w-3.5 text-white/70 shrink-0 mt-0.5" /><span>{b}</span></li>)}</ul>
             </div>
-            <div className="pt-2 flex justify-end"><button type="button" onClick={() => onSwitch("journey")} className={btn}>Thử với Trace</button></div>
+            <div className="pt-2 flex justify-end"><button type="button" onClick={() => onSwitch("journey")} className={btn}>Thử với hmm</button></div>
           </div>
         )}
 
         {kind === "journey" && (
           <div className="space-y-5">
-            <p className="text-sm font-light text-white/75 leading-relaxed">Bạn dùng Trace với vai trò nào? Nội dung bên dưới đổi theo lựa chọn của bạn.</p>
+            <p className="text-sm font-light text-white/75 leading-relaxed">Bạn dùng hmm với vai trò nào? Nội dung bên dưới đổi theo lựa chọn của bạn.</p>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Vai trò">
               {([["student", "Sinh viên", BookOpen], ["teacher", "Giảng viên", GraduationCap]] as const).map(([id, label, I]) => (
                 <button key={id} type="button" role="radio" aria-checked={role === id} onClick={() => setRole(id)} className={`rounded-xl border px-4 py-3 text-left text-sm transition cursor-pointer ${role === id ? "border-white/60 bg-white/10" : "border-white/15 hover:bg-white/5"}`}><I className="h-4 w-4 mb-1.5 text-white/80" strokeWidth={1.5} />{label}</button>))}
@@ -106,7 +106,7 @@ export const LandingModals: React.FC<Props> = ({ kind, onClose, onSwitch, onLogi
           <div className="space-y-5">
             <p className="text-sm font-light text-white/75 leading-relaxed">Đăng nhập để vào lớp học, làm bài cùng AI và xem dấu vết tư duy của mình. Chưa có tài khoản thì đăng ký chỉ mất một phút.</p>
             <div className="pt-2 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => onSwitch("journey")} className="text-xs text-white/60 hover:text-white transition cursor-pointer px-3 py-2">Tôi mới dùng Trace</button>
+              <button type="button" onClick={() => onSwitch("journey")} className="text-xs text-white/60 hover:text-white transition cursor-pointer px-3 py-2">Tôi mới dùng hmm</button>
               <button type="button" onClick={onLogin} className={btn}>Đăng nhập</button>
             </div>
           </div>

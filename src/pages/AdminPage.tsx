@@ -90,7 +90,7 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
     <div className="space-y-5">
       <div>
         <h1 className="text-3xl font-normal tracking-tight flex items-center gap-3"><ShieldCheck className="w-8 h-8 text-brand" />Quản trị hệ thống</h1>
-        <p className="text-sm text-ink-2 mt-1">Quản lý người dùng, môn học và phân quyền cho toàn bộ Trace.</p>
+        <p className="text-sm text-ink-2 mt-1">Quản lý người dùng, môn học và phân quyền cho toàn bộ Hmm.</p>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1 md:hidden" role="tablist">
         {TABS.map((t) => (

@@ -18,6 +18,7 @@ import { StudentL2View } from "./components/StudentL2View";
 import { ToastProvider, useToast, Skeleton, pageVariants, hasPerm } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
 import { LandingPage } from "./pages/LandingPage";
+import { HmmLoader } from "./components/HmmBrand";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CoursePage } from "./pages/CoursePage";
 import { AssignmentSubmissionsPage } from "./pages/AssignmentSubmissionsPage";
@@ -212,7 +213,7 @@ function Shell() {
   const readNotifications = async () => { if (unread > 0) { await api("/api/notifications/read", { method: "POST" }).catch(() => {}); setUnread(0); setTimeout(loadNotifications, 4000); } };
 
   /* ---------- render ---------- */
-  if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg"><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }} className="w-10 h-10 rounded-full border-4 border-line border-t-brand" /></div>;
+  if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg text-3xl text-ink-2"><HmmLoader label="Đang tải" /></div>;
   if (!user) {
     if (publicView === "landing") return <LandingPage onLogin={() => setPublicView("login")} onRegister={(r) => { setRegisterRole(r || "student"); setPublicView("register"); }} />;
     return <LoginPage key={publicView} initialMode={publicView === "register" ? "register" : "login"} initialRole={registerRole} onBack={() => setPublicView("landing")} onAuthed={(u) => { setUser(u); navigate("/"); }} />;
