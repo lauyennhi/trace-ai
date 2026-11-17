@@ -1,38 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { ArrowRight, PenLine, Eye, Unlock, Route, GraduationCap, BookOpen, ShieldCheck, CheckCircle2, Menu, X, Sparkles, UserRound } from "lucide-react";
-import { TraceHead } from "../components/TraceHead";
+import { GlassHead } from "../components/GlassHead";
 
 interface Props { onLogin: () => void; onRegister: () => void; }
 
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 const GRAD = "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)";
 const GLASS = "bg-[#0b0f1c]/70 backdrop-blur-xl border border-white/10";
-const VIDEO = "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260715_082433_69699cf8-444b-4484-93cc-053e57896dfd.mp4";
 const NAV = [["Trang chủ", "top"], ["Cách hoạt động", "cach-hoat-dong"], ["Dữ liệu", "du-lieu"]] as const;
 const BADGE_ICONS = [BookOpen, GraduationCap, Sparkles, ShieldCheck];
 const TRI = [[15, 0], [10, 5], [15, 5], [5, 10], [10, 10], [15, 10], [0, 15], [5, 15], [10, 15]];
 
-/** Full-screen hero: looping video behind, liquid-glass UI on top. If the video cannot load, the dot-lattice bust is drawn instead. */
+/** Full-screen hero: a pastel sky, a glass head with a red brain turning on its own, liquid-glass UI on top. */
 const Hero: React.FC<Props> = ({ onLogin, onRegister }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [videoFailed, setVideoFailed] = useState(false);
-  const video = useRef<HTMLVideoElement>(null);
-  const zoomRef = useRef(0);
-  useEffect(() => {
-    const m = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const apply = () => { if (m.matches) video.current?.pause(); else void video.current?.play().catch(() => {}); };
-    apply(); m.addEventListener("change", apply);
-    return () => m.removeEventListener("change", apply);
-  }, []);
   useEffect(() => { document.body.style.overflow = menuOpen ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [menuOpen]);
   const go = (id: string) => { setMenuOpen(false); if (id === "top") window.scrollTo({ top: 0, behavior: "smooth" }); else scrollTo(id); };
 
   return (
-    <section id="top" className="relative min-h-[100svh] overflow-hidden text-white bg-[#070a14]" style={{ fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }} aria-label="Giới thiệu Trace">
-      {videoFailed && <TraceHead className="absolute inset-0 pointer-events-none" zoomRef={zoomRef} />}
-      {!videoFailed && <video ref={video} className="absolute inset-0 h-full w-full object-cover" autoPlay loop muted playsInline preload="auto" src={VIDEO} onError={() => setVideoFailed(true)} aria-hidden="true" />}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/5 to-black/45 pointer-events-none" />
+    <section id="top" className="relative min-h-[100svh] overflow-hidden text-white" style={{ fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif", background: "radial-gradient(70% 55% at 50% -5%, #f7c9e6 0%, rgba(247,201,230,0) 70%), radial-gradient(60% 60% at 85% 95%, #8fa9f5 0%, rgba(143,169,245,0) 70%), linear-gradient(180deg, #c3b9f2 0%, #a9b2f6 55%, #94a8f4 100%)" }} aria-label="Giới thiệu Trace">
+      <div className="absolute left-0 right-0 top-[27%] h-px bg-white/40 pointer-events-none" aria-hidden="true" />
+      <div className="absolute top-0 bottom-0 left-[70%] w-px bg-white/40 pointer-events-none hidden md:block" aria-hidden="true" />
+      <GlassHead className="absolute inset-0 pointer-events-none" />
 
       <div className="relative z-20 flex items-center justify-between px-5 pt-6 sm:px-8 sm:pt-8 md:px-16 lg:px-20">
         <div className="flex items-center gap-2.5">
@@ -71,21 +61,21 @@ const Hero: React.FC<Props> = ({ onLogin, onRegister }) => {
             </div>
             <span className="text-xs font-light text-white/80 sm:text-sm">đọc vị tư duy cùng AI</span>
           </div>
-          <h1 className="text-4xl font-normal leading-[1.05] text-white sm:text-5xl md:text-6xl lg:text-7xl" style={{ letterSpacing: "-0.05em" }}>
-            Less <span className="relative inline-block text-white/55">paste<span className="absolute left-[-2%] right-[-2%] top-[56%] h-[0.06em] rounded-full bg-[#f43f5e]" /></span>,<br />more Trace.
+          <h1 className="text-4xl font-normal leading-[1.05] text-white sm:text-5xl md:text-6xl lg:text-7xl" style={{ letterSpacing: "-0.05em", textShadow: "0 2px 24px rgba(70,50,170,0.35)" }}>
+            Less <span className="relative inline-block text-white/60">paste<span className="absolute left-[-2%] right-[-2%] top-[56%] h-[0.06em] rounded-full bg-[#f43f5e]" /></span>,<br />more Trace.
           </h1>
-          <p className="mt-4 text-sm font-light text-white/70 sm:mt-5 sm:text-base md:text-lg">Đọc vị từng dấu vết tư duy từ chính cuộc trò chuyện với AI.</p>
+          <p className="mt-4 text-sm font-light text-white/90 sm:mt-5 sm:text-base md:text-lg">Đọc vị từng dấu vết tư duy từ chính cuộc trò chuyện với AI.</p>
           <button onClick={onRegister} className="liquid-glass mt-6 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium text-white transition duration-300 hover:bg-white/10 sm:mt-8 sm:px-7 sm:py-3.5">Bắt đầu với Trace <ArrowRight className="h-4 w-4" /></button>
         </div>
 
         <div className="mt-10 flex items-end gap-6 sm:gap-10 md:gap-16">
           <div className="flex items-end gap-3 sm:gap-4">
             <div className="relative h-5 w-5 shrink-0 mb-1.5" aria-hidden="true">{TRI.map(([x, y], i) => <span key={i} className="absolute h-[2.5px] w-[2.5px] bg-white/60" style={{ left: x, top: y }} />)}</div>
-            <div><div className="text-xl font-normal text-white sm:text-2xl md:text-3xl">5 tiêu chí</div><div className="text-xs font-light text-white/60 sm:text-sm">Chấm quá trình tư duy</div></div>
+            <div><div className="text-xl font-normal text-white sm:text-2xl md:text-3xl">5 tiêu chí</div><div className="text-xs font-light text-white/85 sm:text-sm">Chấm quá trình tư duy</div></div>
           </div>
           <div className="flex items-end gap-3 sm:gap-4">
             <div className="grid grid-cols-3 gap-[2px] shrink-0 mb-1.5" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i} className={`h-1 w-1 rounded-[1px] ${i % 2 === 0 ? "bg-white/60" : "bg-white/0"}`} />)}</div>
-            <div><div className="text-xl font-normal text-white sm:text-2xl md:text-3xl">30% hiện trước</div><div className="text-xs font-light text-white/60 sm:text-sm">Phần còn lại mở bằng ý của em</div></div>
+            <div><div className="text-xl font-normal text-white sm:text-2xl md:text-3xl">30% hiện trước</div><div className="text-xs font-light text-white/85 sm:text-sm">Phần còn lại mở bằng ý của em</div></div>
           </div>
         </div>
       </div>
