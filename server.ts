@@ -1861,8 +1861,8 @@ const strList = (v: any, max: number, len = 400): string[] => (Array.isArray(v) 
 async function generateGatedAnswer(assignment: any, course: any, chatSession: any): Promise<{ answer: string; questions: string[] }> {
   const addendum = `
 QUY TẮC RIÊNG CHO LƯỢT NÀY (ưu tiên hơn các chỉ dẫn trên): câu trả lời của bạn sẽ được chia hai phần. Khoảng 30% đầu sinh viên đọc ngay; phần còn lại bị khóa cho tới khi sinh viên nêu ý riêng.
-- Viết câu trả lời ĐẦY ĐỦ và CHÍNH XÁC về kiến thức, khoảng 200-350 từ, markdown gọn, không dùng tiêu đề ở đầu.
-- 30% ĐẦU phải là phần hay nhất và gây tò mò: mở bằng một nhận định bất ngờ, một ví dụ sống động hoặc một câu hỏi sắc; dừng ở chỗ khiến người đọc muốn biết tiếp, nhưng vẫn đúng và tự đủ nghĩa. Không tiết lộ kết luận ở phần này, không chiêu trò câu khách.
+- Viết câu trả lời ĐẦY ĐỦ và CHÍNH XÁC về kiến thức, khoảng 250-400 từ, markdown gọn, không dùng tiêu đề ở đầu.
+- Phần ĐẦU (khoảng 60-90 từ, tức 3-4 dòng) phải là phần hay nhất và gây tò mò: mở bằng một nhận định bất ngờ, một ví dụ sống động hoặc một câu hỏi sắc; dừng ở chỗ khiến người đọc muốn biết tiếp, nhưng vẫn đúng và tự đủ nghĩa. Không tiết lộ kết luận ở phần này, không chiêu trò câu khách.
 - Đưa 2-3 "questions": mỗi câu ngắn, cụ thể cho chủ đề này, để sinh viên nêu quan điểm của chính mình (ví dụ: em nghiêng về hướng nào và vì sao; em định dùng ví dụ nào). Không hỏi chung chung.`;
   const response = await generateWithFallback({
     contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),

@@ -383,6 +383,8 @@ ${blk}`;
 // src/lib/gate.ts
 var ANSWER_GATES = ["none", "optional", "required"];
 var GATE_SHOW_RATIO = 0.3;
+var GATE_TEASER_MIN = 220;
+var GATE_TEASER_MAX = 320;
 var GATE_MIN_ANSWERS = 2;
 var GATE_MIN_CHARS = 30;
 var isAnswerGate = (v) => ANSWER_GATES.includes(v);
@@ -393,7 +395,7 @@ function makeTeaser(full, ratio = GATE_SHOW_RATIO) {
   const re = /[.!?…。](?=\s)|\n{2,}/g;
   let m;
   while (m = re.exec(text)) ends.push(m[0].length === 1 ? m.index + 1 : m.index);
-  const target = text.length * ratio, hard = text.length * 0.4;
+  const target = Math.min(Math.max(text.length * ratio, GATE_TEASER_MIN), GATE_TEASER_MAX, text.length * 0.5), hard = target * 1.15;
   const usable = ends.filter((e) => e > 20 && e < text.length);
   if (usable.length === 0) return text.slice(0, Math.max(40, Math.floor(target))).trim() + "\u2026";
   const reach = usable.find((e) => e >= target && e <= hard);
@@ -2364,8 +2366,8 @@ var strList = (v, max, len = 400) => Array.isArray(v) ? v.map((x) => typeof x ==
 async function generateGatedAnswer(assignment, course, chatSession) {
   const addendum = `
 QUY T\u1EAEC RI\xCANG CHO L\u01AF\u1EE2T N\xC0Y (\u01B0u ti\xEAn h\u01A1n c\xE1c ch\u1EC9 d\u1EABn tr\xEAn): c\xE2u tr\u1EA3 l\u1EDDi c\u1EE7a b\u1EA1n s\u1EBD \u0111\u01B0\u1EE3c chia hai ph\u1EA7n. Kho\u1EA3ng 30% \u0111\u1EA7u sinh vi\xEAn \u0111\u1ECDc ngay; ph\u1EA7n c\xF2n l\u1EA1i b\u1ECB kh\xF3a cho t\u1EDBi khi sinh vi\xEAn n\xEAu \xFD ri\xEAng.
-- Vi\u1EBFt c\xE2u tr\u1EA3 l\u1EDDi \u0110\u1EA6Y \u0110\u1EE6 v\xE0 CH\xCDNH X\xC1C v\u1EC1 ki\u1EBFn th\u1EE9c, kho\u1EA3ng 200-350 t\u1EEB, markdown g\u1ECDn, kh\xF4ng d\xF9ng ti\xEAu \u0111\u1EC1 \u1EDF \u0111\u1EA7u.
-- 30% \u0110\u1EA6U ph\u1EA3i l\xE0 ph\u1EA7n hay nh\u1EA5t v\xE0 g\xE2y t\xF2 m\xF2: m\u1EDF b\u1EB1ng m\u1ED9t nh\u1EADn \u0111\u1ECBnh b\u1EA5t ng\u1EDD, m\u1ED9t v\xED d\u1EE5 s\u1ED1ng \u0111\u1ED9ng ho\u1EB7c m\u1ED9t c\xE2u h\u1ECFi s\u1EAFc; d\u1EEBng \u1EDF ch\u1ED7 khi\u1EBFn ng\u01B0\u1EDDi \u0111\u1ECDc mu\u1ED1n bi\u1EBFt ti\u1EBFp, nh\u01B0ng v\u1EABn \u0111\xFAng v\xE0 t\u1EF1 \u0111\u1EE7 ngh\u0129a. Kh\xF4ng ti\u1EBFt l\u1ED9 k\u1EBFt lu\u1EADn \u1EDF ph\u1EA7n n\xE0y, kh\xF4ng chi\xEAu tr\xF2 c\xE2u kh\xE1ch.
+- Vi\u1EBFt c\xE2u tr\u1EA3 l\u1EDDi \u0110\u1EA6Y \u0110\u1EE6 v\xE0 CH\xCDNH X\xC1C v\u1EC1 ki\u1EBFn th\u1EE9c, kho\u1EA3ng 250-400 t\u1EEB, markdown g\u1ECDn, kh\xF4ng d\xF9ng ti\xEAu \u0111\u1EC1 \u1EDF \u0111\u1EA7u.
+- Ph\u1EA7n \u0110\u1EA6U (kho\u1EA3ng 60-90 t\u1EEB, t\u1EE9c 3-4 d\xF2ng) ph\u1EA3i l\xE0 ph\u1EA7n hay nh\u1EA5t v\xE0 g\xE2y t\xF2 m\xF2: m\u1EDF b\u1EB1ng m\u1ED9t nh\u1EADn \u0111\u1ECBnh b\u1EA5t ng\u1EDD, m\u1ED9t v\xED d\u1EE5 s\u1ED1ng \u0111\u1ED9ng ho\u1EB7c m\u1ED9t c\xE2u h\u1ECFi s\u1EAFc; d\u1EEBng \u1EDF ch\u1ED7 khi\u1EBFn ng\u01B0\u1EDDi \u0111\u1ECDc mu\u1ED1n bi\u1EBFt ti\u1EBFp, nh\u01B0ng v\u1EABn \u0111\xFAng v\xE0 t\u1EF1 \u0111\u1EE7 ngh\u0129a. Kh\xF4ng ti\u1EBFt l\u1ED9 k\u1EBFt lu\u1EADn \u1EDF ph\u1EA7n n\xE0y, kh\xF4ng chi\xEAu tr\xF2 c\xE2u kh\xE1ch.
 - \u0110\u01B0a 2-3 "questions": m\u1ED7i c\xE2u ng\u1EAFn, c\u1EE5 th\u1EC3 cho ch\u1EE7 \u0111\u1EC1 n\xE0y, \u0111\u1EC3 sinh vi\xEAn n\xEAu quan \u0111i\u1EC3m c\u1EE7a ch\xEDnh m\xECnh (v\xED d\u1EE5: em nghi\xEAng v\u1EC1 h\u01B0\u1EDBng n\xE0o v\xE0 v\xEC sao; em \u0111\u1ECBnh d\xF9ng v\xED d\u1EE5 n\xE0o). Kh\xF4ng h\u1ECFi chung chung.`;
   const response = await generateWithFallback({
     contents: chatSession.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),

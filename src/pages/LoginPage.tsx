@@ -5,7 +5,7 @@ import { api, setToken } from "../lib/api";
 import { InkTrail } from "../components/InkTrail";
 import { User } from "../types";
 
-interface Props { onAuthed: (user: User) => void; }
+interface Props { onAuthed: (user: User) => void; initialMode?: "login" | "register"; onBack?: () => void; }
 
 const rise = (i: number) => ({
   initial: { y: "105%", opacity: 0 }, animate: { y: 0, opacity: 1 },
@@ -18,8 +18,8 @@ const DEMOS = [
   { label: "Quản trị viên demo", email: "admin@trace.edu.vn", icon: ShieldCheck, sub: "Quản trị hệ thống" },
 ];
 
-export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
-  const [mode, setMode] = useState<"login" | "register">("login");
+export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", onBack }) => {
+  const [mode, setMode] = useState<"login" | "register">(initialMode);
   const [role, setRole] = useState<"teacher" | "student">("student");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -41,7 +41,8 @@ export const LoginPage: React.FC<Props> = ({ onAuthed }) => {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.25fr_1fr] bg-bg overflow-hidden">
+    <div className="relative min-h-screen grid lg:grid-cols-[1.25fr_1fr] bg-bg overflow-hidden">
+      {onBack && <button type="button" onClick={onBack} className="absolute top-4 right-4 z-30 btn btn-ghost btn-sm bg-surface/80 backdrop-blur" data-testid="back-home"><ArrowRight className="w-4 h-4 rotate-180" />Trang chủ</button>}
       {/* Brand panel */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 xl:p-16 text-ink overflow-hidden bg-[#e8f0fe] dark:bg-[#1b2433]">
         <div className="blob blob-1 w-96 h-96 bg-[#a8c7fa] -top-24 -left-20 opacity-60" />

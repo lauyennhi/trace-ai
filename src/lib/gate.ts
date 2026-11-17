@@ -17,6 +17,9 @@ export const GATE_LABEL: Record<AnswerGate, { label: string; hint: string }> = {
 };
 
 export const GATE_SHOW_RATIO = 0.3;
+/** The visible opening is about 3-4 lines on screen: never shorter or longer than this (characters). */
+export const GATE_TEASER_MIN = 220;
+export const GATE_TEASER_MAX = 320;
 export const GATE_MIN_ANSWERS = 2;
 export const GATE_MIN_CHARS = 30;
 
@@ -43,8 +46,8 @@ export interface GateInfo {
 
 /**
  * Cuts the visible opening at a sentence boundary so it reads as a complete hook: as many whole
- * sentences as fit in about GATE_SHOW_RATIO of the text, never less than one sentence and never
- * more than 40%. Pure and deterministic, so the model cannot leak extra text by ignoring a limit.
+ * sentences as reach about 30% of the text, kept between GATE_TEASER_MIN and GATE_TEASER_MAX characters
+ * (3-4 lines), and never less than one sentence. Pure and deterministic, so the model cannot leak extra text by ignoring a limit.
  */
 export function makeTeaser(full: string, ratio = GATE_SHOW_RATIO): string {
   const text = full.trim();
@@ -54,7 +57,8 @@ export function makeTeaser(full: string, ratio = GATE_SHOW_RATIO): string {
   const re = /[.!?…。](?=\s)|\n{2,}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) ends.push(m[0].length === 1 ? m.index + 1 : m.index);
-  const target = text.length * ratio, hard = text.length * 0.4;
+  // ~30% of the answer, but always about 3-4 lines (and never more than half of a short answer)
+  const target = Math.min(Math.max(text.length * ratio, GATE_TEASER_MIN), GATE_TEASER_MAX, text.length * 0.5), hard = target * 1.15;
   const usable = ends.filter((e) => e > 20 && e < text.length);
   if (usable.length === 0) return text.slice(0, Math.max(40, Math.floor(target))).trim() + "…";
   const reach = usable.find((e) => e >= target && e <= hard);
