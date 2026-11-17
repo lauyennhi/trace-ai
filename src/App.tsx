@@ -43,6 +43,7 @@ function Shell() {
   const [user, setUser] = useState<User | null>(null);
   const [booting, setBooting] = useState(!!getToken());
   const [publicView, setPublicView] = useState<"landing" | "login" | "register">("landing");
+  const [registerRole, setRegisterRole] = useState<"student" | "teacher">("student");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try { return (localStorage.getItem("trace_theme") as "dark" | "light") || "light"; } catch { return "light"; }
   });
@@ -213,8 +214,8 @@ function Shell() {
   /* ---------- render ---------- */
   if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg"><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }} className="w-10 h-10 rounded-full border-4 border-line border-t-brand" /></div>;
   if (!user) {
-    if (publicView === "landing") return <LandingPage onLogin={() => setPublicView("login")} onRegister={() => setPublicView("register")} />;
-    return <LoginPage key={publicView} initialMode={publicView === "register" ? "register" : "login"} onBack={() => setPublicView("landing")} onAuthed={(u) => { setUser(u); navigate("/"); }} />;
+    if (publicView === "landing") return <LandingPage onLogin={() => setPublicView("login")} onRegister={(r) => { setRegisterRole(r || "student"); setPublicView("register"); }} />;
+    return <LoginPage key={publicView} initialMode={publicView === "register" ? "register" : "login"} initialRole={registerRole} onBack={() => setPublicView("landing")} onAuthed={(u) => { setUser(u); navigate("/"); }} />;
   }
 
   const manage = user.role === "teacher";

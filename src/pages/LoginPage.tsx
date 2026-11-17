@@ -5,7 +5,7 @@ import { api, setToken } from "../lib/api";
 import { InkTrail } from "../components/InkTrail";
 import { User } from "../types";
 
-interface Props { onAuthed: (user: User) => void; initialMode?: "login" | "register"; onBack?: () => void; }
+interface Props { onAuthed: (user: User) => void; initialMode?: "login" | "register"; initialRole?: "teacher" | "student"; onBack?: () => void; }
 
 const rise = (i: number) => ({
   initial: { y: "105%", opacity: 0 }, animate: { y: 0, opacity: 1 },
@@ -18,9 +18,9 @@ const DEMOS = [
   { label: "Quản trị viên demo", email: "admin@trace.edu.vn", icon: ShieldCheck, sub: "Quản trị hệ thống" },
 ];
 
-export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", onBack }) => {
+export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", initialRole = "student", onBack }) => {
   const [mode, setMode] = useState<"login" | "register">(initialMode);
-  const [role, setRole] = useState<"teacher" | "student">("student");
+  const [role, setRole] = useState<"teacher" | "student">(initialRole);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
