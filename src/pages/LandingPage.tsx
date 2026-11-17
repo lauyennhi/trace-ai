@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Menu, X, UserRound } from "lucide-react";
 import { HmmLogo } from "../components/HmmBrand";
-import { HeroHmm, LoopHmm, AhaHmm, FinalHmm } from "../components/LandingHmm";
+import { IntroHmm, HeroHmm, LoopHmm, AhaHmm, FinalHmm } from "../components/LandingHmm";
 import { LandingModals, type LandingModalKind, type JourneyRole } from "../components/LandingModals";
 
 interface Props { onLogin: () => void; onRegister: (role?: JourneyRole) => void; }
@@ -57,6 +57,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister }) => {
         </div>
       </div>
 
+      <IntroHmm />
       <HeroHmm onExperience={() => document.getElementById("vong-lap")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
       <LoopHmm />
       <AhaHmm />

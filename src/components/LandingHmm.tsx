@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Lock, Sparkles, TriangleAlert, Bell } from "lucide-react";
-import { HmmBorderButton, HmmLoader, GRAD, playHmm } from "./HmmBrand";
+import { HmmBorderButton, HmmLoader, HmmMark, GRAD, playHmm, MARK_LIGHT_BG, MARK_DARK_BG } from "./HmmBrand";
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -62,7 +62,7 @@ const WaveBg: React.FC = () => (
 );
 
 export const HeroHmm: React.FC<{ onExperience: () => void }> = ({ onExperience }) => (
-  <section id="top" className="relative min-h-[100svh] overflow-hidden px-5 pt-28 pb-16 flex flex-col items-center justify-center text-center" aria-label="Giới thiệu hmm">
+  <section className="relative min-h-[100svh] overflow-hidden px-5 pt-28 pb-16 flex flex-col items-center justify-center text-center" aria-label="Giới thiệu hmm">
     <div className="absolute -top-40 -left-32 w-[42rem] h-[42rem] rounded-full bg-[#0b57d0] opacity-[0.2] blur-[130px]" />
     <div className="absolute top-1/4 -right-40 w-[38rem] h-[38rem] rounded-full bg-[#7c4dff] opacity-[0.18] blur-[130px]" />
     <div className="absolute -bottom-52 left-1/4 w-[40rem] h-[28rem] rounded-full bg-[#ec4899] opacity-[0.12] blur-[130px]" />
@@ -253,3 +253,58 @@ export const FinalHmm: React.FC<{ onStart: () => void }> = ({ onStart }) => (
     </div>
   </section>
 );
+
+/* ------------------------------------------------------------- 0. INTRO */
+const hex = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+const mix = (a: string, b: string, k: number) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(",")})`; };
+const ROWS = 9;
+
+export const IntroHmm: React.FC = () => {
+  const wrap = useRef<HTMLElement>(null);
+  const [p, setP] = useState(0);
+  const still = prefersReduced();
+  useEffect(() => {
+    if (still) return;
+    let raf = 0;
+    const update = () => { raf = 0; if (!wrap.current) return; const r = wrap.current.getBoundingClientRect(); setP(clamp(-r.top / Math.max(1, r.height - window.innerHeight))); };
+    const on = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update(); window.addEventListener("scroll", on, { passive: true }); window.addEventListener("resize", on);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("scroll", on); window.removeEventListener("resize", on); };
+  }, [still]);
+
+  const dark = sm(0.5, 0.82, p);
+  const bg = mix("#ffffff", "#060914", dark);
+  const colors = MARK_LIGHT_BG.map((c, i) => mix(c, MARK_DARK_BG[i], dark)) as [string, string, string];
+  const shrink = sm(0.08, 0.62, p);
+  const markScale = 1 - 0.72 * shrink;
+  const markOpacity = 1 - sm(0.8, 0.98, p) * 0.9;
+  const rows = sm(0.18, 0.55, p), stretch = sm(0.22, 0.92, p), fade = 1 - sm(0.88, 1, p);
+
+  return (
+    <section ref={wrap} id="top" className="relative" style={{ height: still ? "100svh" : "340svh" }} aria-label="hmm">
+      <div className="sticky top-0 h-[100svh] overflow-hidden" style={{ background: bg }}>
+        {/* the other "hmm" words: stretched like taffy as the big one shrinks */}
+        <div className="absolute inset-0 flex flex-col justify-center overflow-hidden select-none pointer-events-none" aria-hidden="true">
+          {Array.from({ length: ROWS }, (_, i) => {
+            const dir = i % 2 ? 1 : -1, d = Math.abs(i - (ROWS - 1) / 2);
+            return (
+              <div key={i} className="whitespace-nowrap font-bold leading-[0.95] tracking-[-0.04em] text-[clamp(3rem,11vw,9rem)] text-center" style={{
+                opacity: rows * fade * (0.9 - d * 0.14),
+                transform: `translateX(${dir * stretch * (120 + d * 90)}px) scaleX(${1 + stretch * (0.9 + d * 0.5)}) skewX(${dir * stretch * -10}deg)`,
+                backgroundImage: `linear-gradient(90deg, ${colors[0]}, ${colors[1]}, ${colors[2]})`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+              }}>hmm hmm hmm hmm hmm</div>
+            );
+          })}
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div style={{ transform: `scale(${markScale})`, opacity: markOpacity }}>
+            <HmmMark className="w-[min(86vw,1100px)] h-auto" colors={colors} dots draw />
+          </div>
+        </div>
+        <div className="absolute bottom-8 inset-x-0 flex flex-col items-center gap-2 text-[12px] tracking-[0.2em] uppercase" style={{ opacity: 1 - sm(0.02, 0.12, p), color: "#6b7280" }}>
+          <span>cuộn xuống</span><motion.span animate={{ y: [0, 6, 0] }} transition={{ repeat: Infinity, duration: 1.4 }} className="block h-6 w-px bg-current" />
+        </div>
+      </div>
+    </section>
+  );
+};

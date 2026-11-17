@@ -1,22 +1,36 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useId, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 /** Small brand kit for "hmm": the wordmark, the h-m-m-m loader, a wave of letters, a hum sound, and text that runs around a button. */
 
 export const GRAD = "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)";
 
-/** Wordmark: "hmm" with a ribbon that leaves the last m, like a stroke of ink. */
-export const HmmLogo: React.FC<{ className?: string; ribbon?: boolean }> = ({ className = "", ribbon = true }) => (
-  <span className={`inline-flex items-center gap-0.5 ${className}`} aria-label="hmm">
-    <span className="text-[22px] leading-none font-semibold tracking-[-0.04em]">hmm</span>
-    {ribbon && (
-      <svg width="44" height="22" viewBox="0 0 44 22" aria-hidden="true" className="-ml-0.5 mt-1.5">
-        <defs><linearGradient id="hmm-rib" x1="0" x2="1"><stop offset="0" stopColor="#4f8cff" /><stop offset="0.55" stopColor="#7c4dff" /><stop offset="1" stopColor="#ec4899" /></linearGradient></defs>
-        <path d="M1 14 C 8 14, 9 5, 16 5 S 26 18, 33 18 S 40 8, 43 8" fill="none" stroke="url(#hmm-rib)" strokeWidth="3" strokeLinecap="round" />
-      </svg>
-    )}
-  </span>
-);
+const H_PATH = "M207 395 V175 M207 312 C207 272 232 257 262 257 C292 257 312 275 312 312 V395";
+const M_PATH = "M378 395 V237 M378 312 C378 272 400 257 419 257 C440 257 460 275 460 312 V395 M460 312 C460 272 484 257 511 257 C540 257 562 275 562 312 V336 A39 39 0 0 0 640 336 V312 C640 272 662 257 681 257 C702 257 722 275 722 312 V395 M722 312 C722 272 744 257 764 257 C788 257 805 275 805 312 V395";
+export const MARK_LIGHT_BG: [string, string, string] = ["#0a35a0", "#6a55c8", "#a87be0"];
+export const MARK_DARK_BG: [string, string, string] = ["#5b94ff", "#8b6cff", "#d08af0"];
+
+/** The logo: lowercase "hmm" in one stroke; the last two m's are joined by a U like a stretched ribbon. Optional "..." and a draw-in animation. */
+export const HmmMark: React.FC<{ className?: string; colors?: [string, string, string]; dots?: boolean; draw?: boolean; style?: React.CSSProperties }> = ({ className = "", colors = MARK_DARK_BG, dots = false, draw = false, style }) => {
+  const id = useId().replace(/:/g, "");
+  const still = useReducedMotion();
+  const anim = draw && !still;
+  const P = (d: string, delay: number) => anim
+    ? <motion.path d={d} fill="none" stroke={`url(#${id})`} strokeWidth="40" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, delay, ease: "easeInOut" }} />
+    : <path d={d} fill="none" stroke={`url(#${id})`} strokeWidth="40" />;
+  return (
+    <svg viewBox={dots ? "150 150 830 290" : "160 160 680 250"} className={className} style={style} role="img" aria-label="hmm" overflow="visible">
+      <defs><linearGradient id={id} gradientUnits="userSpaceOnUse" x1="187" y1="0" x2="825" y2="0"><stop offset="0" stopColor={colors[0]} /><stop offset="0.55" stopColor={colors[1]} /><stop offset="1" stopColor={colors[2]} /></linearGradient></defs>
+      {P(H_PATH, 0)}{P(M_PATH, 0.45)}
+      {dots && [865, 905, 945].map((x, i) => (
+        <motion.circle key={x} cx={x} cy={378} r={15} fill={colors[2]} initial={anim ? { opacity: 0, scale: 0.2 } : false} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1.7 + i * 0.28, type: "spring", stiffness: 300, damping: 14 }} style={{ transformBox: "fill-box", transformOrigin: "center" }} />
+      ))}
+    </svg>
+  );
+};
+
+/** Small wordmark for navigation bars on dark backgrounds. */
+export const HmmLogo: React.FC<{ className?: string; ribbon?: boolean }> = ({ className = "" }) => <HmmMark className={`h-[22px] w-auto ${className}`} colors={MARK_DARK_BG} />;
 
 /** Replaces spinners: the letters h m m m bob like a wave while the system is thinking. */
 export const HmmLoader: React.FC<{ className?: string; label?: string; count?: number }> = ({ className = "", label = "Đang nghĩ", count = 4 }) => {
