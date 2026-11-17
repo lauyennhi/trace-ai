@@ -17,10 +17,10 @@ const colorAt = (f: number): [number, number, number] => {
 };
 
 const CHAPTERS: Chapter[] = [
-  { id: "goc-nhin", color: "#4f8cff", eyebrow: "01", name: "Hmm… Góc nhìn khác thì sao?", en: "Lăng kính Đối lập", status: ["Sắp có"], desc: "Bôi đen một đoạn trên bất kỳ trang nào, nhận ngay góc nhìn đối lập để thoát khỏi buồng âm vang.", core: "Bắt đầu từ việc nghi ngờ điều mình vừa đọc." },
-  { id: "think-first", color: "#7c4dff", eyebrow: "02", name: "Hmm… Think first.", en: "Ma sát Nhận thức", status: ["Đã có"], desc: "AI khóa 70% câu trả lời. Bạn viết ra ý của mình thì phần còn lại mới mở.", core: "Lực cản có chủ đích để không thể copy-paste một cách vô thức." },
-  { id: "are-you-sure", color: "#ec4899", eyebrow: "03", name: "Hmm… Are you sure?", en: "Kiểm định Socratic", status: ["Đã có", "Quét nguồn: sắp có"], desc: "AI đóng vai người chất vấn: bạn chứng minh luận điểm này thế nào, nguồn nào chống lưng?", core: "Biến AI từ người làm thuê thành người rèn luyện tư duy." },
-  { id: "aha", color: "#34d399", eyebrow: "04", name: "Hmm… Aha!", en: "Hồ sơ Minh bạch", status: ["Đã có"], desc: "Quá trình nghĩ của bạn được ghi lại thành hồ sơ 5 chiều: bằng chứng bạn thực sự hiểu.", core: "Trả lại giá trị cho sự trung thực học thuật." },
+  { id: "goc-nhin", color: "#4f8cff", eyebrow: "01", name: "Hmm… Góc nhìn khác thì sao?", en: "Góc nhìn đối lập", status: ["Tiện ích trình duyệt"], desc: "Bạn đang đọc và gật gù. Hmm kéo nhẹ tay áo: người ta còn nói điều ngược lại nữa đấy.", core: "" },
+  { id: "nghi-truoc", color: "#7c4dff", eyebrow: "02", name: "Hmm… Nghĩ trước đã.", en: "Mờ để buộc nghĩ", status: ["Khung chat"], desc: "Bạn gõ “viết giúp tôi”. Câu trả lời hiện ra nhưng nhòe như kính phủ sương. Muốn nhìn rõ, bạn phải nói ra mình đang nghĩ gì.", core: "" },
+  { id: "chac-chua", color: "#ec4899", eyebrow: "03", name: "Hmm… Bạn chắc chứ?", en: "Chất vấn", status: ["Hỏi ngược", "Kiểm tra nguồn"], desc: "Một nguồn không có thật. Một lập luận chưa đứng vững. Hmm không bắt lỗi, chỉ hỏi khẽ: bạn lấy gì làm chứng?", core: "" },
+  { id: "aha", color: "#34d399", eyebrow: "04", name: "Hmm… Aha!", en: "Hồ sơ minh bạch", status: ["Hồ sơ"], desc: "Bạn trả lời được. Sương tan, mọi thứ ăn khớp. Và cả quãng đường vừa đi được giữ lại thành một tấm hồ sơ của riêng bạn.", core: "" },
 ];
 // the line: height = how independently the student is thinking at that moment (low = pasted / asked to do it for them)
 const POINTS: { y: number; c?: number }[] = [{ y: 0.76 }, { y: 0.26, c: 0 }, { y: 0.86 }, { y: 0.42, c: 1 }, { y: 0.84 }, { y: 0.22, c: 2 }, { y: 0.12, c: 3 }, { y: 0.3 }];
@@ -33,6 +33,8 @@ export const JourneyHmm: React.FC = () => {
   const hud = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const orbLabel = useRef<HTMLDivElement>(null);
+  const redGlow = useRef<HTMLDivElement>(null);
+  const greenGlow = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const cv = canvas.current!, ctx = cv.getContext("2d");
@@ -155,7 +157,7 @@ export const JourneyHmm: React.FC = () => {
       grad.addColorStop(0, "rgba(255,255,255,0.95)"); grad.addColorStop(0.25, "rgba(196,181,253,0.55)"); grad.addColorStop(1, "rgba(124,77,255,0)");
       ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(marker, oy, 44, 0, 6.283); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(marker, oy, 8, 0, 6.283); ctx.fill();
-      const lvl = oy / vh, label = lvl < 0.4 ? "Tư duy độc lập" : lvl > 0.6 ? "Dán / nhờ làm hộ" : "Đang suy nghĩ", lcol = lvl < 0.4 ? UP : lvl > 0.6 ? DOWN : MID;
+      const lvl = oy / vh, label = lvl < 0.4 ? "Đang tự nghĩ" : lvl > 0.6 ? "Muốn copy cho xong" : "Lưng chừng", lcol = lvl < 0.4 ? UP : lvl > 0.6 ? DOWN : MID;
       const ol = orbLabel.current; if (ol) {
         ol.style.transform = `translate3d(${marker + 22}px,${oy - 38}px,0)`;
         if (label !== lastLabel) { lastLabel = label; ol.textContent = label; ol.style.color = lcol; ol.style.borderColor = lcol + "88"; }
@@ -170,6 +172,8 @@ export const JourneyHmm: React.FC = () => {
         el.style.visibility = v < 0.01 ? "hidden" : "visible";
       });
       if (hero.current) hero.current.style.opacity = String(1 - smooth(0, 0.05, ps));
+      if (redGlow.current) redGlow.current.style.opacity = String(smooth(0.58, 0.88, lvl) * 0.55);
+      if (greenGlow.current) greenGlow.current.style.opacity = String(smooth(0.9, 1, ps) * 0.55);
       if (bar.current) bar.current.style.width = `${ps * 100}%`;
       if (hud.current && active !== lastHud) { lastHud = active; hud.current.textContent = ps < 0.02 ? "" : active >= 0 ? `${String(active + 1).padStart(2, "0")} / ${String(n).padStart(2, "0")}` : ""; }
     };
@@ -182,14 +186,16 @@ export const JourneyHmm: React.FC = () => {
   }, []);
 
   return (
-    <section ref={wrap} className="relative bg-[#060914] text-white" style={{ height: `${100 + (POINTS.length - 1) * 90}svh`, fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }} aria-label="Hành trình tư duy">
+    <section ref={wrap} className="relative bg-[#060914] text-white" style={{ height: `${100 + (POINTS.length - 1) * 52}svh`, fontFamily: "Inter, 'Be Vietnam Pro', system-ui, sans-serif" }} aria-label="Hành trình tư duy">
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         <div className="absolute -top-40 -left-32 w-[42rem] h-[42rem] rounded-full bg-[#0b57d0] opacity-[0.22] blur-[130px]" />
         <div className="absolute top-1/4 -right-40 w-[38rem] h-[38rem] rounded-full bg-[#7c4dff] opacity-[0.2] blur-[130px]" />
         <div className="absolute -bottom-52 left-1/4 w-[40rem] h-[28rem] rounded-full bg-[#ec4899] opacity-[0.13] blur-[130px]" />
+        <div ref={redGlow} className="absolute left-1/4 -bottom-40 w-[46rem] h-[30rem] rounded-full bg-[#f43f5e] blur-[150px] opacity-0 pointer-events-none" />
+        <div ref={greenGlow} className="absolute right-0 -top-20 w-[44rem] h-[30rem] rounded-full bg-[#34d399] blur-[150px] opacity-0 pointer-events-none" />
         <canvas ref={canvas} className="absolute inset-0 h-full w-full" aria-hidden="true" />
 
-        <div className="absolute right-4 md:right-8 top-[9%] text-[10px] tracking-[0.16em] uppercase text-white/35 pointer-events-none">Tư duy sâu ↑</div>
+        <div className="absolute right-4 md:right-8 top-[9%] text-[10px] tracking-[0.16em] uppercase text-white/35 pointer-events-none">Tự nghĩ ↑</div>
         <div className="absolute right-4 md:right-8 bottom-[11%] text-[10px] tracking-[0.16em] uppercase text-white/35 pointer-events-none">Nhờ làm hộ ↓</div>
         <div ref={orbLabel} className="absolute left-0 top-0 rounded-full border px-3 py-1 text-[11px] font-medium bg-[#0b0f1c]/70 backdrop-blur pointer-events-none whitespace-nowrap will-change-transform" />
 
@@ -201,15 +207,11 @@ export const JourneyHmm: React.FC = () => {
             <div className="w-[min(400px,calc(100vw-2rem))] rounded-3xl border border-white/12 bg-[#0b0f1c]/78 backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_60px_-20px_rgba(124,77,255,0.5)]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide" style={{ color: c.color }}><span className="h-2 w-2 rounded-full" style={{ background: c.color }} />{c.eyebrow}</div>
-                <div className="flex gap-1.5">{c.status.map((st) => <span key={st} className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${st === "Đã có" ? "bg-[#34d399]/15 text-[#6ee7b7]" : "bg-white/10 text-white/60"}`}>{st}</span>)}</div>
+                <div className="flex gap-1.5">{c.status.map((st) => <span key={st} className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium bg-white/10 text-white/60`}>{st}</span>)}</div>
               </div>
               <h2 className="mt-4 text-[24px] sm:text-[30px] font-semibold leading-[1.1] tracking-[-0.03em]">{c.name}</h2>
               <div className="mt-1 text-[12px] italic text-white/40">{c.en}</div>
               <p className="mt-4 text-[13px] sm:text-[14.5px] leading-relaxed text-white/70">{c.desc}</p>
-              <div className="mt-4 pt-3 border-t border-white/10 hidden sm:block">
-                <div className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/40">Giá trị lõi</div>
-                <p className="mt-1.5 text-[12.5px] sm:text-[13.5px] leading-relaxed text-white/60">{c.core}</p>
-              </div>
             </div>
           </div>
         ))}

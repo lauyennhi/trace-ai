@@ -70,17 +70,17 @@ export const HeroHmm: React.FC<{ onExperience: () => void }> = ({ onExperience }
     <div className="relative z-10 flex flex-col items-center w-full">
       <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="font-semibold tracking-[-0.045em] leading-[0.98] text-[clamp(2.6rem,8vw,7rem)]">Đừng để AI <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>nghĩ thay.</span></motion.h1>
       <div className="mt-10 sm:mt-12 w-full flex justify-center"><HeroChat /></div>
-      <p className="mt-9 max-w-xl text-[14px] sm:text-[17px] leading-relaxed text-white/55">Nền tảng bắt bạn phải dừng lại, trăn trở và tự tìm ra câu trả lời.</p>
-      <button onClick={() => { playHmm(); onExperience(); }} className="mt-8 rounded-full px-7 py-3.5 text-[15px] font-semibold text-white inline-flex items-center gap-2 transition-[filter] hover:brightness-110" style={{ background: GRAD }}>Trải nghiệm tiếng “Hmm”</button>
+      <p className="mt-9 max-w-xl text-[14px] sm:text-[17px] leading-relaxed text-white/55">Ở đây, đáp án không tự rơi xuống. Bạn dừng lại, trăn trở, rồi tự tìm ra nó.</p>
+      <button onClick={() => { playHmm(); onExperience(); }} className="mt-8 rounded-full px-7 py-3.5 text-[15px] font-semibold text-white inline-flex items-center gap-2 transition-[filter] hover:brightness-110" style={{ background: GRAD }}>Hmm thử xem</button>
     </div>
   </section>
 );
 
 /* ------------------------------------------------------------ 2. STICKY LOOP */
 const SCENES = [
-  { title: "Hmm… Góc nhìn khác thì sao?", desc: "Bôi đen bất kỳ đoạn nào trên internet. Hmm ném cho bạn một góc nhìn đối lập để đập tan sự phiến diện.", chips: [["Sắp có", "tiện ích trình duyệt"]] },
-  { title: "Hmm… Nghĩ trước đã.", desc: "Copy-paste thì dễ. Nhưng AI sẽ khóa đáp án lại, cho đến khi bạn tự đưa ra được lập luận của riêng mình.", chips: [["Đã có", "làm mờ rồi mở khóa"]] },
-  { title: "Hmm… Bạn chắc chứ?", desc: "Không có chỗ cho trích dẫn ma hay lập luận rỗng tuếch. AI đóng vai hội đồng phản biện ngay trước khi bạn nộp bài.", chips: [["Đã có", "chất vấn Socratic"], ["Sắp có", "quét nguồn"]] },
+  { title: "Hmm… Góc nhìn khác thì sao?", desc: "Bạn đang đọc và gật gù. Hmm kéo nhẹ tay áo: người ta còn nói điều ngược lại nữa đấy.", chips: ["Tiện ích trình duyệt"] },
+  { title: "Hmm… Nghĩ trước đã.", desc: "Câu trả lời nằm ngay đó, nhưng nhòe như kính phủ sương. Muốn nó rõ ra, trước hết bạn phải nói mình đang nghĩ gì.", chips: ["Khung chat"] },
+  { title: "Hmm… Bạn chắc chứ?", desc: "Một nguồn không có thật, một lập luận chưa đứng vững. Hmm không bắt lỗi, chỉ hỏi khẽ: bạn lấy gì làm chứng?", chips: ["Hỏi ngược", "Kiểm tra nguồn"] },
 ] as const;
 
 const SceneLens: React.FC<{ t: number }> = ({ t }) => {
@@ -143,7 +143,7 @@ const SceneSure: React.FC<{ t: number }> = ({ t }) => {
           </div>
         ))}
       </div>
-      <div className="mt-2 text-[9px] text-white/30">Minh họa · quét nguồn: sắp có</div>
+      <div className="mt-2 text-[9px] text-white/30">Minh họa</div>
       <div style={{ opacity: modal }} className="absolute inset-0 flex items-center justify-center bg-black/55">
         <div style={{ transform: `scale(${0.92 + 0.08 * modal})` }} className="w-[78%] rounded-2xl border border-white/15 bg-[#161a2c] p-4 shadow-2xl">
           <div className="flex items-center gap-1.5 text-[#c4b5fd] font-semibold"><Sparkles className="h-3.5 w-3.5" />Hmm…</div>
@@ -173,7 +173,7 @@ export const LoopHmm: React.FC = () => {
   }, []);
   const sc = SCENES[v.s];
   return (
-    <section ref={wrap} id="vong-lap" className="relative" style={{ height: "430svh" }} aria-label="Vòng lặp hmm">
+    <section ref={wrap} id="vong-lap" className="relative" style={{ height: "340svh" }} aria-label="Vòng lặp hmm">
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         <div className="absolute top-1/3 left-1/2 w-[44rem] h-[28rem] -translate-x-1/2 rounded-full bg-[#7c4dff] opacity-[0.1] blur-[140px]" />
         <div className="relative mx-auto flex h-full max-w-[1250px] flex-col justify-center gap-6 px-5 md:flex-row md:items-center md:gap-14 md:px-12 pt-20 md:pt-0">
@@ -183,7 +183,7 @@ export const LoopHmm: React.FC = () => {
               <motion.div key={v.s} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }} transition={{ duration: 0.4 }}>
                 <h2 className="mt-3 text-[clamp(1.9rem,4.4vw,3.8rem)] font-semibold tracking-[-0.035em] leading-[1.05]">{sc.title}</h2>
                 <p className="mt-4 max-w-md text-[13.5px] md:text-[16px] leading-relaxed text-white/60">{sc.desc}</p>
-                <div className="mt-4 flex flex-wrap gap-2">{sc.chips.map(([st, label]) => <span key={st + label} className={`rounded-full px-3 py-1 text-[11px] font-medium ${st === "Đã có" ? "bg-[#34d399]/15 text-[#6ee7b7]" : "bg-white/10 text-white/60"}`}>{st} · {label}</span>)}</div>
+                <div className="mt-4 flex flex-wrap gap-2">{sc.chips.map((c) => <span key={c} className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium text-white/60">{c}</span>)}</div>
               </motion.div>
             </AnimatePresence>
             <div className="mt-6 hidden md:flex gap-2">{SCENES.map((_, i) => <span key={i} className="h-1 rounded-full transition-all duration-300" style={{ width: i === v.s ? 36 : 14, background: i === v.s ? "#a78bfa" : "rgba(255,255,255,0.2)" }} />)}</div>
@@ -216,7 +216,7 @@ export const AhaHmm: React.FC = () => (
     <div className="relative max-w-[1200px] mx-auto grid md:grid-cols-2 gap-14 md:gap-24 items-center">
       <div>
         <h2 className="text-[clamp(2.4rem,6vw,5rem)] font-semibold tracking-[-0.04em] leading-[1.02]">Và rồi… <motion.span initial={{ opacity: 0, scale: 0.7 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ type: "spring", delay: 0.2 }} className="inline-block bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>“Aha!”</motion.span></h2>
-        <p className="mt-6 max-w-md text-[15px] md:text-[17px] leading-relaxed text-white/60">Mọi nỗ lực tư duy của bạn không bị bỏ phí. Nó được số hóa thành Hồ sơ Minh bạch: minh chứng cho thấy bạn thực sự làm chủ tri thức.</p>
+        <p className="mt-6 max-w-md text-[15px] md:text-[17px] leading-relaxed text-white/60">Khoảnh khắc ấy không tự nhiên mà đến. Mỗi lần bạn dừng lại, nghi ngờ, viết ra ý mình đều được giữ lại thành một tấm hồ sơ: để thầy cô thấy bạn đã nghĩ thế nào, và để chính bạn nhớ mình đã đi qua những gì.</p>
         <div className="mt-6 flex flex-wrap items-center gap-2 text-[12px] text-white/65">{["Human", "Machine", "Mind"].map((w, i) => <React.Fragment key={w}>{i > 0 && <span className="text-white/25">·</span>}<span className="rounded-full border border-white/12 bg-white/[0.04] px-3 py-1"><b className="text-white">{w[0]}</b>{w.slice(1)}</span></React.Fragment>)}<span className="ml-1 text-white/35">= hmm</span></div>
       </div>
       <div className="relative mx-auto w-full max-w-[420px]">
@@ -247,9 +247,31 @@ export const FinalHmm: React.FC<{ onStart: () => void }> = ({ onStart }) => (
   <section className="relative overflow-hidden px-5 md:px-12 py-28 md:py-40 text-center" aria-label="Bắt đầu">
     <div className="absolute left-1/2 top-1/2 w-[46rem] h-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7c4dff] opacity-[0.13] blur-[140px]" />
     <div className="relative">
-      <h2 className="mx-auto max-w-3xl text-[clamp(2.2rem,5.6vw,4.6rem)] font-semibold tracking-[-0.04em] leading-[1.04]">Sẵn sàng để bộ não <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>đổ mồ hôi</span> chưa?</h2>
-      <div className="mt-12 flex justify-center"><HmmBorderButton onClick={onStart}>Bắt đầu thử thách</HmmBorderButton></div>
+      <h2 className="mx-auto max-w-3xl text-[clamp(2.2rem,5.6vw,4.6rem)] font-semibold tracking-[-0.04em] leading-[1.04]">Lâu rồi, não bạn chưa <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>đổ mồ hôi</span> nhỉ?</h2>
+      <div className="mt-12 flex justify-center"><HmmBorderButton onClick={onStart}>Thử nghĩ một lần</HmmBorderButton></div>
       <div className="mt-6 text-white/45 text-sm"><HmmLoader className="text-xl text-white/40" count={4} /></div>
+    </div>
+  </section>
+);
+
+/* ------------------------------------------------------------- ABOUT */
+const ABOUT = [
+  ["Với người học", "Đi chậm lại một nhịp. Hiểu được thì mới là của mình, còn chép được thì chỉ là mượn."],
+  ["Với thầy cô", "Thấy được bài làm đã hình thành ra sao, không chỉ cái kết quả nộp lên cuối cùng."],
+  ["Với nhà trường", "Một cách dùng AI mà điểm số vẫn còn đáng tin."],
+] as const;
+
+export const AboutHmm: React.FC = () => (
+  <section id="about" className="relative px-5 md:px-12 py-28 md:py-44 overflow-hidden" aria-label="Về Hmm">
+    <div className="absolute top-1/3 -left-40 w-[34rem] h-[28rem] rounded-full bg-[#4f8cff] opacity-[0.08] blur-[140px]" />
+    <div className="relative max-w-[1100px] mx-auto">
+      <div className="text-[11px] font-bold tracking-[0.18em] uppercase text-[#a78bfa]">About Hmm</div>
+      <h2 className="mt-5 max-w-4xl text-[clamp(2rem,5vw,4.2rem)] font-semibold tracking-[-0.04em] leading-[1.06]">AI đã trả lời được gần như mọi thứ. Việc còn lại của người học là <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>tự hỏi, tự ngờ, tự hiểu.</span></h2>
+      <p className="mt-8 max-w-2xl text-[16px] md:text-[19px] leading-relaxed text-white/65">Hmm là chỗ học có AI ngồi cạnh, nhưng AI không nói trước. Nó chờ bạn nói ra ý mình, hỏi ngược khi bạn dễ dãi, và lặng lẽ giữ lại từng bước bạn đã nghĩ.</p>
+      <div className="mt-14 grid gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/10 md:grid-cols-3">
+        {ABOUT.map(([t, d]) => <div key={t} className="bg-[#080b18] p-7 md:p-9"><div className="text-[13px] font-semibold text-[#c4b5fd]">{t}</div><p className="mt-3 text-[15px] leading-relaxed text-white/65">{d}</p></div>)}
+      </div>
+      <p className="mt-14 max-w-2xl text-[clamp(1.2rem,2.4vw,1.8rem)] font-medium leading-snug tracking-[-0.02em] text-white/85">“Hmm…” là tiếng một người đang nghĩ. Chúng mình làm ra một chỗ để tiếng ấy còn được lắng nghe.</p>
     </div>
   </section>
 );

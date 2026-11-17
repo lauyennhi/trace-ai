@@ -3,7 +3,7 @@ import { Menu, X, UserRound } from "lucide-react";
 import { HmmLogo } from "../components/HmmBrand";
 import { StoryHmm } from "../components/LandingStory";
 import { JourneyHmm } from "../components/LandingJourney";
-import { HeroHmm, LoopHmm, AhaHmm, FinalHmm } from "../components/LandingHmm";
+import { HeroHmm, LoopHmm, AhaHmm, AboutHmm, FinalHmm } from "../components/LandingHmm";
 import { LandingModals, type LandingModalKind, type JourneyRole } from "../components/LandingModals";
 
 interface Props { onLogin: () => void; onRegister: (role?: JourneyRole) => void; }
@@ -12,7 +12,7 @@ const GRAD = "linear-gradient(90deg,#4f8cff,#7c4dff,#ec4899)";
 const GLASS = "bg-[#0b0f1c]/65 backdrop-blur-xl border border-white/10";
 const FONT = "Inter, 'Be Vietnam Pro', system-ui, sans-serif";
 type NavItem = { label: string; to: string } | { label: string; modal: Exclude<LandingModalKind, null> };
-const NAV: NavItem[] = [{ label: "Trang chủ", to: "top" }, { label: "Vòng lặp", to: "vong-lap" }, { label: "Cách tiếp cận", modal: "approach" }, { label: "Phương pháp", modal: "methods" }, { label: "Hồ sơ", to: "aha" }];
+const NAV: NavItem[] = [{ label: "Home", to: "top" }, { label: "About Hmm", to: "about" }, { label: "Contact", modal: "contact" }];
 
 export const LandingPage: React.FC<Props> = ({ onLogin, onRegister }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -64,9 +64,10 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister }) => {
       <HeroHmm onExperience={() => document.getElementById("vong-lap")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
       <LoopHmm />
       <AhaHmm />
+      <AboutHmm />
       <FinalHmm onStart={() => setModal("journey")} />
       <footer className="px-5 md:px-12 py-8 text-xs text-white/45">
-        <div className="max-w-[1300px] mx-auto flex flex-wrap items-center justify-between gap-2"><span>hmm. Less paste, more hmm. · H.M.M. = Human · Machine · Mind</span><span>Hình minh họa trên trang này không phải số liệu thật.</span></div>
+        <div className="max-w-[1300px] mx-auto flex flex-wrap items-center justify-between gap-2"><span>hmm · Ít copy hơn, nghĩ nhiều hơn · Human · Machine · Mind</span><span>Hình minh họa trên trang này không phải số liệu thật.</span></div>
       </footer>
 
       <LandingModals kind={modal} onClose={() => setModal(null)} onSwitch={setModal} onLogin={() => { setModal(null); onLogin(); }} onRegister={(r) => { setModal(null); onRegister(r); }} />

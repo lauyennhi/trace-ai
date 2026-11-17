@@ -61,7 +61,7 @@ export const StoryHmm: React.FC = () => {
   const fontW = Math.min(vh * 0.13, vw * 0.11), fontS = Math.min(vh * 0.075, vw * 0.075);
 
   return (
-    <section ref={wrap} id="top" className="relative" style={{ height: still ? "100svh" : "620svh" }} aria-label="hmm: Human, Machine, Mind">
+    <section ref={wrap} id="top" className="relative" style={{ height: still ? "100svh" : "500svh" }} aria-label="hmm: Human, Machine, Mind">
       <div className="sticky top-0 h-[100svh] overflow-hidden" style={{ background: bg }}>
         {/* tilt + stand-up wrapper */}
         <div className="absolute inset-0" style={{ transform: `rotate(${rot}deg)`, transformOrigin: "50% 55%" }}>
