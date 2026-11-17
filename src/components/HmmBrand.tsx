@@ -36,7 +36,7 @@ export const HmmMark: React.FC<{ className?: string; colors?: [string, string, s
 };
 
 /** Small wordmark for navigation bars on dark backgrounds. */
-export const HmmLogo: React.FC<{ className?: string; ribbon?: boolean }> = ({ className = "" }) => <HmmMark className={`h-[22px] w-auto ${className}`} colors={MARK_DARK_BG} />;
+export const HmmLogo: React.FC<{ className?: string; colors?: [string, string, string] }> = ({ className = "", colors = MARK_DARK_BG }) => <HmmMark className={`h-[22px] w-auto ${className}`} colors={colors} />;
 
 /** Replaces spinners: the letters h m m m bob like a wave while the system is thinking. */
 export const HmmLoader: React.FC<{ className?: string; label?: string; count?: number }> = ({ className = "", label = "Đang nghĩ", count = 4 }) => {
