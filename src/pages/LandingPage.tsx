@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Sparkles, ArrowRight, PenLine, Eye, Unlock, Route, GraduationCap, BookOpen, ShieldCheck, CheckCircle2 } from "lucide-react";
-import { TraceParticles } from "../components/TraceParticles";
+import { Sparkles, ArrowRight, PenLine, Eye, Unlock, Route, GraduationCap, BookOpen, ShieldCheck, CheckCircle2, Lock } from "lucide-react";
+import { TraceHead } from "../components/TraceHead";
 
 interface Props { onLogin: () => void; onRegister: () => void; }
 
@@ -41,7 +41,7 @@ const Nav: React.FC<Props> = ({ onLogin, onRegister }) => (
 
 /** Small glass card that floats and shifts a little with the cursor. */
 const Float: React.FC<{ className: string; depth?: number; delay?: number; children: React.ReactNode }> = ({ className, depth = 1, delay = 0, children }) => (
-  <div className={`absolute hidden lg:block ${className}`} style={{ transform: `translate(calc(var(--mx,0) * ${14 * depth}px), calc(var(--my,0) * ${10 * depth}px))`, transition: "transform .25s ease-out" }}>
+  <div className={`absolute hidden lg:block ${className}`} style={{ transform: `translate(calc(var(--mx,0) * ${14 * depth}px), calc(var(--my,0) * ${10 * depth}px))`, transition: "transform .25s ease-out", opacity: "clamp(0, calc(1 - var(--p, 0) * 6), 1)" }}>
     <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: [0, -9, 0] }} transition={{ opacity: { delay: 0.8 + delay, duration: 0.8 }, y: { delay: 0.8 + delay, duration: 6 + delay * 2, repeat: Infinity, ease: "easeInOut" } }}
       className={`${GLASS} rounded-2xl p-4 text-white shadow-[0_8px_40px_-12px_rgba(124,77,255,0.45)]`}>{children}</motion.div>
   </div>
@@ -58,51 +58,93 @@ const MiniTrace: React.FC = () => (
   </svg>
 );
 
-const Hero: React.FC<Props> = ({ onLogin, onRegister }) => {
-  const ref = useRef<HTMLElement>(null);
+const DAYS = [["T5", 55], ["T6", 70], ["T7", 40], ["CN", 34], ["T2", 78], ["T3", 66], ["NAY", 72]] as const;
+const FADE_OUT = "clamp(0, calc(1 - (var(--p, 0) - 0.08) * 5), 1)";
+const FADE_IN = "clamp(0, calc((var(--p, 0) - 0.42) * 3.2), 1)";
+
+/** Three scenes in one sticky stage: the bust looks at you, the camera flies into the face, then the data panels arrive. */
+const Hero: React.FC<Props> = ({ onRegister }) => {
+  const wrap = useRef<HTMLElement>(null);
+  const scene = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(0);
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      if (!wrap.current || !scene.current) return;
+      const r = wrap.current.getBoundingClientRect();
+      const p = Math.max(0, Math.min(1, -r.top / Math.max(1, r.height - window.innerHeight)));
+      zoomRef.current = p; scene.current.style.setProperty("--p", p.toFixed(4));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true }); window.addEventListener("resize", onScroll);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); };
+  }, []);
   const onMove = (e: React.PointerEvent) => {
-    const r = ref.current!.getBoundingClientRect();
-    ref.current!.style.setProperty("--mx", String(((e.clientX - r.left) / r.width - 0.5) * 2));
-    ref.current!.style.setProperty("--my", String(((e.clientY - r.top) / r.height - 0.5) * 2));
+    const r = scene.current!.getBoundingClientRect();
+    scene.current!.style.setProperty("--mx", String(((e.clientX - r.left) / r.width - 0.5) * 2));
+    scene.current!.style.setProperty("--my", String(((e.clientY - r.top) / r.height - 0.5) * 2));
   };
   return (
-    <section ref={ref} onPointerMove={onMove} className="relative min-h-[100svh] overflow-hidden bg-[#070a14] text-white" aria-label="Giới thiệu Trace">
-      <div className="absolute -top-40 -left-40 w-[40rem] h-[40rem] rounded-full bg-[#0b57d0] opacity-25 blur-[120px]" />
-      <div className="absolute top-1/3 -right-40 w-[36rem] h-[36rem] rounded-full bg-[#7c4dff] opacity-20 blur-[120px]" />
-      <div className="absolute -bottom-52 left-1/3 w-[36rem] h-[30rem] rounded-full bg-[#ec4899] opacity-[0.14] blur-[120px]" />
-      <TraceParticles className="absolute inset-0" />
+    <section ref={wrap} className="relative h-[290svh] bg-[#070a14]" aria-label="Giới thiệu Trace">
+      <div ref={scene} onPointerMove={onMove} className="sticky top-0 h-[100svh] overflow-hidden text-white">
+        <div className="absolute -top-40 -left-40 w-[40rem] h-[40rem] rounded-full bg-[#0b57d0] opacity-25 blur-[120px]" />
+        <div className="absolute top-1/3 -right-40 w-[36rem] h-[36rem] rounded-full bg-[#7c4dff] opacity-20 blur-[120px]" />
+        <div className="absolute -bottom-52 left-1/3 w-[36rem] h-[30rem] rounded-full bg-[#ec4899] opacity-[0.14] blur-[120px]" />
 
-      <Float className="left-[5%] top-[15%]" depth={1.3}>
-        <div className="flex items-center justify-between mb-1"><span className="text-[11px] font-semibold text-white/80">Dấu vết một cuộc trao đổi</span><span className="text-[10px] text-white/45">Minh họa</span></div>
-        <MiniTrace />
-        <div className="mt-1 flex gap-1.5 text-[10px]"><span className="rounded-full bg-[#10b981]/20 text-[#6ee7b7] px-2 py-0.5">Phản biện độc lập</span><span className="rounded-full bg-[#f43f5e]/20 text-[#fda4af] px-2 py-0.5">Nhờ làm hộ</span></div>
-      </Float>
-      <Float className="right-[5%] top-[19%] w-[250px]" depth={0.8} delay={0.4}>
-        <div className="flex items-center justify-between mb-3"><span className="text-[11px] font-semibold text-white/80">Bằng chứng tư duy cả lớp</span><span className="text-[10px] text-white/45">Minh họa</span></div>
-        {[["Độc lập, phản biện", 68, "#10b981"], ["Tò mò, cần làm rõ", 22, "#f59e0b"], ["Nhờ làm hộ, dán", 10, "#f43f5e"]].map(([l, v, c], i) => (
-          <div key={l as string} className="mb-2.5 last:mb-0">
-            <div className="flex justify-between text-[10.5px] text-white/65 mb-1"><span>{l}</span><span>{v}%</span></div>
-            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full rounded-full" style={{ background: c as string }} initial={{ width: 0 }} animate={{ width: `${v}%` }} transition={{ delay: 1.2 + i * 0.2, duration: 1 }} /></div>
-          </div>
-        ))}
-      </Float>
-      <Float className="right-[9%] top-[58%]" depth={1.6} delay={0.8}>
-        <div className="flex items-center gap-2.5 text-[12px]"><span className="w-7 h-7 rounded-full bg-[#7c4dff] flex items-center justify-center"><CheckCircle2 className="w-4 h-4" /></span><span>Em đã nói ý của mình, AI viết tiếp theo ý em.</span></div>
-      </Float>
+        {/* headline sits behind the figure */}
+        <div className="absolute z-0 left-5 md:left-12 top-[17%] md:top-[15%] pointer-events-none" style={{ opacity: FADE_OUT, transform: "translateY(calc(var(--p, 0) * -70px))" }}>
+          <motion.span initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={`${GLASS} rounded-full px-3.5 py-1.5 text-[12px] text-white/75 mb-5 inline-flex items-center gap-2`}><span className="w-1.5 h-1.5 rounded-full bg-[#34d399]" />Nền tảng đánh giá quá trình tư duy với AI</motion.span>
+          <h1 className="font-semibold tracking-[-0.045em] leading-[0.95] text-[clamp(3.1rem,9.4vw,9rem)] pb-[0.1em]">
+            <span className="block overflow-hidden pb-[0.08em]"><motion.span className="block" initial={{ y: "105%" }} animate={{ y: 0 }} transition={{ delay: 0.3, duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}>Less <span className="relative inline-block text-white/40">paste<span className="absolute left-[-2%] right-[-2%] top-[56%] h-[0.07em] bg-[#f43f5e] rounded-full" /></span>,</motion.span></span>
+            <span className="block overflow-hidden pb-[0.12em]"><motion.span className="block" initial={{ y: "105%" }} animate={{ y: 0 }} transition={{ delay: 0.5, duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}>more <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>Trace.</span></motion.span></span>
+          </h1>
+        </div>
 
-      <div className="relative z-10 min-h-[100svh] flex flex-col justify-end px-5 md:px-12 pb-10 md:pb-14 pt-28 max-w-[1500px] mx-auto">
-        <motion.span initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={`${GLASS} self-start rounded-full px-3.5 py-1.5 text-[12px] text-white/75 mb-5 flex items-center gap-2`}><span className="w-1.5 h-1.5 rounded-full bg-[#34d399]" />Nền tảng đánh giá quá trình tư duy với AI</motion.span>
-        <h1 className="font-semibold tracking-[-0.045em] leading-[0.95] text-[clamp(3.1rem,9.4vw,9rem)] pb-[0.1em]">
-          <span className="block overflow-hidden pb-[0.08em]"><motion.span className="block" initial={{ y: "105%" }} animate={{ y: 0 }} transition={{ delay: 0.3, duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}>Less <span className="relative inline-block text-white/40">paste<span className="absolute left-[-2%] right-[-2%] top-[56%] h-[0.07em] bg-[#f43f5e] rounded-full" /></span>,</motion.span></span>
-          <span className="block overflow-hidden pb-[0.12em]"><motion.span className="block" initial={{ y: "105%" }} animate={{ y: 0 }} transition={{ delay: 0.5, duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}>more <span className="bg-clip-text text-transparent" style={{ backgroundImage: GRAD }}>Trace.</span></motion.span></span>
-        </h1>
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1 }} className="mt-5 flex flex-col md:flex-row md:items-end md:justify-between gap-5">
-          <p className="max-w-xl text-[15px] md:text-[17px] leading-relaxed text-white/70">Đọc vị từng dấu vết tư duy từ chính cuộc trò chuyện với AI. Sinh viên tự nghĩ trước, AI giúp nâng cấp; giảng viên nhìn thấy quá trình, không chỉ bài nộp cuối.</p>
-          <div className="flex flex-wrap gap-3">
+        <TraceHead className="absolute inset-0 z-10 pointer-events-none" zoomRef={zoomRef} />
+
+        <Float className="right-[4%] top-[43%] z-20" depth={1.3}>
+          <div className="flex items-center justify-between mb-1"><span className="text-[11px] font-semibold text-white/80">Dấu vết một cuộc trao đổi</span><span className="text-[10px] text-white/45">Minh họa</span></div>
+          <MiniTrace />
+          <div className="mt-1 flex gap-1.5 text-[10px]"><span className="rounded-full bg-[#10b981]/20 text-[#6ee7b7] px-2 py-0.5">Phản biện độc lập</span><span className="rounded-full bg-[#f43f5e]/20 text-[#fda4af] px-2 py-0.5">Nhờ làm hộ</span></div>
+        </Float>
+        <Float className="right-[4%] top-[20%] w-[250px] z-20" depth={0.8} delay={0.4}>
+          <div className="flex items-center justify-between mb-3"><span className="text-[11px] font-semibold text-white/80">Bằng chứng tư duy cả lớp</span><span className="text-[10px] text-white/45">Minh họa</span></div>
+          {[["Độc lập, phản biện", 68, "#10b981"], ["Tò mò, cần làm rõ", 22, "#f59e0b"], ["Nhờ làm hộ, dán", 10, "#f43f5e"]].map(([l, v, c], i) => (
+            <div key={l as string} className="mb-2.5 last:mb-0">
+              <div className="flex justify-between text-[10.5px] text-white/65 mb-1"><span>{l}</span><span>{v}%</span></div>
+              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full rounded-full" style={{ background: c as string }} initial={{ width: 0 }} animate={{ width: `${v}%` }} transition={{ delay: 1.2 + i * 0.2, duration: 1 }} /></div>
+            </div>
+          ))}
+        </Float>
+        <Float className="right-[8%] top-[66%] z-20" depth={1.6} delay={0.8}>
+          <div className="flex items-center gap-2.5 text-[12px]"><span className="w-7 h-7 rounded-full bg-[#7c4dff] flex items-center justify-center"><CheckCircle2 className="w-4 h-4" /></span><span>Em đã nói ý của mình, AI viết tiếp theo ý em.</span></div>
+        </Float>
+
+        <div className="absolute z-20 left-5 md:left-12 bottom-8 md:bottom-12 right-5 md:right-auto md:max-w-xl" style={{ opacity: FADE_OUT }}>
+          <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1 }} className="text-[14px] md:text-[17px] leading-relaxed text-white/70">Đọc vị từng dấu vết tư duy từ chính cuộc trò chuyện với AI. Sinh viên tự nghĩ trước, AI giúp nâng cấp; giảng viên nhìn thấy quá trình, không chỉ bài nộp cuối.</motion.p>
+          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.1 }} className="mt-5 flex flex-wrap gap-3">
             <button onClick={onRegister} className="rounded-full px-6 py-3 text-[14px] font-semibold text-white inline-flex items-center gap-2 transition-[filter] hover:brightness-110" style={{ background: GRAD }}>Bắt đầu với Trace <ArrowRight className="w-4 h-4" /></button>
             <button onClick={() => scrollTo("cach-hoat-dong")} className={`${GLASS} rounded-full px-6 py-3 text-[14px] font-medium text-white/90 hover:bg-white/10 transition-colors`}>Xem cách hoạt động</button>
+          </motion.div>
+        </div>
+        <div className="absolute z-20 bottom-4 left-1/2 -translate-x-1/2 text-[11px] text-white/45 hidden md:flex flex-col items-center gap-1.5 pointer-events-none" style={{ opacity: "clamp(0, calc(1 - var(--p, 0) * 12), 1)" }}>Cuộn để đi vào dấu vết<span className="w-px h-6 bg-gradient-to-b from-white/50 to-transparent" /></div>
+
+        {/* scene 3: the data panels arrive next to the zoomed face */}
+        <div className="absolute z-20 right-4 md:right-10 left-4 md:left-auto top-[56%] md:top-1/2 md:w-[380px] space-y-4 md:-translate-y-1/2" style={{ opacity: FADE_IN, transform: "translateY(calc((1 - clamp(0, (var(--p, 0) - 0.42) * 3.2, 1)) * 60px))", pointerEvents: "none" }}>
+          <div className={`${GLASS} rounded-3xl p-5`}>
+            <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-medium">Dấu vết đã ghi</h3><div className="flex gap-1 text-[10.5px]"><span className="px-2.5 py-1 rounded-full text-white/50">Ngày</span><span className="px-2.5 py-1 rounded-full bg-white/10">Tuần</span><span className="px-2.5 py-1 rounded-full text-white/50">Tháng</span></div></div>
+            <div className="flex items-end gap-2 h-28">{DAYS.map(([d, v], i) => <div key={d} className="flex-1 flex flex-col items-center justify-end h-full gap-1.5"><div className="w-full rounded-md" style={{ height: `${v}%`, background: i === DAYS.length - 1 ? "#34d399" : "#c4b5fd" }} /><span className="text-[9.5px] text-white/45">{d}</span></div>)}</div>
+            <p className="mt-3 text-[11px] text-white/50">Số lượt trao đổi được ghi mỗi ngày. Minh họa.</p>
           </div>
-        </motion.div>
+          <div className={`${GLASS} rounded-3xl p-5`}>
+            <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-medium">Ai nhìn thấy gì</h3><span className="text-[10.5px] rounded-full bg-white/10 px-2.5 py-1 text-white/60 flex items-center gap-1"><Lock className="w-3 h-3" />Quyền riêng tư</span></div>
+            {[["Sinh viên", "Toàn bộ dấu vết của chính mình", 100, "#c4b5fd"], ["Giảng viên", "Bài nộp và nhật ký chat của lớp mình", 100, "#a78bfa"], ["Quản trị viên", "Không đọc được chat và bài nộp", 6, "#f43f5e"]].map(([r, d, v, c]) => (
+              <div key={r as string} className="mb-3 last:mb-0"><div className="flex justify-between text-[12px] mb-1"><span className="font-medium">{r}</span><span className="text-white/50 text-[11px]">{d}</span></div><div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${v}%`, background: c as string }} /></div></div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
