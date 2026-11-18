@@ -96,10 +96,10 @@ export const TraceLine: React.FC<{ className?: string; flip?: boolean; light?: b
   }, [d]);
   const still = reduced();
   return (
-    <svg ref={host} className={className} viewBox="0 0 1440 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true" overflow="hidden">
+    <svg ref={host} className={className} viewBox="0 0 1440 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true" overflow="visible">
       <defs>
         <linearGradient id={gid} x1="0" x2="1"><stop offset="0" stopColor={light ? COBALT : SKY} stopOpacity="0" /><stop offset="0.25" stopColor={light ? COBALT : SKY} /><stop offset="0.7" stopColor={light ? SKY : "#9cc9f5"} /><stop offset="1" stopColor={SKY} stopOpacity="0.2" /></linearGradient>
-        <filter id={gid + "b"} x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="9" /></filter>
+        <filter id={gid + "b"} filterUnits="userSpaceOnUse" x="-200" y="-300" width="1840" height="980"><feGaussianBlur stdDeviation="9" /></filter>
         <radialGradient id={gid + "o"}><stop offset="0" stopColor={light ? SKY : "#fff"} /><stop offset="0.35" stopColor="#9cc9f5" stopOpacity="0.9" /><stop offset="1" stopColor={SKY} stopOpacity="0" /></radialGradient>
       </defs>
       {[[22, 0.14], [11, 0.22]].map(([dy, o], i) => <motion.path key={i} d={d} fill="none" stroke={COBALT} strokeOpacity={o} strokeWidth="2" transform={`translate(0 ${dy})`} initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.4, delay: 0.25 * (i + 1), ease: "easeInOut" }} />)}

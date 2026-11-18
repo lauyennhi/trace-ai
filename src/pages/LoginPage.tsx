@@ -47,13 +47,12 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
       {/* Brand panel */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 xl:p-16 text-ink overflow-hidden bg-[#e8f0fe] dark:bg-[#1b2433]">
         <div className="blob blob-1 w-96 h-96 bg-[#a8c7fa] -top-24 -left-20 opacity-60" />
-        <div className="blob blob-2 w-[30rem] h-[30rem] bg-[#d3bffa] bottom-[-9rem] right-[-7rem] opacity-60" />
+        <div className="blob blob-2 w-[30rem] h-[30rem] bg-[#9cc9f5] bottom-[-9rem] right-[-7rem] opacity-60" />
         <div className="absolute inset-0 dot-grid opacity-30" />
         <InkTrail strength={0.3} blur={22} />
 
         <div className="relative flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-brand text-white dark:text-[#062e6f] flex items-center justify-center"><Sparkles className="w-6 h-6" /></div>
-          <TraceLogo tone="light" className="h-8 w-auto" />
+          <TraceLogo tone={typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light"} className="h-9 w-auto" />
         </div>
 
         {/* floating score card */}
@@ -124,11 +123,10 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
       {/* Form panel */}
       <div className="relative flex items-center justify-center p-6 sm:p-12 overflow-hidden">
         <InkTrail strength={0.22} blur={22} />
-        <div className="blob blob-1 w-72 h-72 bg-indigo-300/40 dark:bg-indigo-500/20 -top-10 -right-10 lg:hidden" />
+        <div className="blob blob-1 w-72 h-72 bg-[#a8c7fa]/40 dark:bg-[#004E9A]/20 -top-10 -right-10 lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative w-full max-w-lg">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center"><Sparkles className="w-5 h-5 text-white dark:text-[#062e6f]" /></div>
-            <TraceLogo tone="light" className="h-7 w-auto" />
+            <TraceLogo tone={typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light"} className="h-8 w-auto" />
           </div>
           <div className="lg:hidden mb-8">
             <div className="text-[3.4rem] sm:text-6xl font-semibold tracking-[-0.04em] leading-[0.95]">

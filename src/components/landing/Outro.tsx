@@ -105,10 +105,10 @@ export const Aha: React.FC = () => (
 
 /* =============================================================== CTA */
 export const CTA: React.FC<{ onPick: (r: Role) => void }> = ({ onPick }) => (
-  <section className="relative overflow-hidden px-5 pb-56 pt-28 text-center sm:px-8 md:pt-36" style={{ background: LIGHT_BG, color: NAVY }} aria-label="Bắt đầu">
-    <TraceLine flip light className="absolute inset-x-0 bottom-0 h-[50%] w-full" />
-    <div className="relative mx-auto max-w-3xl">
-      <h2 className="text-[clamp(2.3rem,6vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.045em]">Tư duy không có đường tắt.<br /><span style={BLUE_TEXT}>Nhưng có người đồng hành.</span></h2>
+  <section className="relative overflow-hidden px-5 pb-[clamp(15rem,30vw,22rem)] pt-28 text-center sm:px-8 md:pt-36" style={{ background: LIGHT_BG, color: NAVY }} aria-label="Bắt đầu">
+    <TraceLine flip light className="pointer-events-none absolute inset-x-0 bottom-0 h-[clamp(13rem,26vw,19rem)] w-full" />
+    <div className="relative mx-auto max-w-5xl">
+      <h2 className="text-[clamp(2.2rem,5vw,4.4rem)] font-semibold leading-[1.04] tracking-[-0.045em]">Tư duy không có đường tắt.<br /><span style={BLUE_TEXT}>Nhưng có người đồng hành.</span></h2>
       <p className="mx-auto mt-6 max-w-md text-[16px] md:text-[18px]" style={{ color: MUTED }}>Bắt đầu bằng một bài. Phần còn lại, bạn sẽ tự nhìn thấy.</p>
       <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
         <button onClick={() => onPick("student")} className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-[15px] font-semibold text-white shadow-[0_14px_30px_-12px_rgba(0,78,154,0.7)] transition hover:brightness-110" style={{ background: `linear-gradient(90deg,${COBALT},${SKY})` }}>Tôi là sinh viên <ArrowRight className="h-4 w-4" /></button>
