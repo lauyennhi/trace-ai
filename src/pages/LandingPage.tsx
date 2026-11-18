@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { TraceLogo } from "../components/TraceLogo";
-import { Hero, HmmVoice, Vision, About } from "../components/landing/Intro";
+import { Hero, HmmVoice, Vision } from "../components/landing/Intro";
+import { About } from "../components/landing/Philosophy";
 import { Loop } from "../components/landing/Loop";
 import { HMM, Aha, CTA, Contact } from "../components/landing/Outro";
 import { LandingModals, type LandingModalKind, type JourneyRole } from "../components/LandingModals";
