@@ -145,7 +145,7 @@ const initialDb: DB = {
   users: [
     {
       id: "u_admin_1",
-      name: "Quản trị viên Hmm",
+      name: "Quản trị viên Trace Edu",
       email: "admin@trace.edu.vn",
       role: "admin",
       avatar: "",

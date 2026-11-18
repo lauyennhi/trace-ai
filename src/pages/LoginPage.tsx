@@ -1,3 +1,4 @@
+import { TraceLogo } from "../components/TraceLogo";
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Sparkles, Mail, Lock, User as UserIcon, GraduationCap, BookOpen, ArrowRight, Eye, EyeOff, Brain, MessageSquareText, ShieldCheck } from "lucide-react";
@@ -52,7 +53,7 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
 
         <div className="relative flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-brand text-white dark:text-[#062e6f] flex items-center justify-center"><Sparkles className="w-6 h-6" /></div>
-          <span className="text-2xl font-normal tracking-tight">hmm</span>
+          <TraceLogo tone="light" className="h-8 w-auto" />
         </div>
 
         {/* floating score card */}
@@ -80,7 +81,7 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
               <motion.span className="block" {...rise(1)}>
                 more{" "}
                 <span className="relative inline-block">
-                  <span className="gradient-text animated-gradient" style={{ backgroundImage: "linear-gradient(100deg,#0b57d0 0%,#7c4dff 35%,#ec4899 65%,#0b57d0 100%)" }}>hmm.</span>
+                  <span className="gradient-text animated-gradient" style={{ backgroundImage: "linear-gradient(100deg,#0b57d0 0%,#7c4dff 35%,#ec4899 65%,#0b57d0 100%)" }}>trace.</span>
                   <svg className="absolute left-0 -bottom-[0.02em] w-full h-[0.3em] overflow-visible" viewBox="0 0 320 36" preserveAspectRatio="none" fill="none" aria-hidden>
                     <defs><linearGradient id="trace-grad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stopColor="#0b57d0" /><stop offset="1" stopColor="#ec4899" /></linearGradient></defs>
                     <motion.path d="M6 24 C 38 4, 62 34, 100 18 S 160 4, 198 20 S 262 30, 312 10" stroke="url(#trace-grad)" strokeWidth="7" vectorEffect="non-scaling-stroke" strokeLinecap="round"
@@ -116,7 +117,7 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
               </motion.span>
             ))}
           </div>
-          <div className="text-xs text-mute">© hmm · Nền tảng đánh giá tư duy quá trình cho giáo dục Việt Nam</div>
+          <div className="text-xs text-mute">© Trace Edu · Nền tảng đánh giá tư duy quá trình cho giáo dục Việt Nam</div>
         </div>
       </div>
 
@@ -127,12 +128,12 @@ export const LoginPage: React.FC<Props> = ({ onAuthed, initialMode = "login", in
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative w-full max-w-lg">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
             <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center"><Sparkles className="w-5 h-5 text-white dark:text-[#062e6f]" /></div>
-            <span className="text-xl font-medium">hmm</span>
+            <TraceLogo tone="light" className="h-7 w-auto" />
           </div>
           <div className="lg:hidden mb-8">
             <div className="text-[3.4rem] sm:text-6xl font-semibold tracking-[-0.04em] leading-[0.95]">
               Less <span className="relative text-mute">paste<span className="absolute left-[-2%] top-[55%] w-[104%] h-[5px] rounded-full bg-[#e5484d] -rotate-3" /></span>,<br />
-              more <span className="gradient-text animated-gradient" style={{ backgroundImage: "linear-gradient(100deg,#0b57d0,#7c4dff,#ec4899,#0b57d0)" }}>hmm.</span>
+              more <span className="gradient-text animated-gradient" style={{ backgroundImage: "linear-gradient(100deg,#0b57d0,#7c4dff,#ec4899,#0b57d0)" }}>trace.</span>
             </div>
             <p className="mt-4 text-ink-2 text-lg leading-snug">Đọc vị từng <strong className="text-ink font-medium">dấu vết tư duy</strong> từ chính cuộc trò chuyện với AI.</p>
           </div>

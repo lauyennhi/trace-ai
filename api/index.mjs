@@ -706,7 +706,7 @@ var initialDb = {
   users: [
     {
       id: "u_admin_1",
-      name: "Qu\u1EA3n tr\u1ECB vi\xEAn Hmm",
+      name: "Qu\u1EA3n tr\u1ECB vi\xEAn Trace Edu",
       email: "admin@trace.edu.vn",
       role: "admin",
       avatar: ""

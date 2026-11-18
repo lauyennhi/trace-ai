@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 640 144" fill="none" stroke-linejoin="round" role="img" aria-label="Trace Edu">
+<g stroke="#041B2D" stroke-width="17"><path d="M0 8H88M44 8V120"/><path d="M112 42V120M112 76C112 54 126 44 148 44"/></g>
+<defs><linearGradient id="g-lg" gradientUnits="userSpaceOnUse" x1="165" y1="0" x2="410" y2="0"><stop offset="0" stop-color="#004E9A"/><stop offset="1" stop-color="#428CD4"/></linearGradient></defs>
+<g stroke="url(#g-lg)" stroke-width="17"><circle cx="205" cy="80" r="32"/><path d="M237 46V120"/><path d="M317.6 59.4A32 32 0 1 0 317.6 100.6"/><path d="M336 80H400C400 62 386 48 368 48C350 48 336 62 336 80C336 98 350 112 368 112C380 112 390 106 396 96"/></g>
+<g stroke="#041B2D" stroke-width="7"><path d="M464 40H440V116H464M440 78H460"/><circle cx="506" cy="88" r="28"/><path d="M534 40V116"/><path d="M556 60V94C556 108 564 116 578 116C592 116 600 108 600 94M600 60V116"/></g></svg>
