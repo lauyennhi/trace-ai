@@ -5,7 +5,7 @@ import React, { useEffect, useRef } from "react";
  * while they fade, so they spread and merge like ink on wet paper.
  * Attaches to its parent element; never blocks clicks; off for prefers-reduced-motion.
  */
-const COLORS = ["11,87,208", "124,77,255", "236,72,153", "56,189,248", "16,185,129"];
+const COLORS = ["0,78,154", "66,140,212", "125,184,238", "30,104,190"];
 
 export const InkTrail: React.FC<{ className?: string; strength?: number; blur?: number }> = ({ className = "", strength = 1, blur = 12 }) => {
   const ref = useRef<HTMLCanvasElement>(null);

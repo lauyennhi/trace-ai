@@ -1,5 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 640 144" fill="none" stroke-linejoin="round" role="img" aria-label="Trace Edu"><rect x="-30" y="-30" width="700" height="180" fill="#041B2D"/>
-<g stroke="#ffffff" stroke-width="17"><path d="M0 8H88M44 8V120"/><path d="M112 42V120M112 76C112 54 126 44 148 44"/></g>
-<defs><linearGradient id="g-lgd" gradientUnits="userSpaceOnUse" x1="165" y1="0" x2="410" y2="0"><stop offset="0" stop-color="#428CD4"/><stop offset="1" stop-color="#a9ccf2"/></linearGradient></defs>
-<g stroke="url(#g-lgd)" stroke-width="17"><circle cx="205" cy="80" r="32"/><path d="M237 46V120"/><path d="M317.6 59.4A32 32 0 1 0 317.6 100.6"/><path d="M336 80H400C400 62 386 48 368 48C350 48 336 62 336 80C336 98 350 112 368 112C380 112 390 106 396 96"/></g>
-<g stroke="#c8d6e6" stroke-width="7"><path d="M464 40H440V116H464M440 78H460"/><circle cx="506" cy="88" r="28"/><path d="M534 40V116"/><path d="M556 60V94C556 108 564 116 578 116C592 116 600 108 600 94M600 60V116"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 660 144" fill="none" stroke-linejoin="round" role="img" aria-label="TraceEdu"><rect x="-30" y="-30" width="720" height="190" fill="#041B2D"/>
+<g stroke="#ffffff" stroke-width="17"><path d="M0 8H88M44 8V120"/><path d="M112 42V120M112 76C112 54 126 44 148 44"/><path d="M354 80H418C418 62 404 48 386 48C368 48 354 62 354 80C354 98 368 112 386 112C398 112 408 106 414 96"/></g>
+<path d="M318.2 61.6A32 32 0 0 0 271.4 55.5C254.5 69.6 245.5 90.4 228.6 104.5A32 32 0 1 1 228.6 55.5C245.5 69.6 254.5 90.4 271.4 104.5A32 32 0 0 0 318.2 98.4" stroke="#428CD4" stroke-width="17" stroke-linecap="butt"/>
+<g stroke="#d4e3f2" stroke-width="7"><path d="M480 40H456V116H480M456 78H476"/><circle cx="522" cy="88" r="28"/><path d="M550 40V116"/><path d="M572 60V94C572 108 580 116 594 116C608 116 616 108 616 94M616 60V116"/></g></svg>

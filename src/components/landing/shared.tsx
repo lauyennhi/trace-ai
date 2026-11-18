@@ -10,6 +10,8 @@ export const BRICK = "#c2503f";
 export const GREEN = "#16a34a";
 export const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 export const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+export const BLUE_TEXT = { backgroundImage: `linear-gradient(90deg,${COBALT},${SKY})`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" } as const;
+export const LIGHT_BG = "radial-gradient(70% 60% at 85% 10%, rgba(66,140,212,0.22), transparent 70%), radial-gradient(60% 55% at 10% 90%, rgba(0,78,154,0.12), transparent 70%), linear-gradient(180deg,#eef5fc,#f8fbff)";
 export const SKY_TEXT = { backgroundImage: `linear-gradient(90deg,#7db8ee,${SKY})`, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" } as const;
 
 /** "Hmm…" written inline: the m's bob one after another, like a wave. The signature micro-interaction. */
@@ -27,7 +29,7 @@ export const WavyHmm: React.FC<{ m?: number; dots?: boolean; className?: string;
 /** Text that lights up word by word as it scrolls through the viewport. */
 const Word: React.FC<{ w: string; p: MotionValue<number>; a: number; b: number; hi?: boolean }> = ({ w, p, a, b, hi }) => {
   const o = useTransform(p, [a, b], [0.16, 1]);
-  return <motion.span style={{ opacity: o, ...(hi ? SKY_TEXT : {}) }}>{w} </motion.span>;
+  return <motion.span style={{ opacity: o, ...(hi ? BLUE_TEXT : {}) }}>{w} </motion.span>;
 };
 export const ScrollWords: React.FC<{ text: string; className?: string; highlight?: string }> = ({ text, className = "", highlight }) => {
   const ref = useRef<HTMLParagraphElement>(null);
@@ -70,7 +72,7 @@ function tracePath(loops: [number, number, number][]): string {
   return d;
 }
 
-export const TraceLine: React.FC<{ className?: string; flip?: boolean }> = ({ className = "", flip = false }) => {
+export const TraceLine: React.FC<{ className?: string; flip?: boolean; light?: boolean }> = ({ className = "", flip = false, light = false }) => {
   const host = useRef<SVGSVGElement>(null), main = useRef<SVGPathElement>(null);
   const orb = useRef<SVGGElement>(null), dots = useRef<(SVGCircleElement | null)[]>([]);
   const d = useMemo(() => tracePath(flip ? [[0.3, 0.42, -62], [0.6, 0.72, 78]] : [[0.38, 0.5, 78], [0.66, 0.76, -56]]), [flip]);
@@ -96,15 +98,15 @@ export const TraceLine: React.FC<{ className?: string; flip?: boolean }> = ({ cl
   return (
     <svg ref={host} className={className} viewBox="0 0 1440 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true" overflow="hidden">
       <defs>
-        <linearGradient id={gid} x1="0" x2="1"><stop offset="0" stopColor={SKY} stopOpacity="0" /><stop offset="0.25" stopColor={SKY} /><stop offset="0.7" stopColor="#9cc9f5" /><stop offset="1" stopColor={SKY} stopOpacity="0.2" /></linearGradient>
+        <linearGradient id={gid} x1="0" x2="1"><stop offset="0" stopColor={light ? COBALT : SKY} stopOpacity="0" /><stop offset="0.25" stopColor={light ? COBALT : SKY} /><stop offset="0.7" stopColor={light ? SKY : "#9cc9f5"} /><stop offset="1" stopColor={SKY} stopOpacity="0.2" /></linearGradient>
         <filter id={gid + "b"} x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="9" /></filter>
-        <radialGradient id={gid + "o"}><stop offset="0" stopColor="#fff" /><stop offset="0.35" stopColor="#9cc9f5" stopOpacity="0.9" /><stop offset="1" stopColor={SKY} stopOpacity="0" /></radialGradient>
+        <radialGradient id={gid + "o"}><stop offset="0" stopColor={light ? SKY : "#fff"} /><stop offset="0.35" stopColor="#9cc9f5" stopOpacity="0.9" /><stop offset="1" stopColor={SKY} stopOpacity="0" /></radialGradient>
       </defs>
       {[[22, 0.14], [11, 0.22]].map(([dy, o], i) => <motion.path key={i} d={d} fill="none" stroke={COBALT} strokeOpacity={o} strokeWidth="2" transform={`translate(0 ${dy})`} initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.4, delay: 0.25 * (i + 1), ease: "easeInOut" }} />)}
       <motion.path d={d} fill="none" stroke={`url(#${gid})`} strokeWidth="14" strokeOpacity="0.5" filter={`url(#${gid}b)`} initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.4, ease: "easeInOut" }} />
       <motion.path ref={main} d={d} fill="none" stroke={`url(#${gid})`} strokeWidth="3.2" strokeLinecap="round" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.4, ease: "easeInOut" }} />
-      {!still && Array.from({ length: 9 }, (_, i) => <circle key={i} ref={(el) => { dots.current[i] = el; }} r={3.6 - i * 0.34} fill="#cfe6ff" opacity={0.7 - i * 0.07} />)}
-      {!still && <g ref={orb} transform="translate(-100,-100)"><circle r="26" fill={`url(#${gid}o)`} /><circle r="5.5" fill="#fff" /></g>}
+      {!still && Array.from({ length: 9 }, (_, i) => <circle key={i} ref={(el) => { dots.current[i] = el; }} r={3.6 - i * 0.34} fill={light ? SKY : "#cfe6ff"} opacity={0.7 - i * 0.07} />)}
+      {!still && <g ref={orb} transform="translate(-100,-100)"><circle r="26" fill={`url(#${gid}o)`} /><circle r="5.5" fill={light ? COBALT : "#fff"} /></g>}
     </svg>
   );
 };
