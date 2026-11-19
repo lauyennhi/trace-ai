@@ -129,6 +129,7 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
             <motion.div variants={riseItem} className="card p-6">
               <h3 className="font-bold mb-1">Dấu vết tư duy theo từng lượt</h3>
               <p className="text-xs text-mute mb-4">Mỗi điểm là một lượt của sinh viên. Khi AI đã nhận định, đường đi lên nếu lượt đó thể hiện tư duy độc lập, đi xuống nếu nhờ AI làm hộ hoặc sao chép.</p>
+              {(() => { const n = chatSession.messages.reduce((t, m) => t + (m.paste_attempts || 0), 0) + (chatSession.intent?.paste_attempts || 0); return n > 0 ? <div className="mb-3"><span className="chip chip-amber" data-testid="paste-attempts">Đã thử dán/sao chép {n} lần (bị chặn)</span></div> : null; })()}
               <ThinkingTrace messages={chatSession.messages} highlights={result?.highlight_segments} studentLabel="sinh viên" />
             </motion.div>
           )}

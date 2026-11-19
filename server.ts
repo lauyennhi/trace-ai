@@ -9,6 +9,7 @@ import {
 } from "./src/lib/l2.ts";
 import { generateDemoData, DEMO_PREFIX } from "./src/lib/demoData.ts";
 import { isAnswerGate, makeTeaser, GATE_MIN_ANSWERS, GATE_MIN_CHARS, type GateInfo } from "./src/lib/gate.ts";
+import { isPasteMode } from "./src/lib/paste.ts";
 import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -1293,7 +1294,7 @@ function publicAssignment(a: any, user: any) {
 }
 
 function sanitizeAssignmentInput(body: any) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   // Input friction only applies to plain AI-chat assignments (not file-only, not the 3-step L2 flow)
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
@@ -1307,6 +1308,7 @@ function sanitizeAssignmentInput(body: any) {
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true,
     friction: level,
+    paste_mode: isPasteMode(paste_mode) ? paste_mode : "track",
     friction_prompts: cleanFrictionPrompts(friction_prompts),
     answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none",
   };
@@ -1937,6 +1939,8 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   const conf = Number(req.body?.confidence);
   const confidence = Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : undefined;
   const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
+  if (assignment.paste_mode === "block" && pasted > 0) return fail(res, 400, "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.");
+  const pasteAttempts = Math.min(50, Math.max(0, Math.round(Number(req.body?.paste_attempts) || 0)));
   const prompts: string[] = assignment.friction_prompts?.length ? assignment.friction_prompts : cleanFrictionPrompts(undefined);
 
   // Skipping is only allowed at the "nudge" level, and the skip itself is recorded
@@ -1961,7 +1965,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   const userMsg: any = { id: uid("m"), role: "user" as const, kind: "intent", content, timestamp: nowIso() };
   const prevMessages = chatSession.messages;
   const prevIntent = chatSession.intent;
-  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || undefined, at: nowIso() } satisfies ChatIntent;
+  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || undefined, paste_attempts: pasteAttempts || undefined, at: nowIso() } satisfies ChatIntent;
   chatSession.messages = [...prevMessages, userMsg];
 
   try {
@@ -2073,7 +2077,10 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   const userMsg: any = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
   if (isL2) userMsg.phase = phase;
   const pasted = Number(req.body?.pasted_chars);
+  if (assignment.paste_mode === "block" && Number.isFinite(pasted) && pasted > 0) return fail(res, 400, "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.");
   if (Number.isFinite(pasted) && pasted > 0) userMsg.pasted_chars = Math.min(Math.round(pasted), message_content.length);
+  const attempts = Math.round(Number(req.body?.paste_attempts));
+  if (Number.isFinite(attempts) && attempts > 0) userMsg.paste_attempts = Math.min(attempts, 50);
   chatSession.messages.push(userMsg);
 
   const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase!) : chatInstruction(assignment, course, chatSession);

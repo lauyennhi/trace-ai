@@ -1,3 +1,4 @@
+import { PasteGuard } from "./PasteGuard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HmmLoader } from "./HmmBrand";
 import { AnimatePresence, motion } from "motion/react";
@@ -150,7 +151,7 @@ export const StudentL2View: React.FC<Props> = ({ assignment, courseName, userNam
     const temp: ChatMessage = { id: "tmp_" + Date.now(), role: "user", content: text, timestamp: new Date().toISOString(), phase };
     setMessages((p) => [...p, temp]);
     try {
-      const res: any = await api("/api/chat/message", { method: "POST", body: { assignment_id: assignment.id, message_content: text, phase } });
+      const res: any = await api("/api/chat/message", { method: "POST", body: { assignment_id: assignment.id, message_content: text, phase, paste_attempts: attemptsRef.current || undefined } }); attemptsRef.current = 0;
       setMessages(res.chat_session.messages);
     } catch (e: any) {
       setMessages((p) => p.filter((m) => m.id !== temp.id));
@@ -201,6 +202,7 @@ export const StudentL2View: React.FC<Props> = ({ assignment, courseName, userNam
 
   /* ----- step 3 ----- */
   const [revision, setRevision] = useState(work?.revision?.text || l2.ai_text);
+  const attemptsRef = useRef(0);
   const stats = useRef({ typed: work?.revision?.stats?.typed || 0, deleted: work?.revision?.stats?.deleted || 0, pasted: work?.revision?.stats?.pasted || 0 });
   const snaps = useRef<{ t: string; text: string }[]>(work?.revision?.snapshots || []);
   const revTimer = useRef<number | undefined>(undefined);
@@ -236,7 +238,7 @@ export const StudentL2View: React.FC<Props> = ({ assignment, courseName, userNam
   const stepDone = (n: number) => (submitted ? true : n < step);
 
   return (
-    <div className="space-y-4">
+    <PasteGuard enabled={assignment.paste_mode === "block"} attempts={attemptsRef} className="space-y-4">
       {/* header + stepper */}
       <div className="card p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -392,7 +394,7 @@ export const StudentL2View: React.FC<Props> = ({ assignment, courseName, userNam
         {pastDue && <p className="text-sm text-amber-600 mt-2">Bài sẽ được ghi nhận là nộp trễ.</p>}
         <div className="flex justify-end gap-2 mt-5"><button className="btn btn-ghost" disabled={busy} onClick={() => setConfirm(false)}>Xem lại</button><button className="btn btn-primary" disabled={busy} onClick={submitFinal}>{busy ? "Đang chấm…" : "Nộp bài"}</button></div>
       </Modal>
-    </div>
+    </PasteGuard>
   );
 };
 

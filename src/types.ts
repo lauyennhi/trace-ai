@@ -39,6 +39,7 @@ export interface CourseMember {
   joined_at: string;
 }
 
+import type { PasteMode } from "./lib/paste";
 import type { L2Config, L2Work, L2Result, L2ErrorReport } from './lib/l2';
 import type { FrictionLevel, ChatIntent } from './lib/friction';
 import type { AnswerGate, GateInfo } from './lib/gate';
@@ -67,6 +68,8 @@ export interface Assignment {
   allow_late?: boolean;
   /** Input friction for AI-chat assignments: how much the student must write before the AI answers. Missing = "none". */
   friction?: FrictionLevel;
+  /** Whether pasting / copying is blocked inside this assignment. Missing = "track". */
+  paste_mode?: PasteMode;
   friction_prompts?: string[];
   /** Blur-to-Unlock: how the AI's answer is gated. Missing = "none". */
   answer_gate?: AnswerGate;
@@ -142,6 +145,8 @@ export interface ChatMessage {
   kind?: 'intent';
   /** Characters pasted into this message (not typed). */
   pasted_chars?: number;
+  /** Times the student tried to paste/copy while the teacher had blocked it. */
+  paste_attempts?: number;
   /** Present on AI answers that were gated (Blur-to-Unlock). */
   gate?: GateInfo;
   content: string;

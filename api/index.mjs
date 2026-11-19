@@ -404,6 +404,10 @@ function makeTeaser(full, ratio = GATE_SHOW_RATIO) {
   return text.slice(0, cut).trim() + "\u2026";
 }
 
+// src/lib/paste.ts
+var PASTE_MODES = ["track", "block"];
+var isPasteMode = (v) => PASTE_MODES.includes(v);
+
 // src/lib/friction.ts
 var FRICTION_LEVELS = ["none", "nudge", "required"];
 var DEFAULT_FRICTION_PROMPTS = [
@@ -1767,7 +1771,7 @@ function publicAssignment(a, user) {
   return a;
 }
 function sanitizeAssignmentInput(body) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
   return {
@@ -1780,6 +1784,7 @@ function sanitizeAssignmentInput(body) {
     ai_submode: ai_submode === "normal" ? "normal" : "socratic",
     allow_late: allow_late === false ? false : true,
     friction: level,
+    paste_mode: isPasteMode(paste_mode) ? paste_mode : "track",
     friction_prompts: cleanFrictionPrompts(friction_prompts),
     answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none"
   };
@@ -2441,6 +2446,8 @@ app.post("/api/chat/intent", async (req, res) => {
   const conf = Number(req.body?.confidence);
   const confidence = Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : void 0;
   const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
+  if (assignment.paste_mode === "block" && pasted > 0) return fail(res, 400, "B\xE0i n\xE0y kh\xF3a d\xE1n v\xE0 sao ch\xE9p. H\xE3y t\u1EF1 vi\u1EBFt b\u1EB1ng l\u1EDDi c\u1EE7a b\u1EA1n.");
+  const pasteAttempts = Math.min(50, Math.max(0, Math.round(Number(req.body?.paste_attempts) || 0)));
   const prompts = assignment.friction_prompts?.length ? assignment.friction_prompts : cleanFrictionPrompts(void 0);
   if (req.body?.skip === true) {
     if (assignment.friction === "required") return fail(res, 400, "B\xE0i t\u1EADp n\xE0y y\xEAu c\u1EA7u b\u1EA1n ghi \xFD ri\xEAng tr\u01B0\u1EDBc.");
@@ -2468,7 +2475,7 @@ app.post("/api/chat/intent", async (req, res) => {
   const userMsg = { id: uid("m"), role: "user", kind: "intent", content, timestamp: nowIso() };
   const prevMessages = chatSession.messages;
   const prevIntent = chatSession.intent;
-  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || void 0, at: nowIso() };
+  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || void 0, paste_attempts: pasteAttempts || void 0, at: nowIso() };
   chatSession.messages = [...prevMessages, userMsg];
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
@@ -2572,7 +2579,10 @@ app.post("/api/chat/message", async (req, res) => {
   const userMsg = { id: uid("m"), role: "user", content: message_content, timestamp: nowIso() };
   if (isL2) userMsg.phase = phase;
   const pasted = Number(req.body?.pasted_chars);
+  if (assignment.paste_mode === "block" && Number.isFinite(pasted) && pasted > 0) return fail(res, 400, "B\xE0i n\xE0y kh\xF3a d\xE1n v\xE0 sao ch\xE9p. H\xE3y t\u1EF1 vi\u1EBFt b\u1EB1ng l\u1EDDi c\u1EE7a b\u1EA1n.");
   if (Number.isFinite(pasted) && pasted > 0) userMsg.pasted_chars = Math.min(Math.round(pasted), message_content.length);
+  const attempts = Math.round(Number(req.body?.paste_attempts));
+  if (Number.isFinite(attempts) && attempts > 0) userMsg.paste_attempts = Math.min(attempts, 50);
   chatSession.messages.push(userMsg);
   const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase) : chatInstruction(assignment, course, chatSession);
   try {

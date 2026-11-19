@@ -29,6 +29,7 @@ export interface ChatIntent {
   confidence?: number;
   skipped: boolean;
   pasted_chars?: number;
+  paste_attempts?: number;
   at: string;
 }
 

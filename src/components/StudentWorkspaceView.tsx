@@ -1,3 +1,4 @@
+import { PasteGuard } from "./PasteGuard";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -23,9 +24,9 @@ interface Props {
   chatSession: ChatSession | null;
   onSubmitAssignment: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string; notes?: string }) => Promise<Submission>;
   onSaveDraft: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string }) => Promise<void>;
-  onSendMessage: (data: { assignment_id: string; message_content: string; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
+  onSendMessage: (data: { assignment_id: string; message_content: string; pasted_chars?: number; paste_attempts?: number }) => Promise<{ chat_session: ChatSession }>;
   onUnlock: (data: { assignment_id: string; message_id: string; answers?: string[]; skip?: boolean }) => Promise<{ chat_session: ChatSession }>;
-  onSubmitIntent: (data: { assignment_id: string; answers?: string[]; confidence?: number; skip?: boolean; pasted_chars?: number }) => Promise<{ chat_session: ChatSession }>;
+  onSubmitIntent: (data: { assignment_id: string; answers?: string[]; confidence?: number; skip?: boolean; pasted_chars?: number; paste_attempts?: number }) => Promise<{ chat_session: ChatSession }>;
 }
 
 const MIN_TURNS = 3;
@@ -41,6 +42,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const [intentBusy, setIntentBusy] = useState(false);
   const ideasPasted = useRef(0);
   const pastedRef = useRef(0);
+  const attemptsRef = useRef(0);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<UploadedFileItem[]>((submission?.submitted_files || []).map((f) => ({ id: f.id, name: f.name, size: f.size || "Đã đính kèm", url: f.url, type: f.type || "file" })));
@@ -102,7 +104,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
     setInput(""); setSending(true); pastedRef.current = 0;
     setMessages((p) => [...p, { id: tempId, role: "user", content: userText, timestamp: new Date().toISOString() }]);
     try {
-      const res = await onSendMessage({ assignment_id: assignment.id, message_content: content, pasted_chars: pasted });
+      const res = await onSendMessage({ assignment_id: assignment.id, message_content: content, pasted_chars: pasted, paste_attempts: attemptsRef.current || undefined }); attemptsRef.current = 0;
       setMessages(res.chat_session.messages);
     } catch (err: any) {
       setMessages((p) => p.filter((m) => m.id !== tempId));
@@ -116,7 +118,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
     try {
       const res = await onSubmitIntent(skip
         ? { assignment_id: assignment.id, skip: true, confidence }
-        : { assignment_id: assignment.id, answers: ideas, confidence, pasted_chars: ideasPasted.current });
+        : { assignment_id: assignment.id, answers: ideas, confidence, pasted_chars: ideasPasted.current, paste_attempts: attemptsRef.current || undefined });
       setMessages(res.chat_session.messages); setIntentDone(true); setIntentData(res.chat_session.intent);
     } catch (err: any) { toast.error(err.message || "Không gửi được ý của bạn."); }
     finally { setIntentBusy(false); }
@@ -184,7 +186,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   );
 
   return (
-    <div className="relative">
+    <PasteGuard enabled={assignment.paste_mode === "block"} attempts={attemptsRef} className="relative">
       <AnimatePresence>{celebrate && <Confetti />}</AnimatePresence>
 
       {/* Status bar */}
@@ -350,7 +352,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           <button className="btn btn-primary" onClick={doSubmit} disabled={submitting}>{submitting ? "Đang chấm quá trình…" : "Nộp bài"}</button>
         </div>
       </Modal>
-    </div>
+    </PasteGuard>
   );
 };
 

@@ -5,6 +5,7 @@ import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { Modal } from "./ui";
 import { DEFAULT_L2_DIMENSIONS, L2_ERROR_LABEL, L2_ERROR_TYPES, findPhraseRange, type L2Dimension, type L2ErrorType } from "../lib/l2";
 import { ANSWER_GATES, GATE_LABEL, type AnswerGate } from "../lib/gate";
+import { PASTE_LABEL, PASTE_MODES, type PasteMode } from "../lib/paste";
 import { DEFAULT_FRICTION_PROMPTS, FRICTION_LABEL, FRICTION_LEVELS, type FrictionLevel } from "../lib/friction";
 
 export interface L2FormError { id: string; type: L2ErrorType; text: string; answer: string }
@@ -13,7 +14,7 @@ export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions
 export interface AssignmentFormData {
   title: string; description: string; rubric: string; due_date: string;
   attachments: AssignmentAttachment[]; submission_mode: SubmissionMode; ai_submode: AISubmode; allow_late: boolean;
-  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate;
+  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate; paste_mode: PasteMode;
   l2?: L2FormData;
 }
 interface Props {
@@ -39,6 +40,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
   const [allowLate, setAllowLate] = useState(true);
   const [friction, setFriction] = useState<FrictionLevel>("nudge");
   const [answerGate, setAnswerGate] = useState<AnswerGate>("none");
+  const [pasteMode, setPasteMode] = useState<PasteMode>("track");
   const [frictionPrompts, setFrictionPrompts] = useState<string[]>(DEFAULT_FRICTION_PROMPTS);
   const [files, setFiles] = useState<UploadedFileItem[]>([]);
   const [l2Text, setL2Text] = useState("");
@@ -58,6 +60,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
     // New assignments default to the gentle "nudge"; existing ones keep what they had (missing = none)
     setFriction(assignment ? assignment.friction || "none" : "nudge");
     setAnswerGate(assignment?.answer_gate || "none");
+    setPasteMode(assignment?.paste_mode || "track");
     setFrictionPrompts(assignment?.friction_prompts?.length ? assignment.friction_prompts : DEFAULT_FRICTION_PROMPTS);
     setL2Text(assignment?.l2?.ai_text || ""); setL2Lang(assignment?.l2?.prompt_language || "en");
     setL2Errors((assignment?.l2?.errors || []).map((e) => ({ id: e.id, type: e.type, text: e.text, answer: e.answer })));
@@ -80,7 +83,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
         title: title.trim(), description, rubric, due_date: new Date(dueDate).toISOString(),
         attachments: files.map((f) => ({ id: f.id, name: f.name, url: f.url, size: f.size, type: f.type })),
         submission_mode: mode, ai_submode: aiMode, allow_late: allowLate,
-        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate,
+        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate, paste_mode: pasteMode,
         ...(mode === "writing_l2" ? { l2: { ai_text: l2Text, errors: l2Errors, dimensions: l2Dims, prompt_language: l2Lang } } : {}),
       });
       onClose();
@@ -149,6 +152,20 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
                   className={`rounded-2xl border p-3 text-left transition-all ${aiMode === id ? "border-brand bg-brand-soft ring-4 ring-brand/10" : "border-line hover:border-brand/40"}`}>
                   <div className={`flex items-center gap-2 text-sm font-semibold ${aiMode === id ? "text-brand" : ""}`}>{icon}{label}</div>
                   <div className="text-[11px] text-mute mt-1">{hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {mode !== "file_only" && (
+          <div>
+            <label className="label">Dán và sao chép trong bài (khi sinh viên không được dùng nguồn ngoài)</label>
+            <div className="grid grid-cols-2 gap-2">
+              {PASTE_MODES.map((id) => (
+                <button key={id} type="button" onClick={() => setPasteMode(id)} data-testid={`paste-${id}`}
+                  className={`rounded-2xl border p-3 text-left transition-all ${pasteMode === id ? "border-brand bg-brand-soft ring-4 ring-brand/10" : "border-line hover:border-brand/40"}`}>
+                  <div className={`text-sm font-semibold ${pasteMode === id ? "text-brand" : ""}`}>{PASTE_LABEL[id].label}</div>
+                  <div className="text-[11px] text-mute mt-1">{PASTE_LABEL[id].hint}</div>
                 </button>
               ))}
             </div>
