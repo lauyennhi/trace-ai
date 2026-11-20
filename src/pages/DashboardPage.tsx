@@ -1,3 +1,4 @@
+import { ReliabilityCard } from "../components/ReliabilityCard";
 import React from "react";
 import { motion } from "motion/react";
 import { Plus, KeyRound, ClipboardList, Check, UserX, TrendingDown, EyeOff, Sparkles, BarChart3, UserPlus, Award, BookOpen, ArrowRight } from "lucide-react";
@@ -99,6 +100,8 @@ export const DashboardPage: React.FC<Props> = ({ user, courses, overview: o, loa
           </Section>
         </motion.div>
       </div>
+
+      {manage && !admin && <motion.div variants={riseItem}><ReliabilityCard /></motion.div>}
 
       {/* Spotlight / quick actions */}
       <motion.div variants={riseItem}>

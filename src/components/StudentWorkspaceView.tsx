@@ -1,4 +1,5 @@
 import { PasteGuard } from "./PasteGuard";
+import { CoachChip } from "./CoachChip";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -305,6 +306,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                           <div className={`px-4 py-3 rounded-2xl ${mine ? `bg-brand-soft/60 text-ink rounded-tr-md ${m.kind === "intent" ? "ring-1 ring-dashed ring-brand/40 border border-dashed border-brand/50" : ""}` : "bg-surface border border-line rounded-tl-md"}`}>
                             {m.gate && answerGate ? <GatedAnswer message={m} gate={answerGate} busy={unlockBusy} onUnlock={(d) => unlock(m.id, d)} /> : <MarkdownRenderer content={m.content} />}
                           </div>
+                          {mine && m.coach && <CoachChip coach={m.coach} />}
                         </div>
                       </motion.div>
                     );

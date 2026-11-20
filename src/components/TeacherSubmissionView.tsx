@@ -129,6 +129,17 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
             <motion.div variants={riseItem} className="card p-6">
               <h3 className="font-bold mb-1">Dấu vết tư duy theo từng lượt</h3>
               <p className="text-xs text-mute mb-4">Mỗi điểm là một lượt của sinh viên. Khi AI đã nhận định, đường đi lên nếu lượt đó thể hiện tư duy độc lập, đi xuống nếu nhờ AI làm hộ hoặc sao chép.</p>
+              {(() => {
+                const msgs = chatSession.messages, pressure = msgs.filter((m) => m.pressure).length, guarded = msgs.filter((m) => m.guard).length;
+                const coached = msgs.filter((m) => m.coach), weak = coached.filter((m) => m.coach!.level !== "good").length;
+                return pressure || guarded || coached.length ? (
+                  <div className="mb-3 flex flex-wrap gap-2" data-testid="ai-behavior-chips">
+                    {pressure > 0 && <span className="chip chip-amber">Xin đáp án / ép AI {pressure} lần</span>}
+                    {guarded > 0 && <span className="chip chip-gray">AI đã tự sửa {guarded} lần để không đưa đáp án</span>}
+                    {coached.length > 0 && <span className="chip chip-gray">Nhận xét trực tiếp: {coached.length - weak} tốt, {weak} cần cải thiện</span>}
+                  </div>
+                ) : null;
+              })()}
               {(() => { const n = chatSession.messages.reduce((t, m) => t + (m.paste_attempts || 0), 0) + (chatSession.intent?.paste_attempts || 0); return n > 0 ? <div className="mb-3"><span className="chip chip-amber" data-testid="paste-attempts">Đã thử dán/sao chép {n} lần (bị chặn)</span></div> : null; })()}
               <ThinkingTrace messages={chatSession.messages} highlights={result?.highlight_segments} studentLabel="sinh viên" />
             </motion.div>

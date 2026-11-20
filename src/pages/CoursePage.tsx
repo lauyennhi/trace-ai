@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { BookOpen, Users, BarChart3, Plus, Copy, Check, RefreshCw, Pencil, Trash2, LogOut, UserMinus, Search } from "lucide-react";
+import { BookOpen, Users, BarChart3, Library, Plus, Copy, Check, RefreshCw, Pencil, Trash2, LogOut, UserMinus, Search } from "lucide-react";
 import { User, Assignment, ClassStats } from "../types";
 import { AssignmentCard } from "../components/AssignmentCard";
 import { CourseStatsView } from "../components/CourseStatsView";
+import { MaterialsPanel } from "../components/MaterialsPanel";
 import { Avatar, CourseArt, EmptyState, Skeleton, courseTheme, fmtDate, hasPerm, pageVariants, riseItem, staggerParent } from "../components/ui";
 
 interface Props {
@@ -24,6 +25,7 @@ export const CoursePage: React.FC<Props> = ({ user, course, stats, tab, onTab, o
   const tabs = [
     { id: "assignments", label: "Bài tập", icon: BookOpen, count: course.assignments?.length || 0 },
     { id: "students", label: "Sinh viên", icon: Users, count: course.members?.length || 0 },
+    { id: "materials", label: "Tài liệu", icon: Library, count: course.materials?.length || 0 },
     ...(teacher ? [{ id: "stats", label: "Thống kê", icon: BarChart3 }] : []),
   ] as { id: string; label: string; icon: any; count?: number }[];
   const active = tabs.some((t) => t.id === tab) ? tab : "assignments";
@@ -70,6 +72,7 @@ export const CoursePage: React.FC<Props> = ({ user, course, stats, tab, onTab, o
 
       <AnimatePresence mode="wait">
         <motion.div key={active} variants={pageVariants} initial="initial" animate="animate" exit="exit">
+          {active === "materials" && <MaterialsPanel key={course.id} courseId={course.id} initial={course.materials || []} canEdit={teacher && canAssign} />}
           {active === "assignments" && (
             course.assignments?.length ? (
               <motion.div variants={staggerParent} initial="initial" animate="animate" className="space-y-3">

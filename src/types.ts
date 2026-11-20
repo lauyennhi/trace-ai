@@ -21,6 +21,8 @@ export interface Course {
   description: string;
   invite_code?: string;
   accent_color: string; // Hex or tailwind class for card visual differentiation
+  /** Class materials the AI stays close to. The client only ever receives names and sizes. */
+  materials?: { id: string; name: string; chars: number; added_at?: string }[];
   created_at: string;
   member_count?: number;
   open_assignments_count?: number;
@@ -40,6 +42,7 @@ export interface CourseMember {
 }
 
 import type { PasteMode } from "./lib/paste";
+import type { CoachNote } from "./lib/coach";
 import type { L2Config, L2Work, L2Result, L2ErrorReport } from './lib/l2';
 import type { FrictionLevel, ChatIntent } from './lib/friction';
 import type { AnswerGate, GateInfo } from './lib/gate';
@@ -70,6 +73,8 @@ export interface Assignment {
   friction?: FrictionLevel;
   /** Whether pasting / copying is blocked inside this assignment. Missing = "track". */
   paste_mode?: PasteMode;
+  /** Live coaching note under each student turn. Missing = on. */
+  live_coach?: boolean;
   friction_prompts?: string[];
   /** Blur-to-Unlock: how the AI's answer is gated. Missing = "none". */
   answer_gate?: AnswerGate;
@@ -147,6 +152,12 @@ export interface ChatMessage {
   pasted_chars?: number;
   /** Times the student tried to paste/copy while the teacher had blocked it. */
   paste_attempts?: number;
+  /** Live coaching note the system attached to this student turn. */
+  coach?: CoachNote;
+  /** Set when the student pushed the AI to hand over the answer (Socratic mode). */
+  pressure?: string;
+  /** Set on AI replies the Socratic guard had to redo or replace. */
+  guard?: 'regenerated' | 'fallback';
   /** Present on AI answers that were gated (Blur-to-Unlock). */
   gate?: GateInfo;
   content: string;

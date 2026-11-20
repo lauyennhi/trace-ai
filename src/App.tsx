@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { User, Course, Assignment, ClassStats, AppNotification, Submission } from "./types";
 import { api, apiRaw, getToken, setToken, setUnauthorizedHandler } from "./lib/api";
 import { parseRoute, useHashRoute } from "./lib/router";
+import { ProfilePage } from "./pages/ProfilePage";
+import { PublicProfilePage } from "./pages/PublicProfilePage";
 import { googleSignIn, getAccessToken, exportSubmissionsToSheets, downloadGradebookCSV } from "./lib/workspace";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -125,7 +127,7 @@ function Shell() {
     window.scrollTo({ top: 0 });
     if (user.role === "admin") { if (route.name !== "admin") navigate("/admin"); return; }
     if (route.name === "home" || route.name === "courses" || route.name === "todo") { loadCourses(); loadOverview(); return; }
-    if (route.name === "admin") return;
+    if (route.name === "admin" || route.name === "profile") return;
     const teacher = user.role !== "student";
     if (route.name === "course") { setCourse(null); setStats(null); loadCourse(route.courseId, teacher); return; }
     if (route.name === "assignment" || route.name === "submission") {
@@ -213,6 +215,8 @@ function Shell() {
   const readNotifications = async () => { if (unread > 0) { await api("/api/notifications/read", { method: "POST" }).catch(() => {}); setUnread(0); setTimeout(loadNotifications, 4000); } };
 
   /* ---------- render ---------- */
+  // Public, read-only thinking profile behind a student-created link: no login needed
+  if (path.startsWith("/p/") && path.length > 6) return <PublicProfilePage token={decodeURIComponent(path.slice(3).split("?")[0])} />;
   if (booting) return <div className="min-h-screen flex items-center justify-center bg-bg text-3xl text-ink-2"><HmmLoader label="Đang tải" /></div>;
   if (!user) {
     if (publicView === "landing") return <LandingPage onLogin={() => setPublicView("login")} onRegister={(r) => { setRegisterRole(r || "student"); setPublicView("register"); }} />;
@@ -224,6 +228,7 @@ function Shell() {
   const goCourse = () => cid && navigate(`/course/${cid}`);
   const crumbs: { label: string; onClick?: () => void }[] = [];
   if (route.name === "courses") crumbs.push({ label: "Tất cả môn học" });
+  if (route.name === "profile") crumbs.push({ label: "Hồ sơ tư duy" });
   if (route.name === "todo") crumbs.push({ label: manage ? "Bài nộp cần chấm" : "Việc cần làm" });
   if (route.name === "admin") crumbs.push({ label: "Quản trị hệ thống" });
   if (cid) crumbs.push({ label: course?.name || "Môn học", onClick: route.name === "course" ? undefined : goCourse });
@@ -269,6 +274,8 @@ function Shell() {
                 <CoursesPage user={user} courses={courses} loading={coursesLoading} onSelect={openCourse} onEdit={(c) => setCourseModal({ open: true, course: c })}
                   onDelete={(c) => setPending({ kind: "course", payload: c })} onCreate={() => setCourseModal({ open: true, course: null })} onJoin={() => setJoinOpen(true)} />
               )}
+
+              {route.name === "profile" && user.role === "student" && <ProfilePage />}
 
               {route.name === "todo" && (
                 <TodoPage user={user} overview={overview} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)} onOpenSubmission={(c, a, s) => navigate(`/course/${c}/assignment/${a}/submission/${s}`)} />

@@ -10,6 +10,7 @@ import {
 import { generateDemoData, DEMO_PREFIX } from "./src/lib/demoData.ts";
 import { isAnswerGate, makeTeaser, GATE_MIN_ANSWERS, GATE_MIN_CHARS, type GateInfo } from "./src/lib/gate.ts";
 import { isPasteMode } from "./src/lib/paste.ts";
+import { CRITERIA, buildProfile, memoryNote, cleanCoach, materialsBlock, MATERIAL_LIMITS, detectPressure, SOCRATIC_RULES, looksLikeFullAnswer, SOCRATIC_FALLBACK, agreement, spread, type LearningProfile, type CoachNote } from "./src/lib/coach.ts";
 import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -30,8 +31,30 @@ if (!process.env.AUTH_SECRET) console.warn("[Auth] AUTH_SECRET is not set. Using
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const GEMINI_FALLBACKS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.6-flash,gemini-flash-lite-latest").split(",").map((m) => m.trim()).filter(Boolean);
 
+let mockRuns = 0;
+/** Deterministic stand-in for Gemini, used only when AI_MOCK=1 so the wiring can be tested without a key. */
+function mockAi(params: { contents: any; config?: any }): { text: string } {
+  const sys = String(params.config?.systemInstruction || "");
+  const last = String(params.contents?.[params.contents.length - 1]?.parts?.[0]?.text || "");
+  if (params.config?.responseSchema?.properties?.criterion) {
+    const mine = last.split("LƯỢT MỚI NHẤT CỦA SINH VIÊN:\n")[1] || last;
+    const word = mine.split(" ").slice(0, 4).join(" ");
+    return { text: JSON.stringify({ level: "weak", criterion: "kiem_chung_thong_tin", quote: /BỊA/.test(mine) ? "câu mà sinh viên chưa từng viết" : word, note: "Ý này chưa có dẫn chứng.", tip: "Hãy nêu một ví dụ cụ thể." }) };
+  }
+  if (params.config?.responseSchema?.properties?.process_score) {
+    mockRuns += 1;   // varies a little between calls so the stability report has something to measure
+    const base = 60 + (mockRuns % 3) * 2;
+    return { text: JSON.stringify({ process_score: base, tieu_chi: { tu_duy_phan_bien: base, dao_sau_van_de: base, kiem_chung_thong_tin: base - 10, noi_hoa_kien_thuc: base, tinh_chu_dong: base }, noi_dung_ngoai_luong: "", nhan_xet_ngan: "mock", highlight_segments: [] }) };
+  }
+  const flags = [`mem=${/TRÍ NHỚ VỀ SINH VIÊN/.test(sys) ? "yes" : "no"}`, `mat=${/TÀI LIỆU CỦA LỚP/.test(sys) ? "yes" : "no"}`, `rules=${/QUY TẮC BẤT BIẾN/.test(sys) ? "yes" : "no"}`, `retry=${/BẠN VỪA ĐƯA ĐÁP ÁN/.test(sys) ? "yes" : "no"}`];
+  if (/MOCK_GIVEAWAY/.test(last) && !/BẠN VỪA ĐƯA ĐÁP ÁN/.test(sys)) return { text: `Đây là bài hoàn chỉnh cho bạn, chép lại là xong. ${flags.join(" ")}` };
+  if (/MOCK_STUBBORN/.test(last)) return { text: `Đây là toàn bộ lời giải, không có câu hỏi nào cả. ${flags.join(" ")}` };
+  return { text: `Bạn nghĩ sao về điều đó? [${flags.join(" ")}]` };
+}
+
 /** Calls Gemini, retrying overloaded/rate-limited responses and falling back to other models. */
 async function generateWithFallback(params: { contents: any; config?: any }, timeoutMs = 30000) {
+  if (process.env.AI_MOCK === "1") return mockAi(params);   // offline tests only: never set in production
   const models = [GEMINI_MODEL, ...GEMINI_FALLBACKS.filter((m) => m !== GEMINI_MODEL)];
   let lastErr: any;
   for (const model of models) {
@@ -119,7 +142,7 @@ function getGenAI(): GoogleGenAI {
 
 // Mock Initial DB Setup in memory with file backup
 interface DB {
-  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student' | 'admin'; avatar: string; pwd?: string; active?: boolean; last_seen?: string }>;
+  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student' | 'admin'; avatar: string; pwd?: string; active?: boolean; last_seen?: string; profile_share?: { token: string; include_quotes: boolean; created_at: string } }>;
   courses: Array<any>;
   course_members: Array<any>;
   assignments: Array<any>;
@@ -815,6 +838,16 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 // Safe diagnostics (never returns secrets): is Supabase reachable and is the table there?
+
+// Public, read-only thinking profile. Reachable only with the random token the student created, and revocable by them.
+app.get("/api/public/profile/:token", (req, res) => {
+  const token = String(req.params.token || "");
+  const user = token.length >= 16 ? db.users.find((u: any) => u.profile_share?.token === token && u.active !== false) : null;
+  if (!user) return fail(res, 404, "Liên kết hồ sơ không tồn tại hoặc đã bị thu hồi.");
+  const d = studentProfileData(user.id, !!user.profile_share.include_quotes);
+  res.json({ success: true, data: { name: user.name, shared_at: user.profile_share.created_at, profile: d.profile, quotes: d.quotes, note: "Điểm do AI chấm theo 5 tiêu chí tư duy trên nhật ký làm bài, kèm đánh giá của giảng viên. Đây không phải điểm học phần." } });
+});
+
 app.get("/api/health", async (req, res) => {
   const url = process.env.SUPABASE_URL?.trim() || "";
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
@@ -1067,6 +1100,7 @@ function courseWithCounts(course: any, user: any) {
   const openAssignments = courseAssignments.filter((a: any) => new Date(a.due_date) > new Date());
   const base: any = {
     ...course,
+    materials: (course.materials || []).map((m: any) => ({ id: m.id, name: m.name, chars: String(m.text || "").length, added_at: m.added_at })),
     accent_color: !course.accent_color || /zinc|slate|gray/.test(course.accent_color)
       ? COURSE_COLORS[[...course.id].reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % COURSE_COLORS.length]
       : course.accent_color,
@@ -1141,7 +1175,7 @@ app.put("/api/courses/:id", (req: AuthedRequest, res) => {
     updated_at: nowIso(),
   });
   saveDocument("courses", course.id, course);
-  res.json({ success: true, data: course, message: "Cập nhật thông tin môn học thành công!" });
+  res.json({ success: true, data: { ...course, materials: (course.materials || []).map((m: any) => ({ id: m.id, name: m.name, chars: String(m.text || "").length, added_at: m.added_at })) }, message: "Cập nhật thông tin môn học thành công!" });
 });
 
 app.post("/api/courses/:id/regenerate-code", (req: AuthedRequest, res) => {
@@ -1252,7 +1286,9 @@ app.get("/api/courses/:id", (req: AuthedRequest, res) => {
     })
     .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
   const { invite_code, ...rest } = course;
-  res.json({ success: true, data: { ...(owner ? course : rest), members, assignments } });
+  // class materials are text for the AI only: the client gets names and sizes, never the text
+  const materials = (course.materials || []).map((m: any) => ({ id: m.id, name: m.name, chars: String(m.text || "").length, added_at: m.added_at }));
+  res.json({ success: true, data: { ...(owner ? course : rest), materials, members, assignments } });
 });
 
 // ---- Assignments ----
@@ -1294,7 +1330,7 @@ function publicAssignment(a: any, user: any) {
 }
 
 function sanitizeAssignmentInput(body: any) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode, live_coach } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   // Input friction only applies to plain AI-chat assignments (not file-only, not the 3-step L2 flow)
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
@@ -1309,6 +1345,7 @@ function sanitizeAssignmentInput(body: any) {
     allow_late: allow_late === false ? false : true,
     friction: level,
     paste_mode: isPasteMode(paste_mode) ? paste_mode : "track",
+    live_coach: live_coach === false ? false : true,
     friction_prompts: cleanFrictionPrompts(friction_prompts),
     answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none",
   };
@@ -1908,17 +1945,53 @@ NHIỆM VỤ: sinh viên đã đọc phần mở đầu của một câu trả l
 }
 
 /** System prompt for plain (non-L2) assignment chat. When the student wrote their own ideas first, the AI builds on them. */
-function chatInstruction(assignment: any, course: any, chatSession: any): string {
+/** One short, evidence-based observation about the student's latest turn. Returns null on any failure: coaching is optional. */
+async function coachTurn(assignment: any, chatSession: any, text: string): Promise<CoachNote | null> {
+  if (text.trim().length < 12 || !(process.env.GEMINI_API_KEY || process.env.AI_MOCK === "1")) return null;
+  try {
+    const recent = chatSession.messages.slice(-7, -1).map((m: any) => `${m.role === "user" ? "SV" : "AI"}: ${String(m.content).slice(0, 400)}`).join("\n");
+    const prompt = `Bạn là người quan sát quá trình tư duy của sinh viên khi làm bài "${assignment.title}" cùng trợ lý AI. Chỉ nhận xét LƯỢT MỚI NHẤT của sinh viên (bên dưới), dựa trên 5 tiêu chí: tu_duy_phan_bien, dao_sau_van_de, kiem_chung_thong_tin, noi_hoa_kien_thuc, tinh_chu_dong.
+Chọn đúng MỘT tiêu chí nổi bật nhất ở lượt này.
+- level: "good" nếu lượt này thể hiện tốt tiêu chí đó; "weak" nếu còn yếu hoặc thiếu; "warn" nếu sinh viên đang nhờ AI làm hộ hoặc xin đáp án.
+- quote: trích NGUYÊN VĂN một cụm từ 3-12 chữ có trong lượt mới nhất làm bằng chứng (để trống nếu không có cụm nào phù hợp).
+- note: một câu tiếng Việt, nói rõ vì sao, không khen chung chung.
+- tip: một việc nhỏ cụ thể sinh viên có thể làm ngay ở lượt sau. Tuyệt đối không đưa đáp án của bài.
+Ngữ cảnh gần đây:\n${recent || "(đầu cuộc trò chuyện)"}\n\nLƯỢT MỚI NHẤT CỦA SINH VIÊN:\n${text.slice(0, 1200)}`;
+    const call = generateWithFallback({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { temperature: 0.2, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { level: { type: Type.STRING }, criterion: { type: Type.STRING }, quote: { type: Type.STRING }, note: { type: Type.STRING }, tip: { type: Type.STRING } }, required: ["level", "criterion", "note"] } },
+    }, 9000);
+    const r: any = await Promise.race([call, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("coach timeout")), 12000))]);
+    return cleanCoach(JSON.parse(String(r.text || "").trim()), text);
+  } catch (e: any) { console.warn("[Coach] skipped:", e?.message || e); return null; }
+}
+
+/** What this student has shown across the assignments that were already evaluated (not counting the current one). */
+function profileFor(studentId: string, excludeAssignmentId?: string): LearningProfile {
+  const items = db.submissions
+    .filter((x: any) => x.student_id === studentId && x.process_score_result?.tieu_chi && x.assignment_id !== excludeAssignmentId)
+    .map((x: any) => ({ assignment_title: db.assignments.find((a: any) => a.id === x.assignment_id)?.title || "", at: x.submitted_at, process_score: x.process_score_result.process_score, tieu_chi: x.process_score_result.tieu_chi }));
+  return buildProfile(items);
+}
+
+function chatInstruction(assignment: any, course: any, chatSession: any, extra: { query?: string; retry?: boolean } = {}): string {
   const base = assignment.ai_submode === "socratic"
     ? `Bạn là trợ lý học tập AI trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}. Mô tả bài tập: ${assignment.description}.
 Khi sinh viên hỏi, đừng đưa đáp án ngay. Đặt 1-2 câu hỏi gợi mở để sinh viên tự suy nghĩ trước. Chỉ đưa đáp án/hướng dẫn chi tiết sau khi sinh viên đã thử trả lời. Nếu sinh viên yêu cầu đáp án ngay, nhắc nhẹ nhàng về lợi ích tự tư duy trước, sau đó vẫn hỗ trợ nếu họ thực sự cần.
 Trả lời bằng tiếng Việt thân thiện, rõ ràng, mang tính giáo dục.`
     : `Bạn là trợ lý học tập AI nhiệt tình trong môn ${course.name}, hỗ trợ sinh viên làm bài tập: ${assignment.title}.
 Giải đáp thắc mắc, gợi ý hướng giải quyết và cung cấp tài liệu tham khảo chính xác. Trả lời bằng tiếng Việt chuyên nghiệp, ngắn gọn.`;
+  const rubric = assignment.rubric?.trim() ? `\nTiêu chí chấm của giảng viên cho bài này: ${String(assignment.rubric).slice(0, 1500)}\nHãy dẫn dắt sinh viên theo hướng đáp ứng các tiêu chí đó, nhưng đừng làm hộ.` : "";
+  const query = extra.query ?? [...(chatSession?.messages || [])].reverse().find((m: any) => m.role === "user")?.content ?? "";
+  const mats = materialsBlock(course.materials, `${assignment.title} ${query}`);
+  const mem = chatSession?.student_id ? memoryNote(profileFor(chatSession.student_id, assignment.id)) : "";
+  const rules = assignment.ai_submode === "socratic" ? SOCRATIC_RULES : "";
+  const retry = extra.retry ? "\nBẠN VỪA ĐƯA ĐÁP ÁN trực tiếp ở lần trả lời trước, và điều đó vi phạm chế độ Socratic. Hãy trả lời lại: chỉ ghi nhận, đặt câu hỏi gợi mở và đưa tối đa một gợi ý nhỏ, không đưa lời giải." : "";
+  const full = base + rubric + mats + mem;
   const intent: ChatIntent | undefined = chatSession?.intent;
-  if (!intent || intent.skipped || !intent.answers?.length) return base;
-  return `${base}
-Sinh viên đã tự ghi ý riêng của mình TRƯỚC khi hỏi bạn (tin nhắn đầu tiên của họ). Hãy dùng chính ý của họ làm nền: ghi nhận điểm đúng, chỉ ra điểm còn yếu hoặc thiếu, rồi giúp họ NÂNG CẤP lập luận của chính họ thay vì viết lại từ đầu. Không đưa bài hoàn chỉnh thay họ.`;
+  if (!intent || intent.skipped || !intent.answers?.length) return full + rules + retry;
+  return `${full}
+Sinh viên đã tự ghi ý riêng của mình TRƯỚC khi hỏi bạn (tin nhắn đầu tiên của họ). Hãy dùng chính ý của họ làm nền: ghi nhận điểm đúng, chỉ ra điểm còn yếu hoặc thiếu, rồi giúp họ NÂNG CẤP lập luận của chính họ thay vì viết lại từ đầu. Không đưa bài hoàn chỉnh thay họ.` + rules + retry;
 }
 
 app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
@@ -2081,7 +2154,11 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (Number.isFinite(pasted) && pasted > 0) userMsg.pasted_chars = Math.min(Math.round(pasted), message_content.length);
   const attempts = Math.round(Number(req.body?.paste_attempts));
   if (Number.isFinite(attempts) && attempts > 0) userMsg.paste_attempts = Math.min(attempts, 50);
+  const pressure = !isL2 ? detectPressure(message_content) : null;
+  if (pressure) userMsg.pressure = pressure;
   chatSession.messages.push(userMsg);
+  // The live coach reads the student's turn while the main answer is being written, so it adds no waiting time
+  const coachPromise: Promise<CoachNote | null> = !isL2 && assignment.live_coach !== false ? coachTurn(assignment, chatSession, message_content) : Promise.resolve(null);
 
   const systemInstruction = isL2 ? l2ChatInstruction(assignment, course, phase!) : chatInstruction(assignment, course, chatSession);
 
@@ -2094,15 +2171,22 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
       const teaser = makeTeaser(answer);
       aiMsg = { id: uid("m"), role: "model" as const, content: teaser, timestamp: nowIso(), gate: { state: "locked", questions, teaser, draft: answer } satisfies GateInfo };
     } else {
-      const response = await generateWithFallback({
-        contents: chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
-        config: { systemInstruction, temperature: 0.7 },
-      });
-      const replyText = response.text;
+      const contents = chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] }));
+      const response = await generateWithFallback({ contents, config: { systemInstruction, temperature: 0.7 } });
+      let replyText = response.text;
       if (!replyText) throw new Error("AI trả về nội dung rỗng.");
+      let guard: "regenerated" | "fallback" | undefined;
+      // Socratic guard: if the reply just hands over the answer, ask once more with a stricter instruction, then fall back
+      if (!isL2 && assignment.ai_submode === "socratic" && looksLikeFullAnswer(replyText)) {
+        const again = await generateWithFallback({ contents, config: { systemInstruction: chatInstruction(assignment, course, chatSession, { retry: true }), temperature: 0.4 } });
+        if (again.text && !looksLikeFullAnswer(again.text)) { replyText = again.text; guard = "regenerated"; } else { replyText = SOCRATIC_FALLBACK; guard = "fallback"; }
+      }
       aiMsg = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+      if (guard) aiMsg.guard = guard;
       if (isL2) aiMsg.phase = phase;
     }
+    const coach = await coachPromise;
+    if (coach) userMsg.coach = coach;
     chatSession.messages.push(aiMsg);
     saveDocument("chat_sessions", chatSession.id, chatSession);
     const pub = publicChat(chatSession, req.user);
@@ -2637,6 +2721,120 @@ app.delete("/api/admin/demo-data", (req: AuthedRequest, res) => {
 });
 
 app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.audit_logs.slice(0, 200) }));
+
+
+// ---- Class materials: text the teacher gives the AI to ground its answers in ----
+app.post("/api/courses/:id/materials", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Chỉ giảng viên phụ trách mới thêm được tài liệu.");
+  if (!can(req.user, "manage_assignments")) return denied(res);
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const text = String(req.body?.text || "").replace(/\r\n/g, "\n").trim();
+  if (!name) return fail(res, 400, "Hãy đặt tên cho tài liệu.");
+  if (text.length < 20) return fail(res, 400, "Nội dung tài liệu quá ngắn.");
+  if (text.length > MATERIAL_LIMITS.perFile) return fail(res, 400, `Mỗi tài liệu tối đa ${MATERIAL_LIMITS.perFile.toLocaleString("vi-VN")} ký tự. Hãy tách thành nhiều tài liệu.`);
+  const list: any[] = course.materials || [];
+  if (list.length >= MATERIAL_LIMITS.files) return fail(res, 400, `Mỗi môn tối đa ${MATERIAL_LIMITS.files} tài liệu.`);
+  if (list.reduce((t, m) => t + m.text.length, 0) + text.length > MATERIAL_LIMITS.total) return fail(res, 400, "Tổng dung lượng tài liệu của môn đã vượt giới hạn.");
+  course.materials = [...list, { id: uid("mat"), name, text, added_at: nowIso() }];
+  saveDocument("courses", course.id, course);
+  audit(req.user, "course.material.add", course.name, name);
+  res.json({ success: true, data: courseWithCounts(course, req.user).materials });
+});
+
+app.delete("/api/courses/:id/materials/:mid", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!isOwner(course, req.user)) return fail(res, 403, "Chỉ giảng viên phụ trách mới xóa được tài liệu.");
+  const before = (course.materials || []).length;
+  course.materials = (course.materials || []).filter((m: any) => m.id !== req.params.mid);
+  if (course.materials.length === before) return fail(res, 404, "Không tìm thấy tài liệu.");
+  saveDocument("courses", course.id, course);
+  res.json({ success: true, data: courseWithCounts(course, req.user).materials });
+});
+
+// ---- Learning profile: the student's own record, and an optional read-only link they control ----
+function studentProfileData(studentId: string, includeQuotes: boolean) {
+  const subs = db.submissions.filter((x: any) => x.student_id === studentId && x.process_score_result?.tieu_chi);
+  const items = subs.map((x: any) => ({ assignment_title: db.assignments.find((a: any) => a.id === x.assignment_id)?.title || "Bài tập", at: x.submitted_at, process_score: x.process_score_result.process_score, tieu_chi: x.process_score_result.tieu_chi }));
+  const profile = buildProfile(items);
+  let quotes: { text: string; reason: string }[] = [];
+  if (includeQuotes) {
+    const newest = [...subs].sort((a: any, b: any) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
+    for (const x of newest) for (const h of x.process_score_result.highlight_segments || []) {
+      if (h.mau === "xanh" && h.doan_van_ban && quotes.length < 3) quotes.push({ text: String(h.doan_van_ban).slice(0, 200), reason: String(h.ly_do || "").slice(0, 200) });
+    }
+  }
+  return { profile, quotes, recent: items.sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 6).map((i) => ({ title: i.assignment_title, score: i.process_score, at: i.at })) };
+}
+
+app.get("/api/me/profile", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Hồ sơ tư duy dành cho sinh viên.");
+  const d = studentProfileData(req.user.id, !!req.user.profile_share?.include_quotes);
+  res.json({ success: true, data: { ...d, share: req.user.profile_share ? { token: req.user.profile_share.token, include_quotes: !!req.user.profile_share.include_quotes, created_at: req.user.profile_share.created_at } : null } });
+});
+
+app.post("/api/me/profile/share", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Hồ sơ tư duy dành cho sinh viên.");
+  const include = req.body?.include_quotes === true;
+  req.user.profile_share = { token: req.user.profile_share?.token || crypto.randomBytes(12).toString("hex"), include_quotes: include, created_at: req.user.profile_share?.created_at || nowIso() };
+  saveDocument("users", req.user.id, req.user);
+  res.json({ success: true, data: req.user.profile_share });
+});
+
+app.delete("/api/me/profile/share", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Hồ sơ tư duy dành cho sinh viên.");
+  delete req.user.profile_share;
+  saveDocument("users", req.user.id, req.user);
+  res.json({ success: true, data: null });
+});
+
+// ---- Does the AI's score agree with the teacher's? (teacher: own courses, admin: everything) ----
+app.get("/api/analytics/ai-reliability", (req: AuthedRequest, res) => {
+  if (req.user.role !== "teacher" && req.user.role !== "admin") return fail(res, 403, "Chỉ giảng viên hoặc quản trị viên xem được thống kê này.");
+  const courses = db.courses.filter((c: any) => req.user.role === "admin" || c.teacher_id === req.user.id);
+  const rows: { course: string; sub: any }[] = [];
+  for (const c of courses) {
+    const ids = new Set(db.assignments.filter((a: any) => a.course_id === c.id && a.submission_mode !== "writing_l2").map((a: any) => a.id));
+    for (const sub of db.submissions) if (ids.has(sub.assignment_id) && sub.process_score_result && gradedState(sub)) rows.push({ course: c.name, sub });
+  }
+  const pairs = rows.map((r) => ({ ai: r.sub.process_score_result.process_score, teacher: r.sub.grade }));
+  const byCourse = [...new Set(rows.map((r) => r.course))].map((name) => ({ course: name, ...agreement(rows.filter((r) => r.course === name).map((r) => ({ ai: r.sub.process_score_result.process_score, teacher: r.sub.grade }))) }));
+  const demo = rows.length > 0 && rows.every((r) => String(r.sub.id).startsWith(DEMO_PREFIX));
+  res.json({ success: true, data: { overall: agreement(pairs), by_course: byCourse, demo, min_recommended: 30 } });
+});
+
+
+app.get("/api/analytics/ai-reliability/sample", (req: AuthedRequest, res) => {
+  if (req.user.role !== "teacher" && req.user.role !== "admin") return fail(res, 403, "Không có quyền.");
+  const mine = new Set(db.courses.filter((c: any) => req.user.role === "admin" || c.teacher_id === req.user.id).map((c: any) => c.id));
+  const ids = db.submissions.filter((x: any) => x.process_score_result && x.student_id && (() => { const a = db.assignments.find((q: any) => q.id === x.assignment_id); return a && mine.has(a.course_id) && a.submission_mode !== "writing_l2" && db.chat_sessions.some((cs: any) => cs.assignment_id === x.assignment_id && cs.student_id === x.student_id); })()).slice(0, 3).map((x: any) => x.id);
+  res.json({ success: true, data: ids });
+});
+
+// ---- Stability: grade the same work several times, WITHOUT saving, to see how much the AI's score moves ----
+app.post("/api/analytics/ai-retest", async (req: AuthedRequest, res) => {
+  if (req.user.role !== "teacher" && req.user.role !== "admin") return fail(res, 403, "Chỉ giảng viên hoặc quản trị viên chạy được kiểm tra này.");
+  const ids: string[] = (Array.isArray(req.body?.submission_ids) ? req.body.submission_ids : []).slice(0, 5);
+  const runs = Math.min(4, Math.max(2, Math.round(Number(req.body?.runs) || 3)));
+  if (!ids.length) return fail(res, 400, "Chọn ít nhất một bài nộp.");
+  if (!process.env.GEMINI_API_KEY) return fail(res, 400, "Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+  const out: any[] = [];
+  for (const id of ids) {
+    const sub = db.submissions.find((x: any) => x.id === id);
+    const assignment = sub && db.assignments.find((a: any) => a.id === sub.assignment_id);
+    if (!sub || !assignment || assignment.submission_mode === "writing_l2") continue;
+    const course = findCourse(assignment.course_id);
+    if (req.user.role !== "admin" && !isOwner(course, req.user)) continue;
+    const chat = db.chat_sessions.find((cs: any) => cs.assignment_id === sub.assignment_id && cs.student_id === sub.student_id);
+    if (!chat?.messages.some((m: any) => m.role === "user")) continue;
+    const scores: number[] = [];
+    for (let i = 0; i < runs; i++) { try { scores.push((await evaluateProcess(assignment, chat, sub.submitted_text)).process_score); } catch { /* a failed run is simply not counted */ } }
+    out.push({ submission_id: id, title: assignment.title, scores, ...(spread(scores) || {}) });
+  }
+  res.json({ success: true, data: { runs, results: out, note: "Các lần chấm này không được lưu và không thay đổi điểm của bài." } });
+});
 
 app.use("/api", (req, res) => fail(res, 404, "API không tồn tại."));
 

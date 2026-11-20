@@ -14,7 +14,7 @@ export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions
 export interface AssignmentFormData {
   title: string; description: string; rubric: string; due_date: string;
   attachments: AssignmentAttachment[]; submission_mode: SubmissionMode; ai_submode: AISubmode; allow_late: boolean;
-  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate; paste_mode: PasteMode;
+  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate; paste_mode: PasteMode; live_coach: boolean;
   l2?: L2FormData;
 }
 interface Props {
@@ -41,6 +41,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
   const [friction, setFriction] = useState<FrictionLevel>("nudge");
   const [answerGate, setAnswerGate] = useState<AnswerGate>("none");
   const [pasteMode, setPasteMode] = useState<PasteMode>("track");
+  const [liveCoach, setLiveCoach] = useState(true);
   const [frictionPrompts, setFrictionPrompts] = useState<string[]>(DEFAULT_FRICTION_PROMPTS);
   const [files, setFiles] = useState<UploadedFileItem[]>([]);
   const [l2Text, setL2Text] = useState("");
@@ -61,6 +62,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
     setFriction(assignment ? assignment.friction || "none" : "nudge");
     setAnswerGate(assignment?.answer_gate || "none");
     setPasteMode(assignment?.paste_mode || "track");
+    setLiveCoach(assignment?.live_coach !== false);
     setFrictionPrompts(assignment?.friction_prompts?.length ? assignment.friction_prompts : DEFAULT_FRICTION_PROMPTS);
     setL2Text(assignment?.l2?.ai_text || ""); setL2Lang(assignment?.l2?.prompt_language || "en");
     setL2Errors((assignment?.l2?.errors || []).map((e) => ({ id: e.id, type: e.type, text: e.text, answer: e.answer })));
@@ -83,7 +85,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
         title: title.trim(), description, rubric, due_date: new Date(dueDate).toISOString(),
         attachments: files.map((f) => ({ id: f.id, name: f.name, url: f.url, size: f.size, type: f.type })),
         submission_mode: mode, ai_submode: aiMode, allow_late: allowLate,
-        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate, paste_mode: pasteMode,
+        friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate, paste_mode: pasteMode, live_coach: liveCoach,
         ...(mode === "writing_l2" ? { l2: { ai_text: l2Text, errors: l2Errors, dimensions: l2Dims, prompt_language: l2Lang } } : {}),
       });
       onClose();
@@ -156,6 +158,12 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
               ))}
             </div>
           </div>
+        )}
+        {mode !== "file_only" && mode !== "writing_l2" && (
+          <label className="flex items-start gap-3 rounded-2xl border border-line p-3 cursor-pointer" data-testid="live-coach-toggle">
+            <input type="checkbox" className="mt-1" checked={liveCoach} onChange={(e) => setLiveCoach(e.target.checked)} />
+            <span><span className="block text-sm font-semibold">Nhận xét ngay trong lúc chat</span><span className="block text-[11px] text-mute mt-0.5">Sau mỗi lượt, hệ thống chỉ ra một điểm mạnh hoặc điểm còn yếu kèm trích đoạn câu của sinh viên. Tốn thêm một lượt gọi AI cho mỗi tin nhắn.</span></span>
+          </label>
         )}
         {mode !== "file_only" && (
           <div>

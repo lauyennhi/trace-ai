@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Home, LayoutGrid, ListTodo, ShieldCheck, Settings, GraduationCap, BookOpen, Users, ScrollText } from "lucide-react";
+import { Home, LayoutGrid, ListTodo, ShieldCheck, Settings, GraduationCap, BookOpen, Users, ScrollText, UserRound } from "lucide-react";
 import { User, Course } from "../types";
 import { courseTheme } from "./ui";
 
@@ -32,6 +32,7 @@ export const Sidebar: React.FC<Props> = ({ user, courses, expanded, mobileOpen, 
     { id: "home", label: "Trang chủ", icon: Home, to: "/", on: routeName === "home" },
     { id: "courses", label: "Tất cả môn học", icon: LayoutGrid, to: "/courses", on: routeName === "courses" },
     { id: "todo", label: teacher ? "Cần chấm" : "Việc cần làm", icon: ListTodo, to: "/todo", on: routeName === "todo", badge: todoCount },
+    ...(teacher ? [] : [{ id: "profile", label: "Hồ sơ tư duy", icon: UserRound, to: "/profile", on: routeName === "profile" }]),
   ];
   const go = (to: string) => { onNavigate(to); onCloseMobile(); };
   const wide = expanded || mobileOpen;
