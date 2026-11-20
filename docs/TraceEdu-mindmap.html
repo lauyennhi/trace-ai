@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TraceEdu: sơ đồ tư duy dự án</title>
+<style>
+  :root{--navy:#041B2D;--cobalt:#004E9A;--sky:#428CD4;--mist:#f3f7fb;--line:#c9d6e4;--ink:#041B2D;--mute:#4a6178;
+    --ok:#16a34a;--part:#d99a00;--todo:#8a9bb0;--unv:#e8590c}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:"Be Vietnam Pro",Arial,Helvetica,sans-serif;color:var(--ink);background:linear-gradient(180deg,#eef5fc,#fff);overflow:hidden}
+  header{position:fixed;inset:0 0 auto 0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:12px 16px;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  h1{font-size:16px;margin:0;font-weight:700;letter-spacing:-.01em}
+  h1 small{font-weight:400;color:var(--mute);margin-left:8px;font-size:12px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--mute)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .tools{margin-left:auto;display:flex;gap:6px}
+  button{font:inherit;font-size:12px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 10px;border-radius:8px;cursor:pointer}
+  button:hover{background:var(--mist)}
+  #stage{position:fixed;inset:0;cursor:grab}
+  #stage:active{cursor:grabbing}
+  svg{width:100%;height:100%;display:block}
+  .link{fill:none;stroke:var(--line);stroke-width:1.6}
+  .node rect{rx:9;ry:9;stroke-width:1.6;fill:#fff;transition:filter .15s}
+  .node:hover rect{filter:drop-shadow(0 4px 10px rgba(4,27,45,.2))}
+  .node text{font-size:12.5px;fill:var(--ink);pointer-events:none}
+  .node .sub{font-size:10.5px;fill:var(--mute)}
+  .node.sel rect{stroke-width:3}
+  .node .toggle{font-size:11px;fill:#fff;font-weight:700;pointer-events:none}
+  #panel{position:fixed;right:14px;bottom:14px;width:min(380px,calc(100vw - 28px));max-height:46vh;overflow:auto;z-index:6;background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:0 20px 50px -20px rgba(4,27,45,.4);font-size:13.5px;line-height:1.55}
+  #panel[hidden]{display:none}
+  #panel h2{margin:0 0 4px;font-size:16px}
+  #panel .tag{display:inline-block;font-size:11px;font-weight:600;color:#fff;padding:2px 9px;border-radius:99px;margin-bottom:8px}
+  #panel code{background:var(--mist);padding:1px 6px;border-radius:5px;font-size:12px}
+  #panel .x{position:absolute;right:10px;top:8px;border:0;font-size:16px;background:none}
+  .hint{position:fixed;left:16px;bottom:12px;font-size:12px;color:var(--mute);z-index:4}
+</style>
+</head>
+<body>
+<header>
+  <h1>TraceEdu <small>sơ đồ tư duy dự án · cập nhật 20/11/2026</small></h1>
+  <div class="legend">
+    <span><i style="background:var(--ok)"></i>Đã có, đã kiểm tra</span>
+    <span><i style="background:var(--part)"></i>Có nhưng còn giới hạn</span>
+    <span><i style="background:var(--unv)"></i>Có, chưa kiểm chứng hiệu quả</span>
+    <span><i style="background:var(--todo)"></i>Chưa có</span>
+  </div>
+  <div class="tools"><button id="expand">Mở hết</button><button id="collapse">Thu gọn</button><button id="fit">Vừa màn hình</button></div>
+</header>
+<div id="stage"><svg id="svg" role="img" aria-label="Sơ đồ tư duy dự án TraceEdu"><g id="view"></g></svg></div>
+<aside id="panel" hidden><button class="x" aria-label="Đóng">×</button><div id="pc"></div></aside>
+<div class="hint">Kéo để di chuyển · cuộn chuột để phóng to · bấm nút tròn để mở/thu, bấm ô để xem chi tiết</div>
+
+<script>
+/* status: ok | part | unv | todo */
+const T = {
+  n: "TraceEdu", d: "Lớp học trực tuyến nơi sinh viên làm bài cùng AI nhưng AI không làm hộ. Ghi lại dấu vết tư duy, chấm 5 tiêu chí kèm bằng chứng, giảng viên chốt điểm. Less Paste, More Trace.", kids: [
+  { n: "Lõi tư duy với AI", kids: [
+    { n: "Nghĩ trước", s: "ok", d: "Sinh viên phải viết ý riêng (≥2 câu, ≥40 ký tự) và chọn mức tự tin 1–5 trước khi AI trả lời. 3 mức do giảng viên chọn: không có / nhắc nhẹ / bắt buộc. Máy chủ khóa chat, không lách được từ giao diện.", f: ["src/lib/friction.ts", "server.ts: /api/chat/intent"] },
+    { n: "Che mờ & mở khóa", s: "ok", d: "AI chỉ hiện 30% (3–4 dòng) câu trả lời; phần còn lại nằm ở máy chủ, không gửi về trình duyệt. Sinh viên nói ý của mình để mở, AI viết lại đáp án theo ý đó.", f: ["src/lib/gate.ts", "src/components/GatedAnswer.tsx"] },
+    { n: "Socratic + chống lách", s: "unv", d: "3 lớp: quy tắc bất biến cuối lệnh; nhận diện 9 kiểu ép AI (đã thử 12 câu mẫu); cổng chặn đầu ra, AI đưa đáp án thì bắt trả lời lại. Chưa chạy với Gemini thật.", f: ["src/lib/coach.ts", "scripts/redteam-socratic.ts"] },
+    { n: "Nhận xét trực tiếp", s: "ok", d: "Sau mỗi lượt: một điểm mạnh/yếu theo 1 trong 5 tiêu chí, trích nguyên văn câu sinh viên (máy chủ bỏ trích dẫn nếu không có thật), kèm việc nên làm tiếp. Chạy song song nên không chậm.", f: ["src/components/CoachChip.tsx", "server.ts: coachTurn"] },
+    { n: "Chấm 5 tiêu chí", s: "unv", d: "AI chấm Phản biện, Đào sâu, Kiểm chứng, Nội hóa, Chủ động (0–100) kèm đoạn trích tô màu xanh/vàng/đỏ. Giảng viên chốt điểm 0–10. Độ tin cậy chưa có dữ liệu thật.", f: ["server.ts: evaluateProcess", "src/components/StudentResultSection.tsx"] },
+    { n: "Bài Viết ngoại ngữ L2", s: "unv", d: "3 bước: viết prompt, soi lỗi cài sẵn trong văn bản AI, chỉnh sửa. Bắt/bỏ sót lỗi, độ giống, số ký tự dán tính bằng thuật toán; AI chấm 5 chiều dựa trên số đó.", f: ["src/lib/l2.ts", "src/components/StudentL2View.tsx"] },
+    { n: "Khóa dán / sao chép", s: "part", d: "Giảng viên chọn khóa: chặn dán, thả, sao chép, cắt; máy chủ từ chối tin nhắn có ký tự dán; ghi số lần thử. Chỉ là rào chắn: gõ lại từ màn hình khác vẫn được.", f: ["src/components/PasteGuard.tsx", "src/lib/paste.ts"] },
+  ]},
+  { n: "Lớp học", kids: [
+    { n: "Tài khoản & phân quyền", s: "ok", d: "3 vai trò (sinh viên, giảng viên, quản trị), mật khẩu băm scrypt, phân quyền mịn bật/tắt từng quyền, nhật ký thao tác.", f: ["server.ts: /api/auth/*", "src/pages/AdminPage.tsx"] },
+    { n: "Môn học & mã mời", s: "ok", d: "Tạo/sửa/xóa môn; sinh viên vào bằng mã mời, đổi mã mới được; xóa sinh viên khỏi lớp; quản trị chuyển giảng viên phụ trách.", f: ["src/pages/CoursePage.tsx"] },
+    { n: "Bài tập (4 kiểu)", s: "ok", d: "Chỉ file / chỉ chat AI / cả hai / viết ngoại ngữ L2. Mỗi bài chọn: Socratic hay thường, ma sát, che mờ, khóa dán, nhận xét trực tiếp, hạn, tiêu chí chấm.", f: ["src/components/AssignmentFormModal.tsx"] },
+    { n: "Thống kê lớp", s: "ok", d: "Điểm quá trình, sinh viên có nguy cơ, chỉ báo hành vi ẩn danh (chỉ hiện từ 5 sinh viên): viết ý trước, bỏ qua, dán nhiều, hiệu chỉnh tự tin.", f: ["src/components/CourseStatsView.tsx"] },
+    { n: "Quản trị & dữ liệu demo", s: "ok", d: "Người dùng, môn học, phân quyền, nhật ký, cài đặt đăng ký; nạp/xóa dữ liệu demo (30 sinh viên, nhiều bài, chat, điểm).", f: ["src/lib/demoData.ts"] },
+  ]},
+  { n: "Giá trị lâu dài", kids: [
+    { n: "AI nhớ sinh viên", s: "ok", d: "Từ các bài đã chấm, tính điểm mạnh/yếu từng sinh viên và đưa vào lệnh cho AI để nhắc đúng chỗ, một lần, không đọc số điểm.", f: ["src/lib/coach.ts: buildProfile, memoryNote"] },
+    { n: "Hồ sơ tư duy", s: "part", d: "Radar 5 tiêu chí qua mọi bài, mạnh nhất / cần luyện thêm, xu hướng. Hiện chỉ tính bài chat thường, chưa tính bài L2.", f: ["src/pages/ProfilePage.tsx", "src/components/ProfileView.tsx"] },
+    { n: "Liên kết chia sẻ hồ sơ", s: "ok", d: "Liên kết chỉ-xem không cần đăng nhập, mã ngẫu nhiên, thu hồi được; không có email, điểm học phần, nhật ký chat; tùy chọn kèm 3 trích đoạn.", f: ["src/pages/PublicProfilePage.tsx", "server.ts: /api/public/profile/:token"] },
+    { n: "Tài liệu của lớp", s: "part", d: "Giảng viên dán chữ hoặc .txt/.md; AI chọn đoạn liên quan để bám sát và ghi tên tài liệu. Sinh viên chỉ thấy tên. Chưa đọc PDF/Word; tìm đoạn bằng từ khóa.", f: ["src/components/MaterialsPanel.tsx"] },
+    { n: "Độ tin cậy điểm AI", s: "unv", d: "So điểm AI với điểm giảng viên (lệch TB, ±1 điểm, tương quan) và chấm lại 3 lần để đo độ ổn định. Số hiện có là dữ liệu demo, không phải bằng chứng; cần ≥30 bài thật.", f: ["src/components/ReliabilityCard.tsx", "scripts/ai-reliability.ts"] },
+  ]},
+  { n: "Trang chủ & thương hiệu", kids: [
+    { n: "Trang chủ 9 phần", s: "part", d: "Hero vòng ∞, Âm thanh của tư duy, Tầm nhìn, About Trace (3 cảnh cuộn), H.M.M, Vòng lặp Hmm, Aha, Đường tư duy + CTA, Liên hệ. Hai cảnh minh họa tiện ích trình duyệt và quét nguồn mô tả tính năng chưa có.", f: ["src/components/landing/*"] },
+    { n: "Logo & màu", s: "part", d: "Logo ∞ vẽ vector từ ảnh mẫu (nên thay bằng file gốc). Navy #041B2D, Cobalt #004E9A, Sky #428CD4. Chưa kiểm tra tên miền và nhãn hiệu.", f: ["src/components/TraceLogo.tsx", "brand/*.svg"] },
+    { n: "Giọng \"Hmm…\"", s: "ok", d: "Chữ h m m m nhấp nhô thay vòng quay chờ, tiếng hmm, Human · Machine · Mind.", f: ["src/components/HmmBrand.tsx"] },
+    { n: "Đăng nhập", s: "ok", d: "Khẩu hiệu \"Less paste, more trace\", vệt mực, nút tài khoản demo.", f: ["src/pages/LoginPage.tsx"] },
+  ]},
+  { n: "Hạ tầng & chất lượng", kids: [
+    { n: "Máy chủ + Gemini", s: "ok", d: "Express một file; Gemini mặc định gemini-3.5-flash, dự phòng 2 mô hình, thử lại khi quá tải. Việc chắc chắn (cắt che mờ, so khớp lỗi, chặn dán) do code làm, không nhờ AI.", f: ["server.ts"] },
+    { n: "CSDL & triển khai", s: "part", d: "Bảng documents JSONB trên Supabase hoặc Firestore; triển khai Vercel. Nếu không cấu hình CSDL, dữ liệu chỉ ở bộ nhớ/file và mất trên Vercel.", f: ["supabase/schema.sql", "vercel.json"] },
+    { n: "Kiểm thử tự động", s: "ok", d: "11 phép thử logic + 19 phép thử API với AI giả lập (AI_MOCK=1, chỉ dùng kiểm thử), cộng duyệt thử bằng trình duyệt tự động.", f: ["scripts/coach.test.ts", "scripts/api-smoke.sh"] },
+    { n: "Thử với Gemini thật", s: "todo", d: "Bộ thử đỏ Socratic (12 câu ép) và đo độ lệch AI–giảng viên đã viết nhưng chưa chạy vì chưa có khóa thật.", f: ["scripts/redteam-socratic.ts"] },
+    { n: "Tài liệu", s: "ok", d: "Tài liệu sản phẩm đầy đủ (.md và .docx): chức năng, flow, giao diện, kiến trúc, thị trường, rủi ro, lộ trình.", f: ["docs/*"] },
+  ]},
+  { n: "Chưa có (lộ trình)", kids: [
+    { n: "Tiện ích trình duyệt", s: "todo", d: "Bôi đen đoạn trên web, hiện góc nhìn đối lập. Trang chủ đang minh họa nhưng chưa có trong code.", f: [] },
+    { n: "Quét nguồn trích dẫn giả", s: "todo", d: "Kiểm tra link và mã DOI có tồn tại không. Trang chủ đang minh họa (link nháy đỏ) nhưng chưa có trong code.", f: [] },
+    { n: "Đọc PDF / Word", s: "todo", d: "Cho tài liệu của lớp; tìm đoạn bằng embedding thay vì từ khóa.", f: [] },
+    { n: "Tích hợp LMS & SSO", s: "todo", d: "Google Classroom, Moodle, Canvas; đăng nhập một lần cho trường.", f: [] },
+    { n: "Quyền riêng tư & xóa dữ liệu", s: "todo", d: "Chính sách bảo mật, xuất và xóa dữ liệu theo yêu cầu: điều kiện để vào trường.", f: [] },
+  ]},
+]};
+
+const COL = { ok: "#16a34a", part: "#d99a00", unv: "#e8590c", todo: "#8a9bb0" };
+const LAB = { ok: "Đã có, đã kiểm tra", part: "Có nhưng còn giới hạn", unv: "Có, chưa kiểm chứng hiệu quả", todo: "Chưa có" };
+const BR = ["#004E9A", "#428CD4", "#1d6fc4", "#0b3a6b", "#2f7fc9", "#6b7f95"];
+const NS = "http://www.w3.org/2000/svg";
+const el = (n, a = {}, p) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; };
+
+// assign ids, branch colours, collapsed state
+let uid = 0;
+(function init(n, depth, br) { n.id = ++uid; n.depth = depth; n.br = br; n.open = depth < 1; (n.kids || []).forEach((k, i) => init(k, depth + 1, depth === 0 ? i : br)); })(T, 0, -1);
+T.open = true;
+
+const W = { 0: 150, 1: 180, 2: 210 }, H = 40, GX = 70, GY = 10;
+const svg = document.getElementById("svg"), view = document.getElementById("view");
+let tx = 40, ty = 80, k = 1, selected = null;
+
+function layout() {
+  let y = 0;
+  (function pos(n) {
+    const kids = n.open && n.kids ? n.kids : [];
+    if (!kids.length) { n.y = y; y += H + GY; return; }
+    kids.forEach(pos);
+    n.y = (kids[0].y + kids[kids.length - 1].y) / 2;
+  })(T);
+  (function xs(n, x) { n.x = x; (n.open && n.kids ? n.kids : []).forEach((c) => xs(c, x + W[n.depth] + GX)); })(T, 0);
+}
+
+function draw() {
+  layout(); view.textContent = "";
+  const links = el("g", {}, view), nodes = el("g", {}, view);
+  (function walk(n) {
+    const vis = n.open && n.kids ? n.kids : [];
+    vis.forEach((c) => {
+      const x1 = n.x + W[n.depth], y1 = n.y + H / 2, x2 = c.x, y2 = c.y + H / 2, mx = (x1 + x2) / 2;
+      el("path", { class: "link", d: `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`, stroke: n.depth === 0 ? BR[c.br] : "#c9d6e4", "stroke-width": n.depth === 0 ? 2.4 : 1.6 }, links);
+      walk(c);
+    });
+    const w = W[n.depth], g = el("g", { class: "node" + (selected === n ? " sel" : ""), transform: `translate(${n.x},${n.y})`, style: "cursor:pointer" }, nodes);
+    const st = n.s, stroke = n.depth === 0 ? "#041B2D" : st ? COL[st] : BR[n.br];
+    const r = el("rect", { width: w, height: H, stroke }, g);
+    r.style.fill = n.depth === 0 ? "#041B2D" : n.depth === 1 ? BR[n.br] : "#fff";   // inline style: beats the stylesheet's default fill
+    if (n.depth === 0) { r.setAttribute("rx", 12); }
+    const t = el("text", { x: 12, y: n.depth === 2 ? 17 : H / 2 + 4.5, fill: n.depth < 2 ? "#fff" : "#041B2D", "font-weight": n.depth < 2 ? 700 : 600 }, g);
+    if (n.depth < 2) t.style.fill = "#fff";
+    t.textContent = n.n.length > 26 && n.depth === 2 ? n.n.slice(0, 25) + "…" : n.n;
+    if (n.depth === 2) {
+      const s = el("text", { class: "sub", x: 12, y: 31 }, g); s.textContent = LAB[st];
+      el("circle", { cx: w - 14, cy: 14, r: 5, fill: COL[st] }, g);
+      if (st === "todo") r.setAttribute("stroke-dasharray", "4 3");
+      if (st === "unv") { const h = el("rect", { x: -3, y: -3, width: w + 6, height: H + 6, rx: 11, stroke: COL.unv, "stroke-width": 1, opacity: .5 }, g); h.style.fill = "none"; g.insertBefore(h, r); }
+    }
+    if (n.kids) {
+      const bx = w + 12, c = el("g", { transform: `translate(${bx},${H / 2})`, "data-t": n.id }, g);
+      el("circle", { r: 9, fill: n.depth === 0 ? "#041B2D" : BR[n.br] }, c);
+      const tt = el("text", { class: "toggle", "text-anchor": "middle", y: 4 }, c); tt.textContent = n.open ? "−" : "+" + n.kids.length;
+      if (!n.open) tt.setAttribute("font-size", 9);
+      c.addEventListener("click", (e) => { e.stopPropagation(); n.open = !n.open; draw(); });
+    }
+    g.addEventListener("click", (e) => { e.stopPropagation(); selected = n; show(n); draw(); });
+  })(T);
+  apply();
+}
+function apply() { view.setAttribute("transform", `translate(${tx},${ty}) scale(${k})`); }
+
+function show(n) {
+  const p = document.getElementById("panel"), c = document.getElementById("pc");
+  const tag = n.s ? `<span class="tag" style="background:${COL[n.s]}">${LAB[n.s]}</span>` : "";
+  const files = n.f && n.f.length ? `<div style="margin-top:8px"><b>Liên quan:</b> ${n.f.map((x) => `<code>${x}</code>`).join(" ")}</div>` : "";
+  const kids = n.kids ? `<div style="margin-top:8px;color:var(--mute)">${n.kids.length} mục con${n.depth === 1 ? ": " + n.kids.map((x) => x.n).join(", ") : ""}</div>` : "";
+  c.innerHTML = `<h2>${n.n}</h2>${tag}<div>${n.d || ""}</div>${files}${kids}`;
+  p.hidden = false;
+}
+document.querySelector("#panel .x").onclick = () => { document.getElementById("panel").hidden = true; selected = null; draw(); };
+
+function setAll(n, v, maxDepth) { if (n.kids) { n.open = v && n.depth < maxDepth; n.kids.forEach((c) => setAll(c, v, maxDepth)); } }
+document.getElementById("expand").onclick = () => { setAll(T, true, 9); T.open = true; draw(); fit(); };
+document.getElementById("collapse").onclick = () => { setAll(T, false, 0); T.open = true; draw(); fit(); };
+function fit() {
+  const b = view.getBBox(), w = svg.clientWidth, h = svg.clientHeight - 70;
+  k = Math.min(1.25, Math.min((w - 60) / b.width, h / b.height)); tx = 30 - b.x * k + Math.max(0, (w - 60 - b.width * k) / 2); ty = 80 - b.y * k + Math.max(0, (h - b.height * k) / 2); apply();
+}
+document.getElementById("fit").onclick = fit;
+
+// pan + zoom (mouse, touch, wheel)
+let drag = null;
+svg.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, tx, ty }; });
+window.addEventListener("pointermove", (e) => { if (!drag) return; tx = drag.tx + e.clientX - drag.x; ty = drag.ty + e.clientY - drag.y; apply(); });
+window.addEventListener("pointerup", () => { drag = null; });
+svg.addEventListener("wheel", (e) => { e.preventDefault(); const f = e.deltaY < 0 ? 1.1 : 0.9, nk = Math.min(2.5, Math.max(0.3, k * f)); tx = e.clientX - (e.clientX - tx) * (nk / k); ty = e.clientY - (e.clientY - ty) * (nk / k); k = nk; apply(); }, { passive: false });
+window.addEventListener("resize", fit);
+
+draw(); fit();
+</script>
+</body>
+</html>
