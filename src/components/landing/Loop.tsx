@@ -8,9 +8,9 @@ const INK = NAVY;
 
 /* The Hmm loop: the text on the left stays put, the product mockups scroll past on the right. */
 const SCENES = [
-  { kicker: "01 · Góc nhìn khác", title: "Hmm... How about a different point of view?", body: "Bôi đen một đoạn trong bài của bạn. Nói ý của bạn trước, rồi Hmm đưa ra hai góc nhìn khác để bạn nghĩ lại và sửa chính đoạn đó." },
-  { kicker: "02 · Làm mờ để buộc nghĩ", title: "Hmm... Think first!", body: "Copy-paste thì dễ. Nhưng AI của chúng tôi sẽ khóa đáp án lại, cho đến khi bạn tự đưa ra được lập luận của riêng mình." },
-  { kicker: "03 · Chất vấn", title: "Hmm... Are you sure?", body: "AI đóng vai người phản biện thân thiện: chỉ hỏi điểm yếu có thật, và nếu lập luận của bạn vững thì nói rõ như vậy. Giữ vững ý kiến có lý lẽ cũng là một câu trả lời tốt." },
+  { kicker: "01 · Nghĩ trước, mở khóa", title: "Hmm... Think first!", body: "Bạn nêu vấn đề và luận điểm của mình trước. AI chỉ mở khoảng 30% đáp án, phần còn lại bị làm mờ cho đến khi bạn trả lời các câu hỏi giảng viên đã chuẩn bị." },
+  { kicker: "02 · Trước khi nộp", title: "Hmm... Are you sure?", body: "AI hỏi ngược 3 câu dựa trên chính bài bạn làm: chỉ ra chỗ yếu về lập luận, nguồn, logic. Nếu lập luận vững, AI nói rõ như vậy. Giữ vững ý kiến có lý lẽ cũng là một câu trả lời tốt." },
+  { kicker: "03 · Chế độ riêng", title: "Hmm... How about a different point of view?", body: "Mở một văn bản, bôi đen một luận điểm, bấm “Hmm… góc nhìn khác thì sao?”. AI không viết lại bài, chỉ đưa góc nhìn đối lập. Bạn phải bảo vệ luận điểm hoặc chỉnh lại câu gốc." },
 ] as const;
 
 const Frame: React.FC<{ url: string; children: React.ReactNode; refEl?: React.Ref<HTMLDivElement> }> = ({ url, children, refEl }) => (
@@ -24,15 +24,15 @@ const Frame: React.FC<{ url: string; children: React.ReactNode; refEl?: React.Re
 const MockLens: React.FC = () => {
   const ref = useRef<HTMLDivElement>(null), seen = useInView(ref, { amount: 0.5, once: true });
   return (
-    <Frame url="traceedu.app/lop/tieu-luan · Góc nhìn khác" refEl={ref}>
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Bản nháp của bạn</div>
-      <p className="leading-relaxed" style={{ color: MUTED }}>Việc học sinh dùng điện thoại đang làm giảm chất lượng học tập. <motion.span animate={{ backgroundSize: seen ? "100% 100%" : "0% 100%" }} transition={{ duration: 1.1, delay: 0.3 }} style={{ backgroundImage: "linear-gradient(#cfe3f7,#cfe3f7)", backgroundRepeat: "no-repeat", color: INK, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>Mạng xã hội làm giảm khả năng tập trung của người học.</motion.span> Vì vậy nhà trường nên hạn chế thiết bị cá nhân trong lớp.</p>
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={seen ? { opacity: 1, y: 0 } : {}} transition={{ delay: 1.3 }} className="mt-4 rounded-xl border border-black/10 bg-[#f1f6fb] p-3 text-[12px]" style={{ color: INK }}>
-        <div className="mb-1 text-[11px] font-semibold" style={{ color: COBALT }}>Hmm… Bạn nghĩ gì về đoạn này?</div>Mình thấy đúng một phần, nhưng còn nhiều yếu tố khác.
-      </motion.div>
-      <motion.div initial={{ opacity: 0, y: 24, scale: 0.9 }} animate={seen ? { opacity: 1, y: 0, scale: 1 } : {}} transition={{ delay: 2.1, type: "spring", stiffness: 320, damping: 16 }} className="absolute inset-x-4 bottom-4 rounded-xl border border-black/10 bg-white p-3 shadow-xl">
-        <div className="mb-2 text-[12px] font-semibold" style={{ color: COBALT }}>Hai góc nhìn khác</div>
-        <div className="grid gap-2 sm:grid-cols-2">{[["Dùng có kiểm soát", "Điện thoại có thể là công cụ học nếu có quy tắc rõ."], ["Nguyên nhân nằm ở nơi khác", "Mất tập trung còn do giấc ngủ và cách tổ chức lớp."]].map(([h, t]) => <div key={h} className="rounded-lg bg-[#f1f6fb] px-2.5 py-2 text-[11.5px]" style={{ color: INK }}><div className="font-semibold">{h}</div><div style={{ color: MUTED }}>{t}</div></div>)}</div>
+    <Frame url="traceedu.app/goc-nhin-khac" refEl={ref}>
+      <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Bài luận mẫu</div>
+      <p className="leading-relaxed sm:w-[40%]" style={{ color: MUTED }}>Mạng xã hội đang làm hỏng giới trẻ. <motion.span animate={{ backgroundSize: seen ? "100% 100%" : "0% 100%" }} transition={{ duration: 1.1, delay: 0.3 }} style={{ backgroundImage: "linear-gradient(#cfe3f7,#cfe3f7)", backgroundRepeat: "no-repeat", color: INK, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>Ai dùng hơn hai giờ mỗi ngày đều bị trầm cảm.</motion.span> Vì vậy cần cấm hoàn toàn trước 18 tuổi.</p>
+      <motion.div initial={{ opacity: 0, y: 8, scale: 0.95 }} animate={seen ? { opacity: 1, y: 0, scale: 1 } : {}} transition={{ delay: 1.5, type: "spring", stiffness: 320, damping: 18 }} className="mt-3 inline-block rounded-full px-4 py-1.5 text-[12px] font-semibold text-white shadow-lg" style={{ background: COBALT }}>Hmm... góc nhìn khác thì sao?</motion.div>
+      <motion.div initial={{ opacity: 0, x: 40 }} animate={seen ? { opacity: 1, x: 0 } : {}} transition={{ delay: 2.3, type: "spring", stiffness: 260, damping: 24 }} className="mt-3 rounded-xl border border-black/10 bg-white p-3 shadow-xl sm:absolute sm:bottom-3 sm:right-3 sm:top-12 sm:mt-0 sm:w-[56%]">
+        <div className="mb-2 text-[11px] font-semibold" style={{ color: COBALT }}>Lăng kính đối lập</div>
+        <div className="rounded-lg bg-[#f1f6fb] px-2.5 py-2 text-[11.5px]" style={{ color: INK }}><div className="font-semibold">Giả định ngầm bị bỏ sót</div><div style={{ color: MUTED }}>Câu này coi tương quan là nguyên nhân: người buồn có thể dùng mạng nhiều hơn.</div></div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-semibold"><div className="rounded-lg border px-2 py-1.5" style={{ borderColor: COBALT, color: COBALT }}>Bảo vệ luận điểm</div><div className="rounded-lg border px-2 py-1.5" style={{ borderColor: "rgba(4,27,45,0.15)", color: INK }}>Điều chỉnh câu gốc</div></div>
+        <div className="mt-2 text-[10.5px]" style={{ color: MUTED }}>Chọn một để tiếp tục.</div>
       </motion.div>
     </Frame>
   );
@@ -98,7 +98,7 @@ export const Loop: React.FC = () => {
     on(); window.addEventListener("scroll", on, { passive: true }); window.addEventListener("resize", on);
     return () => { window.removeEventListener("scroll", on); window.removeEventListener("resize", on); };
   }, []);
-  const mocks = [<MockLens key="a" />, <MockThink key="b" />, <MockSure key="c" />];
+  const mocks = [<MockThink key="a" />, <MockSure key="b" />, <MockLens key="c" />];
   return (
     <section id="vong-lap" className="relative" style={{ background: MIST }} aria-label="Vòng lặp Hmm">
       <div className="mx-auto max-w-[1200px] px-5 md:px-12 py-20 md:py-28"><div className="mb-16 md:mb-24 max-w-2xl"><Eyebrow>Vòng lặp Hmm</Eyebrow><h2 className="mt-5 text-[clamp(2rem,4.4vw,3.4rem)] font-medium tracking-[-0.04em] leading-[1.05]" style={{ color: INK }}>Ba lần dừng lại,<br />trên đường đến câu trả lời.</h2></div>

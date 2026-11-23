@@ -602,64 +602,47 @@ function scrub(text, who = {}) {
 // src/lib/stages.ts
 var STAGE_LABEL = {
   think_first: { name: "Ngh\u0129 tr\u01B0\u1EDBc", en: "Think First", hint: "Vi\u1EBFt \xFD ri\xEAng c\u1EE7a b\u1EA1n tr\u01B0\u1EDBc khi AI l\xEAn ti\u1EBFng" },
-  co_think: { name: "C\xF9ng ngh\u0129", en: "Co-Think", hint: "H\u1ECFi, m\u1EDF kh\xF3a, ch\u1ED1t \xFD c\xF9ng tr\u1EE3 l\xFD" },
-  perspective_lab: { name: "G\xF3c nh\xECn kh\xE1c", en: "Perspective Lab", hint: "Ch\u1ECDn m\u1ED9t \u0111o\u1EA1n, n\xF3i \xFD c\u1EE7a b\u1EA1n, xem g\xF3c nh\xECn kh\xE1c r\u1ED3i s\u1EEDa l\u1EA1i" },
-  are_you_sure: { name: "B\u1EA1n ch\u1EAFc ch\u1EE9?", en: "Are you sure?", hint: "AI ch\u1EA5t v\u1EA5n l\u1EADp tr\u01B0\u1EDDng c\u1EE7a b\u1EA1n v\xE0i l\u01B0\u1EE3t" }
+  co_think: { name: "C\xF9ng ngh\u0129", en: "Co-Think", hint: "H\u1ECFi, m\u1EDF kh\xF3a, ch\u1ED1t \u0111\xE1p \xE1n c\xF9ng tr\u1EE3 l\xFD" },
+  are_you_sure: { name: "B\u1EA1n ch\u1EAFc ch\u1EE9?", en: "Are you sure?", hint: "AI h\u1ECFi ng\u01B0\u1EE3c d\u1EF1a tr\xEAn b\xE0i b\u1EA1n l\xE0m, tr\u01B0\u1EDBc khi n\u1ED9p" }
 };
 var MIN_COTHINK_TURNS = 3;
-var LAB_LIMITS = { minText: 40, maxText: 2e4, minSel: 20, maxSel: 1500, minStance: 20, minRebut: 20, minAfter: 10, maxAfter: 3e3 };
 var AYS_TURNS = { min: 1, max: 5, default: 3 };
+var LAB_LIMITS = { minText: 80, maxText: 2e4, minSel: 20, maxSel: 1500, minRebut: 20, minAfter: 10, maxAfter: 3e3, maxTitle: 80, maxTopic: 200 };
 function stageConfig(a) {
-  const s = a?.stages || {};
-  const lab = s.perspective_lab || {}, ays = s.are_you_sure || {};
+  const ays = a?.stages?.are_you_sure || {};
   const turns = Math.round(Number(ays.turns));
-  return {
-    ask_confidence: s.think_first?.ask_confidence === true,
-    perspective_lab: { enabled: lab.enabled === true, required: lab.required !== false },
-    are_you_sure: { enabled: ays.enabled === true, required: ays.required !== false, turns: Number.isFinite(turns) ? Math.min(AYS_TURNS.max, Math.max(AYS_TURNS.min, turns)) : AYS_TURNS.default }
-  };
+  return { are_you_sure: { enabled: ays.enabled === true, required: ays.required !== false, turns: Number.isFinite(turns) ? Math.min(AYS_TURNS.max, Math.max(AYS_TURNS.min, turns)) : AYS_TURNS.default } };
 }
 function cleanStages(raw, submissionMode) {
   const chat = submissionMode === "ai_chat_only" || submissionMode === "both";
   const cfg = stageConfig({ stages: raw });
-  return {
-    think_first: { ask_confidence: chat ? cfg.ask_confidence : false },
-    perspective_lab: { enabled: chat && cfg.perspective_lab.enabled, required: cfg.perspective_lab.required },
-    are_you_sure: { enabled: chat && cfg.are_you_sure.enabled, required: cfg.are_you_sure.required, turns: cfg.are_you_sure.turns }
-  };
+  return { are_you_sure: { enabled: chat && cfg.are_you_sure.enabled, required: cfg.are_you_sure.required, turns: cfg.are_you_sure.turns } };
 }
 var isCoThinkTurn = (m) => m.role === "user" && m.kind !== "intent" && m.stage !== "are_you_sure";
 var coThinkTurns = (chat) => (chat?.messages || []).filter(isCoThinkTurn).length;
 var aysAnswered = (chat) => (chat?.messages || []).filter((m) => m.role === "user" && m.stage === "are_you_sure").length;
-var labCompleted = (chat) => (chat?.lab?.events || []).filter((e) => e.rewrite || e.action === "skip").length;
 function computeStages(a, chat) {
   const cfg = stageConfig(a);
   const thinkOn = !!a?.friction && a.friction !== "none";
   const thinkDone = !thinkOn || !!chat?.intent;
   const turns = coThinkTurns(chat), coDone = turns >= MIN_COTHINK_TURNS;
-  const labDone = labCompleted(chat) >= 1;
-  const labGate = !cfg.perspective_lab.enabled || labDone || !cfg.perspective_lab.required;
   const answered = aysAnswered(chat), aysDone = answered >= cfg.are_you_sure.turns;
   const mk = (id, enabled, required, status, detail) => ({ id, ...STAGE_LABEL[id], enabled, required, status, detail });
   return [
     mk("think_first", thinkOn, a?.friction === "required", thinkDone ? "done" : "open", thinkDone ? chat?.intent?.skipped ? "\u0110\xE3 b\u1ECF qua" : "\u0110\xE3 ghi \xFD" : "Vi\u1EBFt \xFD ri\xEAng"),
     mk("co_think", true, true, !thinkDone ? "locked" : coDone ? "done" : "open", `${Math.min(turns, MIN_COTHINK_TURNS)}/${MIN_COTHINK_TURNS} l\u01B0\u1EE3t`),
-    mk("perspective_lab", cfg.perspective_lab.enabled, cfg.perspective_lab.required, labDone ? "done" : coDone ? "open" : "locked", labDone ? `${labCompleted(chat)} \u0111o\u1EA1n` : coDone ? "Ch\u01B0a l\xE0m" : `M\u1EDF sau ${MIN_COTHINK_TURNS} l\u01B0\u1EE3t C\xF9ng ngh\u0129`),
-    mk("are_you_sure", cfg.are_you_sure.enabled, cfg.are_you_sure.required, aysDone ? "done" : coDone && labGate ? "open" : "locked", `${Math.min(answered, cfg.are_you_sure.turns)}/${cfg.are_you_sure.turns} l\u01B0\u1EE3t`)
+    mk("are_you_sure", cfg.are_you_sure.enabled, cfg.are_you_sure.required, aysDone ? "done" : coDone ? "open" : "locked", `${Math.min(answered, cfg.are_you_sure.turns)}/${cfg.are_you_sure.turns} c\xE2u h\u1ECFi`)
   ].filter((s) => s.enabled || s.id === "co_think");
 }
 function submitBlocker(a, chat) {
   if (coThinkTurns(chat) < MIN_COTHINK_TURNS) return `B\u1EA1n c\u1EA7n trao \u0111\u1ED5i \xEDt nh\u1EA5t ${MIN_COTHINK_TURNS} l\u01B0\u1EE3t v\u1EDBi tr\u1EE3 l\xFD AI tr\u01B0\u1EDBc khi n\u1ED9p.`;
   const cfg = stageConfig(a);
-  if (cfg.perspective_lab.enabled && cfg.perspective_lab.required && labCompleted(chat) < 1) return "B\u1EA1n c\u1EA7n ho\xE0n th\xE0nh ch\u1EB7ng \u201CG\xF3c nh\xECn kh\xE1c\u201D tr\u01B0\u1EDBc khi n\u1ED9p.";
-  if (cfg.are_you_sure.enabled && cfg.are_you_sure.required && aysAnswered(chat) < cfg.are_you_sure.turns) return "B\u1EA1n c\u1EA7n ho\xE0n th\xE0nh ch\u1EB7ng \u201CB\u1EA1n ch\u1EAFc ch\u1EE9?\u201D tr\u01B0\u1EDBc khi n\u1ED9p.";
+  if (cfg.are_you_sure.enabled && cfg.are_you_sure.required && aysAnswered(chat) < cfg.are_you_sure.turns) return "B\u1EA1n c\u1EA7n tr\u1EA3 l\u1EDDi h\u1EBFt c\xE1c c\xE2u h\u1ECFi \u201CB\u1EA1n ch\u1EAFc ch\u1EE9?\u201D tr\u01B0\u1EDBc khi n\u1ED9p.";
   return null;
 }
-function stageBlocker(a, chat, id) {
-  const cfg = stageConfig(a);
-  if (!cfg[id].enabled) return "B\xE0i t\u1EADp n\xE0y kh\xF4ng c\xF3 ch\u1EB7ng n\xE0y.";
-  const st = computeStages(a, chat).find((s) => s.id === id);
-  if (!st || st.status === "locked") return id === "perspective_lab" ? `Ch\u1EB7ng n\xE0y m\u1EDF sau ${MIN_COTHINK_TURNS} l\u01B0\u1EE3t C\xF9ng ngh\u0129.` : cfg.perspective_lab.enabled && cfg.perspective_lab.required && labCompleted(chat) < 1 ? "H\xE3y ho\xE0n th\xE0nh ch\u1EB7ng \u201CG\xF3c nh\xECn kh\xE1c\u201D tr\u01B0\u1EDBc." : `Ch\u1EB7ng n\xE0y m\u1EDF sau ${MIN_COTHINK_TURNS} l\u01B0\u1EE3t C\xF9ng ngh\u0129.`;
+function stageBlocker(a, chat) {
+  if (!stageConfig(a).are_you_sure.enabled) return "B\xE0i t\u1EADp n\xE0y kh\xF4ng c\xF3 ch\u1EB7ng n\xE0y.";
+  if (coThinkTurns(chat) < MIN_COTHINK_TURNS) return `Ch\u1EB7ng n\xE0y m\u1EDF sau ${MIN_COTHINK_TURNS} l\u01B0\u1EE3t C\xF9ng ngh\u0129.`;
   return null;
 }
 
@@ -875,6 +858,7 @@ function mockAi(params) {
   }
   const sch = params.config?.responseSchema?.properties || {};
   const mineOf = (k) => last.split(k)[1] || last;
+  if (sch.text && Object.keys(sch).length === 1) return { text: JSON.stringify({ text: "H\u1ECDc sinh n\xEAn \u0111\u01B0\u1EE3c t\u1EF1 ch\u1ECDn m\xF4n h\u1ECDc v\xEC \u0111i\u1EC1u \u0111\xF3 ch\u1EAFc ch\u1EAFn l\xE0m c\xE1c em h\u1ECDc t\u1ED1t h\u01A1n. M\u1ECDi nghi\xEAn c\u1EE9u \u0111\u1EC1u cho th\u1EA5y s\u1EF1 t\u1EF1 do lu\xF4n d\u1EABn t\u1EDBi th\xE0nh c\xF4ng, n\xEAn nh\xE0 tr\u01B0\u1EDDng kh\xF4ng c\u1EA7n can thi\u1EC7p n\u1EEFa." }) };
   if (sch.mode) {
     const sel = mineOf("\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:");
     return { text: JSON.stringify({ mode: /SU_KIEN/.test(sel) ? "su_kien" : /KHONG_RO/.test(sel) ? "khong_ro" : "tranh_luan", reason: "mock" }) };
@@ -1006,6 +990,7 @@ var DEFAULT_SETTINGS = {
   }
 };
 var initialDb = {
+  lab_sessions: [],
   notifications: [],
   audit_logs: [],
   settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
@@ -1459,7 +1444,7 @@ var track = (p) => {
   }));
   return p;
 };
-var DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "notifications", "audit_logs"];
+var DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "lab_sessions", "notifications", "audit_logs"];
 var docKey = (collection, d) => collection === "course_members" ? `${d.course_id}_${d.student_id}` : d.id;
 async function saveDocumentInner(collectionName, docId, data) {
   const snapshot = JSON.parse(JSON.stringify(data));
@@ -1522,7 +1507,7 @@ var initialLoad = null;
 var supabaseLoaded = false;
 var refreshing = null;
 function emptyDb() {
-  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
+  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], lab_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
 }
 function applyRow(row) {
   if (row.collection === "settings") {
@@ -1973,6 +1958,8 @@ function deleteCourseCascade(courseId) {
   const members = db.course_members.filter((m) => m.course_id === courseId);
   db.course_members = db.course_members.filter((m) => m.course_id !== courseId);
   for (const m of members) deleteDocument("course_members", `${courseId}_${m.student_id}`);
+  for (const l of db.lab_sessions.filter((x) => x.course_id === courseId)) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x) => x.course_id !== courseId);
 }
 function deleteAssignmentCascade(assignmentId) {
   db.assignments = db.assignments.filter((a) => a.id !== assignmentId);
@@ -2109,12 +2096,7 @@ app.post("/api/courses/:id/assignments", (req, res) => {
   if (!can(req.user, "manage_assignments")) return denied(res);
   const input = sanitizeAssignmentInput(req.body);
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Ti\xEAu \u0111\u1EC1 v\xE0 h\u1EA1n n\u1ED9p h\u1EE3p l\u1EC7 l\xE0 b\u1EAFt bu\u1ED9c.");
-  if (input.submission_mode === "writing_l2") {
-    const r = sanitizeL2(req.body?.l2);
-    if (r.error) return fail(res, 400, r.error);
-    input.l2 = r.l2;
-    input.ai_submode = "socratic";
-  }
+  if (input.submission_mode === "writing_l2") return fail(res, 400, "Ch\u1EBF \u0111\u1ED9 Vi\u1EBFt L2 \u0111\xE3 \u0111\u01B0\u1EE3c g\u1EE1. H\xE3y ch\u1ECDn chat v\u1EDBi AI, n\u1ED9p t\u1EC7p, ho\u1EB7c c\u1EA3 hai.");
   const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
   db.assignments.unshift(a);
   saveDocument("assignments", a.id, a);
@@ -2266,28 +2248,10 @@ ${ans}
 AI Assistant (\u0111\xE1p \xE1n \u0111\xE3 tinh ch\u1EC9nh theo \xFD c\u1EE7a sinh vi\xEAn): ${m.content}`;
   }).join("\n");
 }
-function labEvidence(chat) {
-  const ev = chat?.lab?.events || [];
-  if (!ev.length) return "";
-  const ACT = { accept: "Ghi nh\u1EADn", rebut: "Ph\u1EA3n bi\u1EC7n l\u1EA1i", skip: "B\u1ECF qua" };
-  return "\n\n[Ch\u1EB7ng G\xF3c nh\xECn kh\xE1c]\n" + ev.map((e, i) => {
-    const views = (e.counterviews || []).map((v, k) => `${k + 1}) ${v.stance}: ${v.argument}`).join(" | ");
-    const rw = e.rewrite ? `
-  B\u1EA3n tr\u01B0\u1EDBc: ${e.rewrite.before}
-  B\u1EA3n sau: ${e.rewrite.after}
-  (\u0111\u1ED9 gi\u1ED1ng ${e.rewrite.similarity}; g\xF5 ${e.rewrite.typed}, x\xF3a ${e.rewrite.deleted}, d\xE1n ${e.rewrite.pasted}${e.rewrite.rewritten_from_scratch ? "; vi\u1EBFt l\u1EA1i t\u1EEB \u0111\u1EA7u" : ""})` : "";
-    return `\u0110o\u1EA1n ${i + 1}: "${e.selection.text}"
-  Sinh vi\xEAn: ${e.stance_text}
-  Lo\u1EA1i \u0111o\u1EA1n: ${e.mode}${views ? `
-  G\xF3c nh\xECn AI \u0111\u01B0a ra: ${views}` : ""}${e.action ? `
-  H\xE0nh \u0111\u1ED9ng: ${ACT[e.action] || e.action}` : ""}${e.rebuttal_text ? `
-  Sinh vi\xEAn ph\u1EA3n bi\u1EC7n: ${e.rebuttal_text}` : ""}${rw}`;
-  }).join("\n");
-}
 async function evaluateProcess(assignment, chat, submittedText) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
   const who = whoIs(chat.student_id);
-  const transcript = scrub(transcriptOf(chat) + labEvidence(chat), who).slice(-6e4);
+  const transcript = scrub(transcriptOf(chat), who).slice(-6e4);
   submittedText = scrub(submittedText || "", who);
   const evalPrompt = `B\u1EA1n \u0111\u01B0\u1EE3c cung c\u1EA5p transcript cu\u1ED9c tr\xF2 chuy\u1EC7n gi\u1EEFa sinh vi\xEAn v\xE0 AI khi l\xE0m b\xE0i t\u1EADp [${assignment.title}], c\xF9ng b\xE0i n\u1ED9p cu\u1ED1i c\xF9ng (n\u1EBFu c\xF3: "${submittedText || "Kh\xF4ng c\xF3 v\u0103n b\u1EA3n n\u1ED9p tr\u1EF1c ti\u1EBFp"}"). H\xE3y \u0111\xE1nh gi\xE1 QU\xC1 TR\xCCNH T\u01AF DUY c\u1EE7a sinh vi\xEAn m\u1ED9t c\xE1ch nghi\xEAm kh\u1EAFc, trung th\u1EF1c: n\u1EBFu sinh vi\xEAn ch\u1EC9 xin \u0111\xE1p \xE1n, copy-paste, ho\u1EB7c l\xE0m h\u1ED9 th\xEC \u0111i\u1EC3m ph\u1EA3i th\u1EA5p. Tr\u1EA3 v\u1EC1 JSON theo schema:
 - process_score: s\u1ED1 nguy\xEAn 0-100
@@ -2296,8 +2260,8 @@ async function evaluateProcess(assignment, chat, submittedText) {
 - nhan_xet_ngan: 2-3 c\xE2u ti\u1EBFng Vi\u1EC7t t\xF3m t\u1EAFt ki\u1EC3u t\u01B0 duy
 - highlight_segments: danh s\xE1ch {doan_van_ban (tr\xEDch NGUY\xCAN V\u0102N c\xE2u c\u1EE7a sinh vi\xEAn), mau: "xanh"|"vang"|"do", ly_do}
 M\xE0u: xanh = ph\u1EA3n bi\u1EC7n/t\u01B0 duy s\xE2u/t\u1EF1 t\u1ED5ng h\u1EE3p; vang = t\xF2 m\xF2, c\u1EA7n l\xE0m r\xF5; do = copy ho\xE0n to\xE0n ho\u1EB7c nh\u1EDD AI l\xE0m h\u1ED9.
-M\u1ED7i highlight c\xF3 th\u1EC3 k\xE8m "stage": think_first | co_think | perspective_lab | are_you_sure, t\xF9y \u0111o\u1EA1n tr\xEDch n\u1EB1m \u1EDF ch\u1EB7ng n\xE0o (c\xE1c \u0111o\u1EA1n b\u1EAFt \u0111\u1EA7u b\u1EB1ng [Ch\u1EB7ng \u2026] cho bi\u1EBFt ch\u1EB7ng). Ch\u1EC9 tr\xEDch nh\u1EEFng c\xE2u c\xF3 th\u1EADt trong transcript.
-C\xE1ch d\xF9ng b\u1EB1ng ch\u1EE9ng theo ch\u1EB7ng: ch\u1EB7ng "G\xF3c nh\xECn kh\xE1c" l\xE0 b\u1EB1ng ch\u1EE9ng ch\xEDnh cho Ph\u1EA3n bi\u1EC7n (sinh vi\xEAn c\xF3 ph\u1EA3n bi\u1EC7n l\u1EA1i, c\xF3 s\u1EEDa \u0111o\u1EA1n th\u1EADt s\u1EF1 hay ch\u1EC9 ch\xE9p l\u1EA1i kh\xF4ng); ch\u1EB7ng "B\u1EA1n ch\u1EAFc ch\u1EE9?" cho Ki\u1EC3m ch\u1EE9ng v\xE0 Ph\u1EA3n bi\u1EC7n: H\xC3Y TH\u01AF\u1EDENG vi\u1EC7c gi\u1EEF v\u1EEFng l\u1EADp tr\u01B0\u1EDDng c\xF3 l\xFD l\u1EBD (held_with_reason) v\xE0 vi\u1EC7c \u0111i\u1EC1u ch\u1EC9nh c\xF3 l\xFD do (revised); nh\u01B0\u1EE3ng b\u1ED9 kh\xF4ng l\xFD do (conceded_without_reason) ho\u1EB7c n\xE9 tr\xE1nh (dodged) l\xE0 t\xEDn hi\u1EC7u y\u1EBFu, kh\xF4ng ph\u1EA3i t\xEDn hi\u1EC7u t\u1ED1t.`;
+M\u1ED7i highlight c\xF3 th\u1EC3 k\xE8m "stage": think_first | co_think | are_you_sure, t\xF9y \u0111o\u1EA1n tr\xEDch n\u1EB1m \u1EDF ch\u1EB7ng n\xE0o (c\xE1c \u0111o\u1EA1n b\u1EAFt \u0111\u1EA7u b\u1EB1ng [Ch\u1EB7ng \u2026] cho bi\u1EBFt ch\u1EB7ng). Ch\u1EC9 tr\xEDch nh\u1EEFng c\xE2u c\xF3 th\u1EADt trong transcript.
+C\xE1ch d\xF9ng b\u1EB1ng ch\u1EE9ng theo ch\u1EB7ng: ch\u1EB7ng "B\u1EA1n ch\u1EAFc ch\u1EE9?" cho Ki\u1EC3m ch\u1EE9ng v\xE0 Ph\u1EA3n bi\u1EC7n: H\xC3Y TH\u01AF\u1EDENG vi\u1EC7c gi\u1EEF v\u1EEFng l\u1EADp tr\u01B0\u1EDDng c\xF3 l\xFD l\u1EBD (held_with_reason) v\xE0 vi\u1EC7c \u0111i\u1EC1u ch\u1EC9nh c\xF3 l\xFD do (revised); nh\u01B0\u1EE3ng b\u1ED9 kh\xF4ng l\xFD do (conceded_without_reason) ho\u1EB7c n\xE9 tr\xE1nh (dodged) l\xE0 t\xEDn hi\u1EC7u y\u1EBFu, kh\xF4ng ph\u1EA3i t\xEDn hi\u1EC7u t\u1ED1t.`;
   const response = await generateWithFallback({
     contents: [{ role: "user", parts: [{ text: `Transcript:
 ${transcript}
@@ -2341,7 +2305,7 @@ ${evalPrompt}` }] }],
   parsed.process_score = clamp2(parsed.process_score);
   for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp2(parsed.tieu_chi[k]);
   parsed.noi_dung_ngoai_luong = parsed.noi_dung_ngoai_luong?.trim() ? parsed.noi_dung_ngoai_luong : null;
-  const STAGES = ["think_first", "co_think", "perspective_lab", "are_you_sure"];
+  const STAGES = ["think_first", "co_think", "are_you_sure"];
   const all = parsed.highlight_segments || [];
   parsed.highlight_segments = all.filter((h) => quoteInLoose(transcript, h.doan_van_ban)).map((h) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang", stage: STAGES.includes(h.stage) ? h.stage : void 0 }));
   parsed.dropped_quotes = all.length - parsed.highlight_segments.length;
@@ -2844,8 +2808,6 @@ app.post("/api/chat/intent", async (req, res) => {
   if (chatRateLimited(req.user.id)) return fail(res, 429, "B\u1EA1n g\u1EEDi qu\xE1 nhanh, vui l\xF2ng \u0111\u1EE3i v\xE0i ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.");
   let chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   if (chatSession?.intent) return fail(res, 409, "B\u1EA1n \u0111\xE3 ghi \xFD ban \u0111\u1EA7u cho b\xE0i n\xE0y r\u1ED3i.");
-  const conf = Number(req.body?.confidence);
-  const confidence = stageConfig(assignment).ask_confidence && Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : void 0;
   const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
   if (assignment.paste_mode === "block" && pasted > 0) return fail(res, 400, "B\xE0i n\xE0y kh\xF3a d\xE1n v\xE0 sao ch\xE9p. H\xE3y t\u1EF1 vi\u1EBFt b\u1EB1ng l\u1EDDi c\u1EE7a b\u1EA1n.");
   const pasteAttempts = Math.min(50, Math.max(0, Math.round(Number(req.body?.paste_attempts) || 0)));
@@ -2856,7 +2818,7 @@ app.post("/api/chat/intent", async (req, res) => {
       chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] };
       db.chat_sessions.push(chatSession);
     }
-    chatSession.intent = { answers: [], confidence, skipped: true, at: nowIso() };
+    chatSession.intent = { answers: [], skipped: true, at: nowIso() };
     saveDocument("chat_sessions", chatSession.id, chatSession);
     return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
   }
@@ -2876,7 +2838,7 @@ app.post("/api/chat/intent", async (req, res) => {
   const userMsg = { id: uid("m"), role: "user", kind: "intent", content, timestamp: nowIso() };
   const prevMessages = chatSession.messages;
   const prevIntent = chatSession.intent;
-  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || void 0, paste_attempts: pasteAttempts || void 0, at: nowIso() };
+  chatSession.intent = { answers, skipped: false, pasted_chars: pasted || void 0, paste_attempts: pasteAttempts || void 0, at: nowIso() };
   chatSession.messages = [...prevMessages, userMsg];
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY tr\xEAn m\xE1y ch\u1EE7.");
@@ -3133,7 +3095,7 @@ function heatmapStats(subs) {
 }
 var BEHAVIOR_MIN_STUDENTS = 5;
 var PASTE_HEAVY_CHARS = 200;
-function behaviorStats(assignments, members, subs) {
+function behaviorStats(courseId, assignments, members, subs) {
   const chatAssignments = assignments.filter((a) => a.submission_mode === "ai_chat_only" || a.submission_mode === "both");
   const memberIds = new Set(members.map((m) => m.student_id));
   const sessions = db.chat_sessions.filter((cs) => chatAssignments.some((a) => a.id === cs.assignment_id) && memberIds.has(cs.student_id) && cs.messages.some((m) => m.role === "user"));
@@ -3145,13 +3107,9 @@ function behaviorStats(assignments, members, subs) {
   const skipped = frictionSessions.filter((cs) => cs.intent?.skipped).length;
   const userMsgs = sessions.flatMap((cs) => cs.messages.filter((m) => m.role === "user" && m.kind !== "intent"));
   const heavy = userMsgs.filter((m) => (m.pasted_chars || 0) >= PASTE_HEAVY_CHARS).length;
-  const pairs = subs.map((s) => {
-    const cs = sessions.find((c) => c.assignment_id === s.assignment_id && c.student_id === s.student_id);
-    return cs?.intent?.confidence && s.process_score_result ? { c: cs.intent.confidence * 20, p: s.process_score_result.process_score } : null;
-  }).filter(Boolean);
-  const avgOf = (xs) => xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
-  const labSessions = sessions.filter((cs) => stageConfig(chatAssignments.find((a) => a.id === cs.assignment_id)).perspective_lab.enabled);
-  const labUsed = labSessions.filter((cs) => cs.lab?.events?.length), labRewrote = labSessions.filter((cs) => (cs.lab?.events || []).some((e) => e.rewrite));
+  const labList = db.lab_sessions.filter((l) => l.course_id === courseId && memberIds.has(l.student_id));
+  const labStudents = new Set(labList.filter((l) => l.events.length).map((l) => l.student_id));
+  const labEvents = labList.flatMap((l) => l.events.filter((e) => e.action));
   const aysMsgs = sessions.flatMap((cs) => cs.messages.filter((m) => m.stage === "are_you_sure" && m.role === "user" && m.ays?.response_type));
   const aysDist = Object.fromEntries(RESPONSE_TYPES.map((t) => [t, aysMsgs.filter((m) => m.ays.response_type === t).length]));
   const gatedMsgs = sessions.flatMap((cs) => cs.messages.filter((m) => m.role === "model" && m.gate && m.gate.state === "unlocked"));
@@ -3165,9 +3123,8 @@ function behaviorStats(assignments, members, subs) {
     skipped_rate: pct(skipped, frictionSessions.length),
     paste_heavy_rate: pct(heavy, userMsgs.length),
     paste_heavy_chars: PASTE_HEAVY_CHARS,
-    lab: labSessions.length >= BEHAVIOR_MIN_STUDENTS ? { sessions: labSessions.length, used_rate: pct(labUsed.length, labSessions.length), rewrote_rate: pct(labRewrote.length, labSessions.length) } : null,
-    ays: aysMsgs.length >= BEHAVIOR_MIN_STUDENTS ? { answered: aysMsgs.length, distribution: aysDist } : null,
-    calibration: pairs.length >= BEHAVIOR_MIN_STUDENTS ? { n: pairs.length, avg_confidence: avgOf(pairs.map((x) => x.c)), avg_process_score: avgOf(pairs.map((x) => x.p)) } : null
+    lab: labStudents.size >= BEHAVIOR_MIN_STUDENTS ? { students: labStudents.size, events: labEvents.length, defend_rate: pct(labEvents.filter((e) => e.action === "defend").length, labEvents.length), adjust_rate: pct(labEvents.filter((e) => e.action === "adjust").length, labEvents.length) } : null,
+    ays: aysMsgs.length >= BEHAVIOR_MIN_STUDENTS ? { answered: aysMsgs.length, distribution: aysDist } : null
   };
 }
 app.get("/api/courses/:id/stats", (req, res) => {
@@ -3229,7 +3186,7 @@ app.get("/api/courses/:id/stats", (req, res) => {
   res.json({
     success: true,
     data: {
-      behavior: behaviorStats(assignments, members, subs),
+      behavior: behaviorStats(course.id, assignments, members, subs),
       heatmap: heatmapStats(subs.filter((s) => !assignments.find((a) => a.id === s.assignment_id && a.submission_mode === "writing_l2"))),
       average_grade: (() => {
         const g = subs.filter(gradedState).map((s) => s.grade);
@@ -3424,6 +3381,8 @@ app.delete("/api/admin/users/:id", (req, res) => {
   db.submissions = db.submissions.filter((x) => x.student_id !== u.id);
   for (const cs of db.chat_sessions.filter((x) => x.student_id === u.id)) deleteDocument("chat_sessions", cs.id);
   db.chat_sessions = db.chat_sessions.filter((x) => x.student_id !== u.id);
+  for (const l of db.lab_sessions.filter((x) => x.student_id === u.id)) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x) => x.student_id !== u.id);
   db.users = db.users.filter((x) => x.id !== u.id);
   deleteDocument("users", u.id);
   audit(req.user, "user.delete", u.email, `Vai tr\xF2 ${u.role}`);
@@ -3531,7 +3490,192 @@ async function aiJson(prompt, properties, required, temperature) {
 var STR = { type: Type.STRING };
 var cap = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
 var clampInt = (v, max = 1e5) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
-function stageContext(req, res, assignmentId, stage) {
+var LAB_SAMPLES = [
+  { id: "mxh", title: "M\u1EA1ng x\xE3 h\u1ED9i \u0111ang l\xE0m h\u1ECFng gi\u1EDBi tr\u1EBB", text: "M\u1EA1ng x\xE3 h\u1ED9i l\xE0 nguy\xEAn nh\xE2n ch\xEDnh khi\u1EBFn gi\u1EDBi tr\u1EBB ng\xE0y nay s\u1ED1ng \u1EA3o, thi\u1EBFu t\u1EADp trung v\xE0 m\u1EA5t kh\u1EA3 n\u0103ng giao ti\u1EBFp th\u1EADt. Ai d\xE0nh h\u01A1n hai gi\u1EDD m\u1ED7i ng\xE0y tr\xEAn m\u1EA1ng \u0111\u1EC1u b\u1ECB tr\u1EA7m c\u1EA3m. V\xEC v\u1EADy c\xE1ch duy nh\u1EA5t \u0111\u1EC3 b\u1EA3o v\u1EC7 th\u1EBF h\u1EC7 tr\u1EBB l\xE0 c\u1EA5m ho\xE0n to\xE0n h\u1ECDc sinh d\xF9ng m\u1EA1ng x\xE3 h\u1ED9i tr\u01B0\u1EDBc 18 tu\u1ED5i. Nh\u1EEFng ng\u01B0\u1EDDi ph\u1EA3n \u0111\u1ED1i ch\u1EC9 l\xE0 c\xE1c c\xF4ng ty c\xF4ng ngh\u1EC7 mu\u1ED1n ki\u1EBFm ti\u1EC1n, n\xEAn \xFD ki\u1EBFn c\u1EE7a h\u1ECD kh\xF4ng \u0111\xE1ng nghe." },
+  { id: "online", title: "H\u1ECDc tr\u1EF1c tuy\u1EBFn lu\xF4n t\u1ED1t h\u01A1n h\u1ECDc tr\xEAn l\u1EDBp", text: "H\u1ECDc tr\u1EF1c tuy\u1EBFn hi\u1EC7u qu\u1EA3 h\u01A1n h\u1ECDc tr\xEAn l\u1EDBp \u1EDF m\u1ECDi m\xF4n h\u1ECDc v\xEC sinh vi\xEAn \u0111\u01B0\u1EE3c h\u1ECDc v\xE0o b\u1EA5t c\u1EE9 l\xFAc n\xE0o h\u1ECD mu\u1ED1n. Kh\xF4ng c\xF2n m\u1EA5t th\u1EDDi gian \u0111i l\u1EA1i n\xEAn ai c\u0169ng c\xF3 nhi\u1EC1u th\u1EDDi gian h\u1ECDc h\u01A1n v\xE0 \u0111i\u1EC3m s\u1ED1 ch\u1EAFc ch\u1EAFn s\u1EBD t\u0103ng. Gi\u1EA3ng vi\xEAn ch\u1EC9 c\u1EA7n quay video m\u1ED9t l\u1EA7n l\xE0 \u0111\u1EE7 cho c\u1EA3 ch\u1EE5c n\u0103m. V\xEC th\u1EBF c\xE1c tr\u01B0\u1EDDng \u0111\u1EA1i h\u1ECDc n\xEAn \u0111\xF3ng c\u1EEDa gi\u1EA3ng \u0111\u01B0\u1EDDng v\xE0 chuy\u1EC3n to\xE0n b\u1ED9 sang h\u1ECDc tr\u1EF1c tuy\u1EBFn." },
+  { id: "ai", title: "AI s\u1EBD thay th\u1EBF gi\xE1o vi\xEAn", text: "Tr\xED tu\u1EC7 nh\xE2n t\u1EA1o tr\u1EA3 l\u1EDDi nhanh h\u01A1n, ki\xEAn nh\u1EABn h\u01A1n v\xE0 bi\u1EBFt nhi\u1EC1u h\u01A1n b\u1EA5t k\u1EF3 gi\xE1o vi\xEAn n\xE0o, n\xEAn ch\u1EB3ng bao l\xE2u n\u1EEFa gi\xE1o vi\xEAn s\u1EBD kh\xF4ng c\xF2n c\u1EA7n thi\u1EBFt. H\u1ECDc sinh ch\u1EC9 c\u1EA7n h\u1ECFi AI l\xE0 c\xF3 ngay \u0111\xE1p \xE1n \u0111\xFAng, kh\xF4ng c\u1EA7n ai ch\u1EA5m b\xE0i hay gi\u1EA3ng b\xE0i. Nh\u1EEFng gi\xE1o vi\xEAn lo l\u1EAFng v\u1EC1 \u0111i\u1EC1u n\xE0y ch\u1EC9 \u0111ang s\u1EE3 m\u1EA5t vi\u1EC7c. M\u1ECDi n\u01B0\u1EDBc ti\u1EBFn b\u1ED9 \u0111\u1EC1u \u0111\xE3 b\u1EAFt \u0111\u1EA7u gi\u1EA3m s\u1ED1 gi\xE1o vi\xEAn." }
+];
+var LAB_KINDS = ["phan_bien", "he_qua_dai_han", "gia_dinh_ngam"];
+var PASTE_MSG = "Ph\u1EA7n n\xE0y c\u1EA7n b\u1EA1n t\u1EF1 g\xF5 b\u1EB1ng l\u1EDDi c\u1EE7a m\xECnh, kh\xF4ng d\xE1n.";
+function labStudent(req, res) {
+  if (req.user.role !== "student") {
+    fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi d\xF9ng Ph\xF2ng Lab.");
+    return false;
+  }
+  if (!can(req.user, "use_ai_chat")) {
+    denied(res);
+    return false;
+  }
+  if (needConsent(req, res)) return false;
+  return true;
+}
+function labOwn(req, res) {
+  const s = db.lab_sessions.find((x) => x.id === req.params.id && x.student_id === req.user.id);
+  if (!s) {
+    fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn Lab n\xE0y.");
+    return null;
+  }
+  return s;
+}
+var labSave = (s) => saveDocument("lab_sessions", s.id, s);
+app.get("/api/lab/samples", (_req, res) => res.json({ success: true, data: LAB_SAMPLES.map((s) => ({ id: s.id, title: s.title, preview: s.text.slice(0, 90) + "\u2026" })) }));
+app.get("/api/lab/sessions", (req, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn xem \u0111\u01B0\u1EE3c Ph\xF2ng Lab c\u1EE7a m\xECnh.");
+  const cid = req.query.course_id;
+  const list = db.lab_sessions.filter((s) => s.student_id === req.user.id && (!cid || s.course_id === cid)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  res.json({ success: true, data: list });
+});
+app.post("/api/lab/sessions", async (req, res) => {
+  if (!labStudent(req, res)) return;
+  const course = findCourse(req.body?.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "B\u1EA1n kh\xF4ng thu\u1ED9c m\xF4n h\u1ECDc n\xE0y.");
+  if (db.lab_sessions.filter((s2) => s2.student_id === req.user.id && s2.course_id === course.id).length >= 30) return fail(res, 400, "M\u1ED7i m\xF4n t\u1ED1i \u0111a 30 phi\xEAn Lab. H\xE3y x\xF3a b\u1EDBt phi\xEAn c\u0169.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "B\u1EA1n g\u1EEDi qu\xE1 nhanh, vui l\xF2ng \u0111\u1EE3i v\xE0i ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.");
+  const kind = req.body?.kind;
+  let text = "", title = cap(req.body?.title, LAB_LIMITS.maxTitle), pasted = 0;
+  if (kind === "sample") {
+    const s2 = LAB_SAMPLES.find((x) => x.id === req.body?.sample_id);
+    if (!s2) return fail(res, 400, "Kh\xF4ng t\xECm th\u1EA5y v\u0103n b\u1EA3n m\u1EABu.");
+    text = s2.text;
+    title = title || s2.title;
+  } else if (kind === "own") {
+    text = String(req.body?.text ?? "").replace(/\r\n/g, "\n").trim();
+    pasted = clampInt(req.body?.pasted_chars);
+    title = title || "B\xE0i nh\xE1p c\u1EE7a t\xF4i";
+  } else if (kind === "ai") {
+    const topic = cap(req.body?.topic, LAB_LIMITS.maxTopic);
+    if (topic.length < 5) return fail(res, 400, "H\xE3y nh\u1EADp ch\u1EE7 \u0111\u1EC1 (\xEDt nh\u1EA5t 5 k\xFD t\u1EF1).");
+    try {
+      const out = await aiJson(`Vi\u1EBFt M\u1ED8T \u0111o\u1EA1n v\u0103n ngh\u1ECB lu\u1EADn ti\u1EBFng Vi\u1EC7t kho\u1EA3ng 90-130 ch\u1EEF v\u1EC1 ch\u1EE7 \u0111\u1EC1 d\u01B0\u1EDBi \u0111\xE2y, gi\u1ECDng t\u1EF1 tin c\u1EE7a m\u1ED9t b\xE0i lu\u1EADn sinh vi\xEAn, c\xF3 \xEDt nh\u1EA5t hai c\xE2u kh\u1EB3ng \u0111\u1ECBnh m\u1EA1nh. Ch\u1EC9 tr\u1EA3 \u0111o\u1EA1n v\u0103n, kh\xF4ng ti\xEAu \u0111\u1EC1.
+
+Ch\u1EE7 \u0111\u1EC1: ${scrub(topic, whoIs(req.user.id))}`, { text: STR }, ["text"], 0.8);
+      text = cap(out.text, LAB_LIMITS.maxText);
+      title = title || topic.slice(0, LAB_LIMITS.maxTitle);
+    } catch (e) {
+      console.error("Lab ai text error:", e?.message || e);
+      return fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng vi\u1EBFt \u0111\u01B0\u1EE3c \u0111o\u1EA1n v\u0103n. H\xE3y th\u1EED l\u1EA1i.");
+    }
+  } else return fail(res, 400, "Ngu\u1ED3n v\u0103n b\u1EA3n kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (text.length < LAB_LIMITS.minText) return fail(res, 400, `V\u0103n b\u1EA3n c\u1EA7n \xEDt nh\u1EA5t ${LAB_LIMITS.minText} k\xFD t\u1EF1.`);
+  if (text.length > LAB_LIMITS.maxText) return fail(res, 400, `V\u0103n b\u1EA3n t\u1ED1i \u0111a ${LAB_LIMITS.maxText.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
+  const s = { id: uid("lab"), student_id: req.user.id, course_id: course.id, title, kind, text, pasted_chars: pasted, events: [], created_at: nowIso() };
+  db.lab_sessions.push(s);
+  labSave(s);
+  res.json({ success: true, data: s });
+});
+app.get("/api/lab/sessions/:id", (req, res) => {
+  const s = db.lab_sessions.find((x) => x.id === req.params.id);
+  if (!s) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn Lab n\xE0y.");
+  const course = findCourse(s.course_id);
+  const ok = s.student_id === req.user.id || course && (req.user.role === "admin" || req.user.role === "teacher" && isOwner(course, req.user));
+  if (!ok) return fail(res, 403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem phi\xEAn n\xE0y.");
+  res.json({ success: true, data: s });
+});
+app.delete("/api/lab/sessions/:id", (req, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn x\xF3a \u0111\u01B0\u1EE3c phi\xEAn Lab c\u1EE7a m\xECnh.");
+  const s = labOwn(req, res);
+  if (!s) return;
+  db.lab_sessions = db.lab_sessions.filter((x) => x.id !== s.id);
+  deleteDocument("lab_sessions", s.id);
+  res.json({ success: true, data: { id: s.id } });
+});
+app.post("/api/lab/sessions/:id/lens", async (req, res) => {
+  if (!labStudent(req, res)) return;
+  const s = labOwn(req, res);
+  if (!s) return;
+  const course = findCourse(s.course_id);
+  if (!course) return fail(res, 404, "M\xF4n h\u1ECDc kh\xF4ng c\xF2n t\u1ED3n t\u1EA1i.");
+  if (s.events.some((e) => !e.action)) return fail(res, 409, "H\xE3y \u0111\u1ED1i ch\u1EA5t v\u1EDBi g\xF3c nh\xECn \u0111ang m\u1EDF (b\u1EA3o v\u1EC7 ho\u1EB7c \u0111i\u1EC1u ch\u1EC9nh) tr\u01B0\u1EDBc khi b\xF4i \u0111en \u0111o\u1EA1n kh\xE1c.");
+  const start = Math.round(Number(req.body?.start)), end = Math.round(Number(req.body?.end));
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > s.text.length || start >= end) return fail(res, 400, "V\xF9ng ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7.");
+  const selText = s.text.slice(start, end);
+  if (selText.trim().length < LAB_LIMITS.minSel) return fail(res, 400, `H\xE3y b\xF4i \u0111en m\u1ED9t c\xE2u ho\u1EB7c \u0111o\u1EA1n d\xE0i \xEDt nh\u1EA5t ${LAB_LIMITS.minSel} k\xFD t\u1EF1.`);
+  if (selText.length > LAB_LIMITS.maxSel) return fail(res, 400, `\u0110o\u1EA1n ch\u1ECDn t\u1ED1i \u0111a ${LAB_LIMITS.maxSel.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
+  if (s.events.some((e) => start < e.selection.end && end > e.selection.start)) return fail(res, 409, "\u0110o\u1EA1n n\xE0y tr\xF9ng v\u1EDBi m\u1ED9t \u0111o\u1EA1n b\u1EA1n \u0111\xE3 \u0111\u1ED1i ch\u1EA5t. H\xE3y ch\u1ECDn \u0111o\u1EA1n kh\xE1c.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "B\u1EA1n g\u1EEDi qu\xE1 nhanh, vui l\xF2ng \u0111\u1EE3i v\xE0i ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.");
+  const passage = scrub(selText, whoIs(req.user.id)), context = scrub(s.text, whoIs(req.user.id)).slice(0, 6e3);
+  try {
+    const cls = await aiJson(`Ph\xE2n lo\u1EA1i \u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN theo b\u1EA3n ch\u1EA5t c\u1EE7a n\xF3.
+- "tranh_luan": \xFD ki\u1EBFn, gi\xE1 tr\u1ECB, c\xE1ch ti\u1EBFp c\u1EADn, d\u1EF1 \u0111o\xE1n, n\u01A1i nhi\u1EC1u quan \u0111i\u1EC3m h\u1EE3p l\xFD c\xF3 th\u1EC3 c\xF9ng t\u1ED3n t\u1EA1i.
+- "su_kien": kh\u1EB3ng \u0111\u1ECBnh s\u1EF1 ki\u1EC7n, s\u1ED1 li\u1EC7u ho\u1EB7c \u0111\u1ECBnh ngh\u0129a c\xF3 th\u1EC3 ki\u1EC3m ch\u1EE9ng.
+- "khong_ro": qu\xE1 m\u01A1 h\u1ED3 ho\u1EB7c qu\xE1 ng\u1EAFn \u0111\u1EC3 bi\u1EBFt \u0111ang kh\u1EB3ng \u0111\u1ECBnh \u0111i\u1EC1u g\xEC.
+Tr\u1EA3 JSON {mode, reason} (reason: m\u1ED9t c\xE2u ti\u1EBFng Vi\u1EC7t).
+
+\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
+${passage}`, { mode: STR, reason: STR }, ["mode", "reason"], 0.2);
+    const mode = ["tranh_luan", "su_kien", "khong_ro"].includes(cls.mode) ? cls.mode : "khong_ro";
+    if (mode === "khong_ro") return res.json({ success: true, data: { event: null, clarify: "M\xECnh ch\u01B0a r\xF5 \u0111o\u1EA1n n\xE0y \u0111ang kh\u1EB3ng \u0111\u1ECBnh \u0111i\u1EC1u g\xEC. B\u1EA1n th\u1EED b\xF4i \u0111en m\u1ED9t c\xE2u kh\u1EB3ng \u0111\u1ECBnh c\u1EE5 th\u1EC3 h\u01A1n nh\xE9.", session: s } });
+    const ev = { id: uid("ev"), selection: { start, end, text: selText }, mode, reason: cap(cls.reason, 300), counterviews: [], ts: nowIso() };
+    if (mode === "tranh_luan") {
+      const passages = pickPassages(course.materials || [], passage, 3500, 3);
+      const mats = passages.length ? passages.map((p) => `[${p.name}]
+${p.text}`).join("\n---\n") : "(L\u1EDBp n\xE0y ch\u01B0a c\xF3 t\xE0i li\u1EC7u ph\xF9 h\u1EE3p. \u0110\u1EC3 source_ref tr\u1ED1ng.)";
+      const out = await aiJson(`B\u1EA1n gi\xFAp m\u1ED9t sinh vi\xEAn nh\xECn l\u1EA1i M\u1ED8T \u0111o\u1EA1n trong v\u0103n b\u1EA3n t\u1EEB g\xF3c kh\xE1c. KH\xD4NG vi\u1EBFt l\u1EA1i v\u0103n b\u1EA3n. H\xE3y \u0111\u01B0a 1 \u0111\u1EBFn 2 g\xF3c nh\xECn KH\xC1C, m\u1ED7i g\xF3c nh\xECn nh\u1EAFm th\u1EB3ng v\xE0o \u0111o\u1EA1n \u0111\u01B0\u1EE3c ch\u1ECDn, l\xE0 m\u1ED9t l\u1EADp lu\u1EADn nghi\xEAm t\xFAc (kh\xF4ng b\xF9 nh\xECn, kh\xF4ng c\xF4ng k\xEDch).
+M\u1ED7i g\xF3c nh\xECn c\xF3: kind (m\u1ED9t trong: phan_bien = g\xF3c nh\xECn ph\u1EA3n bi\u1EC7n; he_qua_dai_han = h\u1EC7 qu\u1EA3 d\xE0i h\u1EA1n n\u1EBFu \u0111i\u1EC1u n\xE0y \u0111\xFAng; gia_dinh_ngam = gi\u1EA3 \u0111\u1ECBnh ng\u1EA7m b\u1ECB b\u1ECF s\xF3t), stance (m\u1ED9t c\xE2u), argument (2-3 c\xE2u ti\u1EBFng Vi\u1EC7t), source_ref (t\xEAn t\xE0i li\u1EC7u trong ngo\u1EB7c vu\xF4ng d\u01B0\u1EDBi \u0111\xE2y n\u1EBFu b\u1EA1n d\u1EF1a v\xE0o n\xF3, n\u1EBFu kh\xF4ng th\xEC \u0111\u1EC3 tr\u1ED1ng). KH\xD4NG \u0111\u01B0a \u0111\u01B0\u1EDDng link, KH\xD4NG b\u1ECBa ngu\u1ED3n.
+
+T\xC0I LI\u1EC6U C\u1EE6A L\u1EDAP:
+${mats}
+
+TO\xC0N V\u0102N (ch\u1EC9 \u0111\u1EC3 hi\u1EC3u ng\u1EEF c\u1EA3nh):
+${context}
+
+\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
+${passage}`, { counterviews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { kind: STR, stance: STR, argument: STR, source_ref: STR }, required: ["kind", "stance", "argument", "source_ref"] } } }, ["counterviews"], 0.6);
+      ev.counterviews = (Array.isArray(out.counterviews) ? out.counterviews : []).slice(0, 2).map((v) => {
+        const ref = cap(v.source_ref, 120).toLowerCase();
+        const hit = ref && passages.find((p) => p.name.toLowerCase() === ref);
+        const kind = LAB_KINDS.includes(v.kind) ? v.kind : "phan_bien";
+        return { kind, stance: cap(v.stance, 200), argument: cap(v.argument, 700), source: hit ? { title: hit.name, verified: true } : null };
+      }).filter((v) => v.stance && v.argument);
+      if (!ev.counterviews.length) throw new Error("AI ch\u01B0a \u0111\u01B0a \u0111\u01B0\u1EE3c g\xF3c nh\xECn n\xE0o.");
+    } else {
+      const out = await aiJson(`\u0110o\u1EA1n sau kh\u1EB3ng \u0111\u1ECBnh \u0111i\u1EC1u c\xF3 th\u1EC3 ki\u1EC3m ch\u1EE9ng. \u0110\u1EEBng d\u1EF1ng "phe ph\u1EA3n bi\u1EC7n". H\xE3y n\xEAu: claim_to_check (\u0111i\u1EC1u c\u1EE5 th\u1EC3 c\u1EA7n ki\u1EC3m ch\u1EE9ng, m\u1ED9t c\xE2u) v\xE0 how_to_check (2-3 g\u1EE3i \xFD c\xE1ch t\xECm b\u1EB1ng ch\u1EE9ng, m\u1ED7i g\u1EE3i \xFD m\u1ED9t c\xE2u). Ti\u1EBFng Vi\u1EC7t.
+
+\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
+${passage}`, { claim_to_check: STR, how_to_check: { type: Type.ARRAY, items: STR } }, ["claim_to_check", "how_to_check"], 0.4);
+      ev.verify = { claim_to_check: cap(out.claim_to_check, 300), how_to_check: (Array.isArray(out.how_to_check) ? out.how_to_check : []).slice(0, 3).map((x) => cap(x, 250)).filter(Boolean) };
+    }
+    s.events.push(ev);
+    labSave(s);
+    res.json({ success: true, data: { event: ev, session: s } });
+  } catch (err) {
+    console.error("Lab lens error:", err?.message || err);
+    fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng ph\u1EA3n h\u1ED3i \u0111\u01B0\u1EE3c. H\xE3y th\u1EED l\u1EA1i.");
+  }
+});
+app.post("/api/lab/sessions/:id/respond", (req, res) => {
+  if (!labStudent(req, res)) return;
+  const s = labOwn(req, res);
+  if (!s) return;
+  const ev = s.events.find((e) => e.id === req.body?.event_id);
+  if (!ev) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y \u0111o\u1EA1n n\xE0y.");
+  if (ev.action) return fail(res, 409, "B\u1EA1n \u0111\xE3 \u0111\u1ED1i ch\u1EA5t \u0111o\u1EA1n n\xE0y r\u1ED3i.");
+  const action = req.body?.action;
+  if (action !== "defend" && action !== "adjust") return fail(res, 400, "H\xE3y ch\u1ECDn B\u1EA3o v\u1EC7 lu\u1EADn \u0111i\u1EC3m ho\u1EB7c \u0110i\u1EC1u ch\u1EC9nh c\xE2u g\u1ED1c.");
+  if (clampInt(req.body?.pasted) > 0) return fail(res, 400, PASTE_MSG);
+  if (action === "defend") {
+    const t = cap(req.body?.text, 2e3);
+    if (t.length < LAB_LIMITS.minRebut) return fail(res, 400, `H\xE3y vi\u1EBFt 1-2 c\xE2u ph\u1EA3n b\xE1c (\xEDt nh\u1EA5t ${LAB_LIMITS.minRebut} k\xFD t\u1EF1).`);
+    ev.defense = { text: t, typed: clampInt(req.body?.typed), ts: nowIso() };
+  } else {
+    const after = cap(req.body?.after_text, LAB_LIMITS.maxAfter);
+    if (after.length < LAB_LIMITS.minAfter) return fail(res, 400, "\u0110o\u1EA1n sau khi s\u1EEDa qu\xE1 ng\u1EAFn.");
+    const sim = Math.round(wordSimilarity(ev.selection.text, after) * 100) / 100;
+    if (sim >= 0.97) return fail(res, 400, "B\u1EA1n ch\u01B0a thay \u0111\u1ED5i g\xEC \u1EDF \u0111o\u1EA1n n\xE0y. H\xE3y s\u1EEDa cho ch\u1EB7t ch\u1EBD, \u0111a chi\u1EC1u h\u01A1n.");
+    ev.rewrite = { before: ev.selection.text, after, similarity: sim, typed: clampInt(req.body?.typed), deleted: clampInt(req.body?.deleted), rewritten_from_scratch: sim < 0.35, ts: nowIso() };
+  }
+  ev.action = action;
+  labSave(s);
+  res.json({ success: true, data: { event: ev, session: s } });
+});
+app.get("/api/courses/:id/lab", (req, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y m\xF4n h\u1ECDc.");
+  if (!(req.user.role === "admin" || req.user.role === "teacher" && isOwner(course, req.user))) return fail(res, 403, "Ch\u1EC9 gi\u1EA3ng vi\xEAn ph\u1EE5 tr\xE1ch m\u1EDBi xem \u0111\u01B0\u1EE3c Ph\xF2ng Lab c\u1EE7a l\u1EDBp.");
+  const list = db.lab_sessions.filter((s) => s.course_id === course.id).map((s) => ({ ...s, student_name: db.users.find((u) => u.id === s.student_id)?.name || "Sinh vi\xEAn" })).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  res.json({ success: true, data: list });
+});
+function aysContext(req, res, assignmentId) {
   if (req.user.role !== "student") {
     fail(res, 403, "Ch\u1EC9 sinh vi\xEAn m\u1EDBi l\xE0m b\xE0i t\u1EADp.");
     return null;
@@ -3561,7 +3705,7 @@ function stageContext(req, res, assignmentId, stage) {
     return null;
   }
   const chatSession = db.chat_sessions.find((cs) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
-  const block = stageBlocker(assignment, chatSession, stage);
+  const block = stageBlocker(assignment, chatSession);
   if (block) {
     fail(res, 409, block);
     return null;
@@ -3575,140 +3719,17 @@ function stageContext(req, res, assignmentId, stage) {
 function pasteBlocked(assignment, body) {
   return assignment.paste_mode === "block" && Number(body?.pasted_chars) > 0;
 }
-var PASTE_MSG = "B\xE0i n\xE0y kh\xF3a d\xE1n v\xE0 sao ch\xE9p. H\xE3y t\u1EF1 vi\u1EBFt b\u1EB1ng l\u1EDDi c\u1EE7a b\u1EA1n.";
-app.post("/api/lab/start", (req, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab");
-  if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const text = String(req.body?.text ?? "").replace(/\r\n/g, "\n").trim();
-  if (text.length < LAB_LIMITS.minText) return fail(res, 400, `V\u0103n b\u1EA3n c\u1EA7n \xEDt nh\u1EA5t ${LAB_LIMITS.minText} k\xFD t\u1EF1.`);
-  if (text.length > LAB_LIMITS.maxText) return fail(res, 400, `V\u0103n b\u1EA3n t\u1ED1i \u0111a ${LAB_LIMITS.maxText.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
-  if (chatSession.lab?.events?.length) return res.json({ success: true, data: { lab: chatSession.lab } });
-  chatSession.lab = { text, created_at: nowIso(), pasted_chars: clampInt(req.body?.pasted_chars), events: [] };
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { lab: chatSession.lab } });
-});
-app.post("/api/lab/stance", async (req, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab");
-  if (!ctx) return;
-  const { assignment, course, chatSession } = ctx;
-  const lab = chatSession.lab;
-  if (!lab?.text) return fail(res, 409, "H\xE3y th\xEAm v\u0103n b\u1EA3n tr\u01B0\u1EDBc.");
-  const start = Math.round(Number(req.body?.selection?.start)), end = Math.round(Number(req.body?.selection?.end));
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > lab.text.length || start >= end) return fail(res, 400, "V\xF9ng ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7.");
-  const selText = lab.text.slice(start, end).trim();
-  if (selText.length < LAB_LIMITS.minSel) return fail(res, 400, `H\xE3y b\xF4i \u0111en m\u1ED9t \u0111o\u1EA1n d\xE0i \xEDt nh\u1EA5t ${LAB_LIMITS.minSel} k\xFD t\u1EF1.`);
-  if (selText.length > LAB_LIMITS.maxSel) return fail(res, 400, `\u0110o\u1EA1n ch\u1ECDn t\u1ED1i \u0111a ${LAB_LIMITS.maxSel.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
-  const stance = cap(req.body?.stance_text, 2e3);
-  if (stance.length < LAB_LIMITS.minStance) return fail(res, 400, `H\xE3y vi\u1EBFt \xFD c\u1EE7a b\u1EA1n v\u1EC1 \u0111o\u1EA1n n\xE0y tr\u01B0\u1EDBc (\xEDt nh\u1EA5t ${LAB_LIMITS.minStance} k\xFD t\u1EF1) r\u1ED3i m\u1EDBi xem g\xF3c nh\xECn kh\xE1c.`);
-  if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
-  const who = whoIs(req.user.id);
-  const passage = scrub(selText, who), view = scrub(stance, who);
-  try {
-    const cls = await aiJson(`Ph\xE2n lo\u1EA1i \u0110O\u1EA0N V\u0102N sau theo b\u1EA3n ch\u1EA5t c\u1EE7a n\xF3.
-- "tranh_luan": \xFD ki\u1EBFn, gi\xE1 tr\u1ECB, c\xE1ch ti\u1EBFp c\u1EADn, d\u1EF1 \u0111o\xE1n, n\u01A1i nhi\u1EC1u quan \u0111i\u1EC3m h\u1EE3p l\xFD c\xF3 th\u1EC3 c\xF9ng t\u1ED3n t\u1EA1i.
-- "su_kien": kh\u1EB3ng \u0111\u1ECBnh s\u1EF1 ki\u1EC7n, s\u1ED1 li\u1EC7u ho\u1EB7c \u0111\u1ECBnh ngh\u0129a \u0111\xE3 c\xF3 \u0111\u1ED3ng thu\u1EADn (kh\xF4ng c\xF3 "phe ph\u1EA3n bi\u1EC7n" nghi\xEAm t\xFAc).
-- "khong_ro": qu\xE1 m\u01A1 h\u1ED3 ho\u1EB7c qu\xE1 ng\u1EAFn \u0111\u1EC3 bi\u1EBFt \u0111ang kh\u1EB3ng \u0111\u1ECBnh \u0111i\u1EC1u g\xEC.
-Tr\u1EA3 JSON {mode, reason} (reason: m\u1ED9t c\xE2u ti\u1EBFng Vi\u1EC7t).
-
-\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
-${passage}`, { mode: STR, reason: STR }, ["mode", "reason"], 0.2);
-    const mode = ["tranh_luan", "su_kien", "khong_ro"].includes(cls.mode) ? cls.mode : "khong_ro";
-    const ev = { id: uid("lab"), selection: { start, end, text: selText }, stance_text: stance, mode, reason: cap(cls.reason, 300), counterviews: [], ts: nowIso() };
-    if (mode === "tranh_luan") {
-      const passages = pickPassages(course.materials || [], `${selText} ${stance}`, 3500, 3);
-      const mats = passages.length ? passages.map((p) => `[${p.name}]
-${p.text}`).join("\n---\n") : "(L\u1EDBp n\xE0y ch\u01B0a c\xF3 t\xE0i li\u1EC7u ph\xF9 h\u1EE3p. \u0110\u1EC3 source_ref tr\u1ED1ng.)";
-      const out = await aiJson(`B\u1EA1n gi\xFAp m\u1ED9t sinh vi\xEAn nh\xECn m\u1ED9t \u0111o\u1EA1n v\u0103n t\u1EEB g\xF3c kh\xE1c. H\xE3y \u0111\u01B0a \u0110\xDANG 2 g\xF3c nh\xECn KH\xC1C v\u1EDBi \xFD c\u1EE7a sinh vi\xEAn, m\u1ED7i g\xF3c nh\xECn l\xE0 m\u1ED9t l\u1EADp lu\u1EADn nghi\xEAm t\xFAc (kh\xF4ng b\xF9 nh\xECn, kh\xF4ng c\xF4ng k\xEDch).
-M\u1ED7i g\xF3c nh\xECn c\xF3: stance (m\u1ED9t c\xE2u), argument (2-3 c\xE2u ti\u1EBFng Vi\u1EC7t), source_ref (t\xEAn t\xE0i li\u1EC7u trong ngo\u1EB7c vu\xF4ng d\u01B0\u1EDBi \u0111\xE2y n\u1EBFu b\u1EA1n d\u1EF1a v\xE0o n\xF3, n\u1EBFu kh\xF4ng th\xEC \u0111\u1EC3 tr\u1ED1ng). KH\xD4NG \u0111\u01B0a \u0111\u01B0\u1EDDng link, KH\xD4NG b\u1ECBa ngu\u1ED3n.
-
-T\xC0I LI\u1EC6U C\u1EE6A L\u1EDAP:
-${mats}
-
-\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
-${passage}
-
-\xDD C\u1EE6A SINH VI\xCAN V\u1EC0 \u0110O\u1EA0N N\xC0Y:
-${view}`, { counterviews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { stance: STR, argument: STR, source_ref: STR }, required: ["stance", "argument", "source_ref"] } } }, ["counterviews"], 0.6);
-      ev.counterviews = (Array.isArray(out.counterviews) ? out.counterviews : []).slice(0, 2).map((v) => {
-        const ref = cap(v.source_ref, 120).toLowerCase();
-        const hit = ref && passages.find((p) => p.name.toLowerCase() === ref);
-        return { stance: cap(v.stance, 200), argument: cap(v.argument, 700), source: hit ? { title: hit.name, verified: true } : null };
-      }).filter((v) => v.stance && v.argument);
-      if (!ev.counterviews.length) throw new Error("AI ch\u01B0a \u0111\u01B0a \u0111\u01B0\u1EE3c g\xF3c nh\xECn n\xE0o.");
-    } else if (mode === "su_kien") {
-      const out = await aiJson(`\u0110o\u1EA1n sau kh\u1EB3ng \u0111\u1ECBnh m\u1ED9t \u0111i\u1EC1u \u0111\xE3 c\xF3 \u0111\u1ED3ng thu\u1EADn. \u0110\u1EEBng d\u1EF1ng "phe ph\u1EA3n bi\u1EC7n". H\xE3y n\xEAu: claim_to_check (\u0111i\u1EC1u c\u1EE5 th\u1EC3 c\u1EA7n ki\u1EC3m ch\u1EE9ng, m\u1ED9t c\xE2u) v\xE0 how_to_check (2-3 g\u1EE3i \xFD c\xE1ch t\xECm b\u1EB1ng ch\u1EE9ng, m\u1ED7i g\u1EE3i \xFD m\u1ED9t c\xE2u). Ti\u1EBFng Vi\u1EC7t.
-
-\u0110O\u1EA0N \u0110\u01AF\u1EE2C CH\u1ECCN:
-${passage}`, { claim_to_check: STR, how_to_check: { type: Type.ARRAY, items: STR } }, ["claim_to_check", "how_to_check"], 0.4);
-      ev.verify = { claim_to_check: cap(out.claim_to_check, 300), how_to_check: (Array.isArray(out.how_to_check) ? out.how_to_check : []).slice(0, 3).map((x) => cap(x, 250)).filter(Boolean) };
-    } else {
-      ev.clarify = "M\xECnh ch\u01B0a r\xF5 \u0111o\u1EA1n n\xE0y \u0111ang kh\u1EB3ng \u0111\u1ECBnh \u0111i\u1EC1u g\xEC. B\u1EA1n th\u1EED ch\u1ECDn m\u1ED9t \u0111o\u1EA1n c\u1EE5 th\u1EC3 h\u01A1n, ho\u1EB7c vi\u1EBFt l\u1EA1i \xFD c\u1EE7a b\u1EA1n cho r\xF5 h\u01A1n nh\xE9.";
-    }
-    lab.events.push(ev);
-    saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { event: ev, lab } });
-  } catch (err) {
-    console.error("Lab stance error:", err?.message || err);
-    fail(res, 502, "Tr\u1EE3 l\xFD AI t\u1EA1m th\u1EDDi kh\xF4ng ph\u1EA3n h\u1ED3i \u0111\u01B0\u1EE3c. \xDD c\u1EE7a b\u1EA1n ch\u01B0a \u0111\u01B0\u1EE3c ghi nh\u1EADn, h\xE3y th\u1EED l\u1EA1i.");
-  }
-});
-app.post("/api/lab/action", (req, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab");
-  if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const ev = chatSession.lab?.events?.find((e) => e.id === req.body?.event_id);
-  if (!ev) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y \u0111o\u1EA1n n\xE0y.");
-  if (ev.action) return fail(res, 409, "B\u1EA1n \u0111\xE3 ch\u1ECDn h\xE0nh \u0111\u1ED9ng cho \u0111o\u1EA1n n\xE0y r\u1ED3i.");
-  const action = req.body?.action;
-  if (!["accept", "rebut", "skip"].includes(action)) return fail(res, 400, "H\xE0nh \u0111\u1ED9ng kh\xF4ng h\u1EE3p l\u1EC7.");
-  if (ev.mode === "khong_ro" && action !== "skip") return fail(res, 400, "\u0110o\u1EA1n n\xE0y ch\u01B0a r\xF5 ngh\u0129a, b\u1EA1n ch\u1EC9 c\xF3 th\u1EC3 b\u1ECF qua ho\u1EB7c ch\u1ECDn \u0111o\u1EA1n kh\xE1c.");
-  if (action === "rebut") {
-    const rb = cap(req.body?.rebuttal_text, 2e3);
-    if (rb.length < LAB_LIMITS.minRebut) return fail(res, 400, `H\xE3y vi\u1EBFt ph\u1EA3n bi\u1EC7n c\u1EE7a b\u1EA1n (\xEDt nh\u1EA5t ${LAB_LIMITS.minRebut} k\xFD t\u1EF1).`);
-    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
-    ev.rebuttal_text = rb;
-  }
-  ev.action = action;
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
-});
-app.post("/api/lab/rewrite", (req, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab");
-  if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const ev = chatSession.lab?.events?.find((e) => e.id === req.body?.event_id);
-  if (!ev) return fail(res, 404, "Kh\xF4ng t\xECm th\u1EA5y \u0111o\u1EA1n n\xE0y.");
-  if (ev.action !== "accept" && ev.action !== "rebut") return fail(res, 409, "H\xE3y ch\u1ECDn Ghi nh\u1EADn ho\u1EB7c Ph\u1EA3n bi\u1EC7n l\u1EA1i tr\u01B0\u1EDBc khi s\u1EEDa \u0111o\u1EA1n.");
-  if (ev.rewrite) return fail(res, 409, "B\u1EA1n \u0111\xE3 s\u1EEDa \u0111o\u1EA1n n\xE0y r\u1ED3i.");
-  const after = cap(req.body?.after_text, LAB_LIMITS.maxAfter);
-  if (after.length < LAB_LIMITS.minAfter) return fail(res, 400, "\u0110o\u1EA1n sau khi s\u1EEDa qu\xE1 ng\u1EAFn.");
-  if (assignment.paste_mode === "block" && clampInt(req.body?.pasted) > 0) return fail(res, 400, PASTE_MSG);
-  const sim = Math.round(wordSimilarity(ev.selection.text, after) * 100) / 100;
-  ev.rewrite = { before: ev.selection.text, after, similarity: sim, typed: clampInt(req.body?.typed), deleted: clampInt(req.body?.deleted), pasted: clampInt(req.body?.pasted), rewritten_from_scratch: sim < 0.35, ts: nowIso() };
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
-});
-app.get("/api/lab/:assignmentId/mine", (req, res) => {
-  if (req.user.role !== "student") return fail(res, 403, "Ch\u1EC9 sinh vi\xEAn xem \u0111\u01B0\u1EE3c d\u1EEF li\u1EC7u c\u1EE7a m\xECnh.");
-  const cs = db.chat_sessions.find((c) => c.assignment_id === req.params.assignmentId && c.student_id === req.user.id);
-  res.json({ success: true, data: { lab: cs?.lab || null } });
-});
+var ASSIGN_PASTE_MSG = "B\xE0i n\xE0y kh\xF3a d\xE1n v\xE0 sao ch\xE9p. H\xE3y t\u1EF1 vi\u1EBFt b\u1EB1ng l\u1EDDi c\u1EE7a b\u1EA1n.";
 function positionOf(chat) {
   const parts = [];
   for (const m of chat.messages) if (m.role === "user" && m.kind !== "intent" && m.stage !== "are_you_sure") parts.push(m.content);
   if (chat.intent?.answers?.length) parts.push(...chat.intent.answers.map((x) => x.a));
-  for (const e of chat.lab?.events || []) {
-    if (e.stance_text) parts.push(e.stance_text);
-    if (e.rebuttal_text) parts.push(e.rebuttal_text);
-    if (e.rewrite?.after) parts.push(e.rewrite.after);
-  }
   for (const m of chat.messages) if (m.role === "user" && m.stage === "are_you_sure") parts.push(m.content);
   const raw = parts.join("\n");
   return { raw, safe: scrub(raw, whoIs(chat.student_id)).slice(-6e3) };
 }
 app.post("/api/ays/turn", async (req, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "are_you_sure");
+  const ctx = aysContext(req, res, req.body?.assignment_id);
   if (!ctx) return;
   const { assignment, chatSession } = ctx;
   const N = stageConfig(assignment).are_you_sure.turns;
@@ -3725,7 +3746,7 @@ app.post("/api/ays/turn", async (req, res) => {
     if (!pending) return fail(res, 400, "Ch\u01B0a c\xF3 c\xE2u ch\u1EA5t v\u1EA5n \u0111\u1EC3 tr\u1EA3 l\u1EDDi.");
     if (answer.length < 10) return fail(res, 400, "H\xE3y tr\u1EA3 l\u1EDDi k\u1EF9 h\u01A1n m\u1ED9t ch\xFAt (\xEDt nh\u1EA5t 10 k\xFD t\u1EF1).");
     if (answer.length > 3e3) return fail(res, 413, "C\xE2u tr\u1EA3 l\u1EDDi t\u1ED1i \u0111a 3.000 k\xFD t\u1EF1.");
-    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
+    if (pasteBlocked(assignment, req.body)) return fail(res, 400, ASSIGN_PASTE_MSG);
   }
   const who = whoIs(req.user.id);
   try {
@@ -3800,13 +3821,17 @@ app.get("/api/me/export", (req, res) => {
   const u = req.user;
   const chats = db.chat_sessions.filter((c) => c.student_id === u.id);
   const subs = db.submissions.filter((x) => x.student_id === u.id);
+  const labs = db.lab_sessions.filter((x) => x.student_id === u.id);
   res.setHeader("Content-Disposition", `attachment; filename="traceedu-du-lieu-cua-toi.json"`);
-  res.json({ success: true, data: { exported_at: nowIso(), account: { name: u.name, email: u.email, role: u.role, consent_at: u.consent_at || null }, chat_sessions: chats, submissions: subs, profile_share: u.profile_share || null, note: "\u0110\xE2y l\xE0 to\xE0n b\u1ED9 d\u1EEF li\u1EC7u h\u1ECDc t\u1EADp TraceEdu l\u01B0u v\u1EC1 b\u1EA1n." } });
+  res.json({ success: true, data: { exported_at: nowIso(), account: { name: u.name, email: u.email, role: u.role, consent_at: u.consent_at || null }, chat_sessions: chats, lab_sessions: labs, submissions: subs, profile_share: u.profile_share || null, note: "\u0110\xE2y l\xE0 to\xE0n b\u1ED9 d\u1EEF li\u1EC7u h\u1ECDc t\u1EADp TraceEdu l\u01B0u v\u1EC1 b\u1EA1n." } });
 });
 app.post("/api/me/delete-data", (req, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Ch\u1EE9c n\u0103ng n\xE0y d\xE0nh cho sinh vi\xEAn.");
   if (req.body?.confirm !== "XOA") return fail(res, 400, "H\xE3y g\xF5 XOA \u0111\u1EC3 x\xE1c nh\u1EADn.");
   const chats = db.chat_sessions.filter((c) => c.student_id === req.user.id), subs = db.submissions.filter((x) => x.student_id === req.user.id);
+  const labs = db.lab_sessions.filter((x) => x.student_id === req.user.id);
+  for (const l of labs) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x) => x.student_id !== req.user.id);
   for (const c of chats) deleteDocument("chat_sessions", c.id);
   for (const x of subs) deleteDocument("submissions", x.id);
   db.chat_sessions = db.chat_sessions.filter((c) => c.student_id !== req.user.id);
@@ -3814,7 +3839,7 @@ app.post("/api/me/delete-data", (req, res) => {
   delete req.user.profile_share;
   saveDocument("users", req.user.id, req.user);
   audit(req.user, "privacy.delete", req.user.email, `${chats.length} cu\u1ED9c chat, ${subs.length} b\xE0i n\u1ED9p`);
-  res.json({ success: true, data: { deleted_chats: chats.length, deleted_submissions: subs.length }, message: "\u0110\xE3 x\xF3a d\u1EEF li\u1EC7u h\u1ECDc t\u1EADp c\u1EE7a b\u1EA1n. T\xE0i kho\u1EA3n v\u1EABn c\xF2n." });
+  res.json({ success: true, data: { deleted_chats: chats.length, deleted_labs: labs.length, deleted_submissions: subs.length }, message: "\u0110\xE3 x\xF3a d\u1EEF li\u1EC7u h\u1ECDc t\u1EADp c\u1EE7a b\u1EA1n. T\xE0i kho\u1EA3n v\u1EABn c\xF2n." });
 });
 function purgeExpired(days) {
   if (!days || days < 1) return 0;
@@ -3833,7 +3858,10 @@ function purgeExpired(days) {
     }
   }
   db.chat_sessions = db.chat_sessions.filter((c) => !old.includes(c));
-  return old.length;
+  const oldLabs = db.lab_sessions.filter((l) => new Date(l.created_at).getTime() < cutoff);
+  for (const l of oldLabs) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((l) => !oldLabs.includes(l));
+  return old.length + oldLabs.length;
 }
 app.post("/api/admin/retention/run", (req, res) => {
   const n = purgeExpired(Number(db.settings.retention_days) || 0);

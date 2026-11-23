@@ -44,6 +44,7 @@ function mockAi(params: { contents: any; config?: any }): { text: string } {
   }
   const sch = params.config?.responseSchema?.properties || {};
   const mineOf = (k: string) => (last.split(k)[1] || last);
+  if (sch.text && Object.keys(sch).length === 1) return { text: JSON.stringify({ text: "Học sinh nên được tự chọn môn học vì điều đó chắc chắn làm các em học tốt hơn. Mọi nghiên cứu đều cho thấy sự tự do luôn dẫn tới thành công, nên nhà trường không cần can thiệp nữa." }) };   // Lab: AI-written paragraph
   if (sch.mode) {   // Perspective Lab: classify the passage
     const sel = mineOf("ĐOẠN ĐƯỢC CHỌN:");
     return { text: JSON.stringify({ mode: /SU_KIEN/.test(sel) ? "su_kien" : /KHONG_RO/.test(sel) ? "khong_ro" : "tranh_luan", reason: "mock" }) };
@@ -174,6 +175,7 @@ interface DB {
   assignments: Array<any>;
   submissions: Array<any>;
   chat_sessions: Array<any>;
+  lab_sessions: Array<any>;
   notifications: Array<any>;
   audit_logs: Array<any>;
   settings: any;
@@ -189,6 +191,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const initialDb: DB = {
+  lab_sessions: [],
   notifications: [],
   audit_logs: [],
   settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
@@ -663,7 +666,7 @@ async function loadFromFirestore() {
 const reqStore = new AsyncLocalStorage<{ pending: Promise<any>[] }>();
 const track = <T,>(p: Promise<T>): Promise<T> => { reqStore.getStore()?.pending.push(p.catch(() => {})); return p; };
 
-const DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "notifications", "audit_logs"] as const;
+const DOC_COLLECTIONS = ["users", "courses", "course_members", "assignments", "submissions", "chat_sessions", "lab_sessions", "notifications", "audit_logs"] as const;
 const docKey = (collection: string, d: any) => (collection === "course_members" ? `${d.course_id}_${d.student_id}` : d.id);
 
 async function saveDocumentInner(collectionName: string, docId: string, data: any) {
@@ -728,7 +731,7 @@ let supabaseLoaded = false;
 let refreshing: Promise<void> | null = null;
 
 function emptyDb(): DB {
-  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
+  return { users: [], courses: [], course_members: [], assignments: [], submissions: [], chat_sessions: [], lab_sessions: [], notifications: [], audit_logs: [], settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) };
 }
 
 function applyRow(row: { collection: string; id: string; data: any; deleted: boolean }) {
@@ -1233,6 +1236,8 @@ function deleteCourseCascade(courseId: string) {
   const members = db.course_members.filter((m: any) => m.course_id === courseId);
   db.course_members = db.course_members.filter((m: any) => m.course_id !== courseId);
   for (const m of members) deleteDocument("course_members", `${courseId}_${m.student_id}`);
+  for (const l of db.lab_sessions.filter((x: any) => x.course_id === courseId)) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x: any) => x.course_id !== courseId);
 }
 
 function deleteAssignmentCascade(assignmentId: string) {
@@ -1385,12 +1390,7 @@ app.post("/api/courses/:id/assignments", (req: AuthedRequest, res) => {
   if (!can(req.user, "manage_assignments")) return denied(res);
   const input: any = sanitizeAssignmentInput(req.body);
   if (!input.title || !input.due_date || isNaN(new Date(input.due_date).getTime())) return fail(res, 400, "Tiêu đề và hạn nộp hợp lệ là bắt buộc.");
-  if (input.submission_mode === "writing_l2") {
-    const r = sanitizeL2(req.body?.l2);
-    if (r.error) return fail(res, 400, r.error);
-    input.l2 = r.l2;
-    input.ai_submode = "socratic";
-  }
+  if (input.submission_mode === "writing_l2") return fail(res, 400, "Chế độ Viết L2 đã được gỡ. Hãy chọn chat với AI, nộp tệp, hoặc cả hai.");   // old L2 assignments still open and grade; no new ones
   const a = { id: uid("a"), course_id: course.id, ...input, created_at: nowIso() };
   db.assignments.unshift(a);
   saveDocument("assignments", a.id, a);
@@ -1549,22 +1549,10 @@ function transcriptOf(chat: any) {
   }).join("\n");
 }
 
-/** The Perspective Lab part of a student's work, written out so the grader can read it like the chat transcript. */
-function labEvidence(chat: any): string {
-  const ev: any[] = chat?.lab?.events || [];
-  if (!ev.length) return "";
-  const ACT: Record<string, string> = { accept: "Ghi nhận", rebut: "Phản biện lại", skip: "Bỏ qua" };
-  return "\n\n[Chặng Góc nhìn khác]\n" + ev.map((e, i) => {
-    const views = (e.counterviews || []).map((v: any, k: number) => `${k + 1}) ${v.stance}: ${v.argument}`).join(" | ");
-    const rw = e.rewrite ? `\n  Bản trước: ${e.rewrite.before}\n  Bản sau: ${e.rewrite.after}\n  (độ giống ${e.rewrite.similarity}; gõ ${e.rewrite.typed}, xóa ${e.rewrite.deleted}, dán ${e.rewrite.pasted}${e.rewrite.rewritten_from_scratch ? "; viết lại từ đầu" : ""})` : "";
-    return `Đoạn ${i + 1}: "${e.selection.text}"\n  Sinh viên: ${e.stance_text}\n  Loại đoạn: ${e.mode}${views ? `\n  Góc nhìn AI đưa ra: ${views}` : ""}${e.action ? `\n  Hành động: ${ACT[e.action] || e.action}` : ""}${e.rebuttal_text ? `\n  Sinh viên phản biện: ${e.rebuttal_text}` : ""}${rw}`;
-  }).join("\n");
-}
-
 async function evaluateProcess(assignment: any, chat: any, submittedText: string) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
   const who = whoIs(chat.student_id);
-  const transcript = scrub(transcriptOf(chat) + labEvidence(chat), who).slice(-60000);
+  const transcript = scrub(transcriptOf(chat), who).slice(-60000);
   submittedText = scrub(submittedText || "", who);
   const evalPrompt = `Bạn được cung cấp transcript cuộc trò chuyện giữa sinh viên và AI khi làm bài tập [${assignment.title}], cùng bài nộp cuối cùng (nếu có: "${submittedText || "Không có văn bản nộp trực tiếp"}"). Hãy đánh giá QUÁ TRÌNH TƯ DUY của sinh viên một cách nghiêm khắc, trung thực: nếu sinh viên chỉ xin đáp án, copy-paste, hoặc làm hộ thì điểm phải thấp. Trả về JSON theo schema:
 - process_score: số nguyên 0-100
@@ -1573,8 +1561,8 @@ async function evaluateProcess(assignment: any, chat: any, submittedText: string
 - nhan_xet_ngan: 2-3 câu tiếng Việt tóm tắt kiểu tư duy
 - highlight_segments: danh sách {doan_van_ban (trích NGUYÊN VĂN câu của sinh viên), mau: "xanh"|"vang"|"do", ly_do}
 Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần làm rõ; do = copy hoàn toàn hoặc nhờ AI làm hộ.
-Mỗi highlight có thể kèm "stage": think_first | co_think | perspective_lab | are_you_sure, tùy đoạn trích nằm ở chặng nào (các đoạn bắt đầu bằng [Chặng …] cho biết chặng). Chỉ trích những câu có thật trong transcript.
-Cách dùng bằng chứng theo chặng: chặng "Góc nhìn khác" là bằng chứng chính cho Phản biện (sinh viên có phản biện lại, có sửa đoạn thật sự hay chỉ chép lại không); chặng "Bạn chắc chứ?" cho Kiểm chứng và Phản biện: HÃY THƯỞNG việc giữ vững lập trường có lý lẽ (held_with_reason) và việc điều chỉnh có lý do (revised); nhượng bộ không lý do (conceded_without_reason) hoặc né tránh (dodged) là tín hiệu yếu, không phải tín hiệu tốt.`;
+Mỗi highlight có thể kèm "stage": think_first | co_think | are_you_sure, tùy đoạn trích nằm ở chặng nào (các đoạn bắt đầu bằng [Chặng …] cho biết chặng). Chỉ trích những câu có thật trong transcript.
+Cách dùng bằng chứng theo chặng: chặng "Bạn chắc chứ?" cho Kiểm chứng và Phản biện: HÃY THƯỞNG việc giữ vững lập trường có lý lẽ (held_with_reason) và việc điều chỉnh có lý do (revised); nhượng bộ không lý do (conceded_without_reason) hoặc né tránh (dodged) là tín hiệu yếu, không phải tín hiệu tốt.`;
   const response = await generateWithFallback({
     contents: [{ role: "user", parts: [{ text: `Transcript:\n${transcript}\n\n${evalPrompt}` }] }],
     config: {
@@ -1616,7 +1604,7 @@ Cách dùng bằng chứng theo chặng: chặng "Góc nhìn khác" là bằng c
   for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp(parsed.tieu_chi[k]);
   parsed.noi_dung_ngoai_luong = parsed.noi_dung_ngoai_luong?.trim() ? parsed.noi_dung_ngoai_luong : null;
   // Principle P4: the AI does not get to invent evidence. A highlight whose quote is not in the transcript is dropped.
-  const STAGES = ["think_first", "co_think", "perspective_lab", "are_you_sure"];
+  const STAGES = ["think_first", "co_think", "are_you_sure"];
   const all: any[] = parsed.highlight_segments || [];
   parsed.highlight_segments = all.filter((h) => quoteInLoose(transcript, h.doan_van_ban)).map((h) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang", stage: STAGES.includes(h.stage) ? h.stage : undefined }));
   parsed.dropped_quotes = all.length - parsed.highlight_segments.length;
@@ -2076,8 +2064,6 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
 
   let chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   if (chatSession?.intent) return fail(res, 409, "Bạn đã ghi ý ban đầu cho bài này rồi.");
-  const conf = Number(req.body?.confidence);
-  const confidence = stageConfig(assignment).ask_confidence && Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : undefined;
   const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
   if (assignment.paste_mode === "block" && pasted > 0) return fail(res, 400, "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.");
   const pasteAttempts = Math.min(50, Math.max(0, Math.round(Number(req.body?.paste_attempts) || 0)));
@@ -2087,7 +2073,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   if (req.body?.skip === true) {
     if (assignment.friction === "required") return fail(res, 400, "Bài tập này yêu cầu bạn ghi ý riêng trước.");
     if (!chatSession) { chatSession = { id: uid("cs"), assignment_id, student_id: req.user.id, messages: [] }; db.chat_sessions.push(chatSession); }
-    chatSession.intent = { answers: [], confidence, skipped: true, at: nowIso() } satisfies ChatIntent;
+    chatSession.intent = { answers: [], skipped: true, at: nowIso() } satisfies ChatIntent;
     saveDocument("chat_sessions", chatSession.id, chatSession);
     return res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user) } });
   }
@@ -2105,7 +2091,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   const userMsg: any = { id: uid("m"), role: "user" as const, kind: "intent", content, timestamp: nowIso() };
   const prevMessages = chatSession.messages;
   const prevIntent = chatSession.intent;
-  chatSession.intent = { answers, confidence, skipped: false, pasted_chars: pasted || undefined, paste_attempts: pasteAttempts || undefined, at: nowIso() } satisfies ChatIntent;
+  chatSession.intent = { answers, skipped: false, pasted_chars: pasted || undefined, paste_attempts: pasteAttempts || undefined, at: nowIso() } satisfies ChatIntent;
   chatSession.messages = [...prevMessages, userMsg];
 
   try {
@@ -2382,7 +2368,7 @@ function heatmapStats(subs: any[]) {
 const BEHAVIOR_MIN_STUDENTS = 5;
 const PASTE_HEAVY_CHARS = 200;
 
-function behaviorStats(assignments: any[], members: any[], subs: any[]) {
+function behaviorStats(courseId: string, assignments: any[], members: any[], subs: any[]) {
   const chatAssignments = assignments.filter((a: any) => a.submission_mode === "ai_chat_only" || a.submission_mode === "both");
   const memberIds = new Set(members.map((m: any) => m.student_id));
   const sessions = db.chat_sessions.filter((cs: any) => chatAssignments.some((a: any) => a.id === cs.assignment_id) && memberIds.has(cs.student_id)
@@ -2399,16 +2385,11 @@ function behaviorStats(assignments: any[], members: any[], subs: any[]) {
   const userMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.role === "user" && m.kind !== "intent"));
   const heavy = userMsgs.filter((m: any) => (m.pasted_chars || 0) >= PASTE_HEAVY_CHARS).length;
 
-  // Calibration: self-rated confidence (1-5 -> 0-100) vs the AI process score of the same submission
-  const pairs = subs.map((s: any) => {
-    const cs = sessions.find((c: any) => c.assignment_id === s.assignment_id && c.student_id === s.student_id);
-    return cs?.intent?.confidence && s.process_score_result ? { c: cs.intent.confidence * 20, p: s.process_score_result.process_score } : null;
-  }).filter(Boolean) as { c: number; p: number }[];
-  const avgOf = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 
-  // Stage 3 and 4 usage, over the assignments where the teacher switched them on
-  const labSessions = sessions.filter((cs: any) => stageConfig(chatAssignments.find((a: any) => a.id === cs.assignment_id)).perspective_lab.enabled);
-  const labUsed = labSessions.filter((cs: any) => cs.lab?.events?.length), labRewrote = labSessions.filter((cs: any) => (cs.lab?.events || []).some((e: any) => e.rewrite));
+  // Lab (separate mode) and Are-you-sure usage
+  const labList = db.lab_sessions.filter((l: any) => l.course_id === courseId && memberIds.has(l.student_id));
+  const labStudents = new Set(labList.filter((l: any) => l.events.length).map((l: any) => l.student_id));
+  const labEvents = labList.flatMap((l: any) => l.events.filter((e: any) => e.action));
   const aysMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.stage === "are_you_sure" && m.role === "user" && m.ays?.response_type));
   const aysDist = Object.fromEntries(RESPONSE_TYPES.map((t) => [t, aysMsgs.filter((m: any) => m.ays.response_type === t).length]));
   const gatedMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.role === "model" && m.gate && m.gate.state === "unlocked"));
@@ -2422,9 +2403,8 @@ function behaviorStats(assignments: any[], members: any[], subs: any[]) {
     skipped_rate: pct(skipped, frictionSessions.length),
     paste_heavy_rate: pct(heavy, userMsgs.length),
     paste_heavy_chars: PASTE_HEAVY_CHARS,
-    lab: labSessions.length >= BEHAVIOR_MIN_STUDENTS ? { sessions: labSessions.length, used_rate: pct(labUsed.length, labSessions.length), rewrote_rate: pct(labRewrote.length, labSessions.length) } : null,
+    lab: labStudents.size >= BEHAVIOR_MIN_STUDENTS ? { students: labStudents.size, events: labEvents.length, defend_rate: pct(labEvents.filter((e: any) => e.action === "defend").length, labEvents.length), adjust_rate: pct(labEvents.filter((e: any) => e.action === "adjust").length, labEvents.length) } : null,
     ays: aysMsgs.length >= BEHAVIOR_MIN_STUDENTS ? { answered: aysMsgs.length, distribution: aysDist } : null,
-    calibration: pairs.length >= BEHAVIOR_MIN_STUDENTS ? { n: pairs.length, avg_confidence: avgOf(pairs.map((x) => x.c)), avg_process_score: avgOf(pairs.map((x) => x.p)) } : null,
   };
 }
 
@@ -2500,7 +2480,7 @@ app.get("/api/courses/:id/stats", (req: AuthedRequest, res) => {
   res.json({
     success: true,
     data: {
-      behavior: behaviorStats(assignments, members, subs),
+      behavior: behaviorStats(course.id, assignments, members, subs),
       heatmap: heatmapStats(subs.filter((s: any) => !assignments.find((a: any) => a.id === s.assignment_id && a.submission_mode === "writing_l2"))),
       average_grade: (() => { const g = subs.filter(gradedState).map((s: any) => s.grade); return g.length ? Math.round((g.reduce((a: number, b: number) => a + b, 0) / g.length) * 10) / 10 : null; })(),
       total_students: members.length,
@@ -2701,6 +2681,8 @@ app.delete("/api/admin/users/:id", (req: AuthedRequest, res) => {
   db.submissions = db.submissions.filter((x: any) => x.student_id !== u.id);
   for (const cs of db.chat_sessions.filter((x: any) => x.student_id === u.id)) deleteDocument("chat_sessions", cs.id);
   db.chat_sessions = db.chat_sessions.filter((x: any) => x.student_id !== u.id);
+  for (const l of db.lab_sessions.filter((x: any) => x.student_id === u.id)) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x: any) => x.student_id !== u.id);
   db.users = db.users.filter((x: any) => x.id !== u.id);
   deleteDocument("users", u.id);
   audit(req.user, "user.delete", u.email, `Vai trò ${u.role}`);
@@ -2803,10 +2785,12 @@ app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.aud
 
 
 // =====================================================================================================================
-// Stages 3 and 4: Perspective Lab (góc nhìn khác) and Are you sure? (bạn chắc chứ?)
-// Every rule here is enforced on the server: order of stages, minimum lengths, paste lock, number of turns.
-// Lab data lives inside the student's chat session document (chatSession.lab) so it is persisted, deleted and exported
-// together with the rest of that student's work on the assignment.
+// Perspective Lab ("Góc nhìn khác") is a SEPARATE MODE, not a stage of an assignment.
+//   1 Canvas: a text (a deliberately one-sided sample, a paragraph the AI just wrote, or the student's own draft)
+//   2 Highlight a claim -> "Hmm... góc nhìn khác thì sao?"
+//   3 Counter-lens: 1-2 opposing views aimed at exactly that passage (the AI never rewrites the text)
+//   4 Friction: the student MUST defend (1-2 sentences) or adjust the passage before the next highlight
+// Sessions are stored in their own collection (lab_sessions). Every rule below is enforced on the server.
 // =====================================================================================================================
 
 /** One JSON answer from the model. Throws if the model fails or returns something unusable. */
@@ -2820,8 +2804,185 @@ const STR = { type: Type.STRING };
 const cap = (v: any, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 const clampInt = (v: any, max = 100000) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
 
-/** Common checks for the Lab and Are-you-sure endpoints. Sends the error response itself and returns null when something is wrong. */
-function stageContext(req: AuthedRequest, res: express.Response, assignmentId: any, stage: "perspective_lab" | "are_you_sure") {
+/** Texts a student can load into the Lab. They are one-sided on purpose, so there is always something to challenge. */
+const LAB_SAMPLES = [
+  { id: "mxh", title: "Mạng xã hội đang làm hỏng giới trẻ", text: "Mạng xã hội là nguyên nhân chính khiến giới trẻ ngày nay sống ảo, thiếu tập trung và mất khả năng giao tiếp thật. Ai dành hơn hai giờ mỗi ngày trên mạng đều bị trầm cảm. Vì vậy cách duy nhất để bảo vệ thế hệ trẻ là cấm hoàn toàn học sinh dùng mạng xã hội trước 18 tuổi. Những người phản đối chỉ là các công ty công nghệ muốn kiếm tiền, nên ý kiến của họ không đáng nghe." },
+  { id: "online", title: "Học trực tuyến luôn tốt hơn học trên lớp", text: "Học trực tuyến hiệu quả hơn học trên lớp ở mọi môn học vì sinh viên được học vào bất cứ lúc nào họ muốn. Không còn mất thời gian đi lại nên ai cũng có nhiều thời gian học hơn và điểm số chắc chắn sẽ tăng. Giảng viên chỉ cần quay video một lần là đủ cho cả chục năm. Vì thế các trường đại học nên đóng cửa giảng đường và chuyển toàn bộ sang học trực tuyến." },
+  { id: "ai", title: "AI sẽ thay thế giáo viên", text: "Trí tuệ nhân tạo trả lời nhanh hơn, kiên nhẫn hơn và biết nhiều hơn bất kỳ giáo viên nào, nên chẳng bao lâu nữa giáo viên sẽ không còn cần thiết. Học sinh chỉ cần hỏi AI là có ngay đáp án đúng, không cần ai chấm bài hay giảng bài. Những giáo viên lo lắng về điều này chỉ đang sợ mất việc. Mọi nước tiến bộ đều đã bắt đầu giảm số giáo viên." },
+];
+const LAB_KINDS = ["phan_bien", "he_qua_dai_han", "gia_dinh_ngam"] as const;
+const LAB_KIND_LABEL: Record<string, string> = { phan_bien: "Góc nhìn phản biện", he_qua_dai_han: "Hệ quả dài hạn", gia_dinh_ngam: "Giả định ngầm bị bỏ sót" };
+const PASTE_MSG = "Phần này cần bạn tự gõ bằng lời của mình, không dán.";
+
+function labStudent(req: AuthedRequest, res: express.Response): boolean {
+  if (req.user.role !== "student") { fail(res, 403, "Chỉ sinh viên mới dùng Phòng Lab."); return false; }
+  if (!can(req.user, "use_ai_chat")) { denied(res); return false; }
+  if (needConsent(req, res)) return false;
+  return true;
+}
+function labOwn(req: AuthedRequest, res: express.Response) {
+  const s = db.lab_sessions.find((x: any) => x.id === req.params.id && x.student_id === req.user.id);
+  if (!s) { fail(res, 404, "Không tìm thấy phiên Lab này."); return null; }
+  return s;
+}
+const labSave = (s: any) => saveDocument("lab_sessions", s.id, s);
+
+app.get("/api/lab/samples", (_req, res) => res.json({ success: true, data: LAB_SAMPLES.map((s) => ({ id: s.id, title: s.title, preview: s.text.slice(0, 90) + "…" })) }));
+
+app.get("/api/lab/sessions", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên xem được Phòng Lab của mình.");
+  const cid = req.query.course_id;
+  const list = db.lab_sessions.filter((s: any) => s.student_id === req.user.id && (!cid || s.course_id === cid)).sort((a: any, b: any) => b.created_at.localeCompare(a.created_at));
+  res.json({ success: true, data: list });
+});
+
+app.post("/api/lab/sessions", async (req: AuthedRequest, res) => {
+  if (!labStudent(req, res)) return;
+  const course = findCourse(req.body?.course_id);
+  if (!course || !isMember(course.id, req.user)) return fail(res, 403, "Bạn không thuộc môn học này.");
+  if (db.lab_sessions.filter((s: any) => s.student_id === req.user.id && s.course_id === course.id).length >= 30) return fail(res, 400, "Mỗi môn tối đa 30 phiên Lab. Hãy xóa bớt phiên cũ.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
+  const kind = req.body?.kind;
+  let text = "", title = cap(req.body?.title, LAB_LIMITS.maxTitle), pasted = 0;
+  if (kind === "sample") {
+    const s = LAB_SAMPLES.find((x) => x.id === req.body?.sample_id);
+    if (!s) return fail(res, 400, "Không tìm thấy văn bản mẫu.");
+    text = s.text; title = title || s.title;
+  } else if (kind === "own") {
+    text = String(req.body?.text ?? "").replace(/\r\n/g, "\n").trim(); pasted = clampInt(req.body?.pasted_chars);   // it is the student's own document: pasting is allowed, the amount is recorded
+    title = title || "Bài nháp của tôi";
+  } else if (kind === "ai") {
+    const topic = cap(req.body?.topic, LAB_LIMITS.maxTopic);
+    if (topic.length < 5) return fail(res, 400, "Hãy nhập chủ đề (ít nhất 5 ký tự).");
+    try {
+      const out = await aiJson(`Viết MỘT đoạn văn nghị luận tiếng Việt khoảng 90-130 chữ về chủ đề dưới đây, giọng tự tin của một bài luận sinh viên, có ít nhất hai câu khẳng định mạnh. Chỉ trả đoạn văn, không tiêu đề.\n\nChủ đề: ${scrub(topic, whoIs(req.user.id))}`, { text: STR }, ["text"], 0.8);
+      text = cap(out.text, LAB_LIMITS.maxText); title = title || topic.slice(0, LAB_LIMITS.maxTitle);
+    } catch (e: any) { console.error("Lab ai text error:", e?.message || e); return fail(res, 502, "Trợ lý AI tạm thời không viết được đoạn văn. Hãy thử lại."); }
+  } else return fail(res, 400, "Nguồn văn bản không hợp lệ.");
+  if (text.length < LAB_LIMITS.minText) return fail(res, 400, `Văn bản cần ít nhất ${LAB_LIMITS.minText} ký tự.`);
+  if (text.length > LAB_LIMITS.maxText) return fail(res, 400, `Văn bản tối đa ${LAB_LIMITS.maxText.toLocaleString("vi-VN")} ký tự.`);
+  const s = { id: uid("lab"), student_id: req.user.id, course_id: course.id, title, kind, text, pasted_chars: pasted, events: [] as any[], created_at: nowIso() };
+  db.lab_sessions.push(s); labSave(s);
+  res.json({ success: true, data: s });
+});
+
+app.get("/api/lab/sessions/:id", (req: AuthedRequest, res) => {
+  const s = db.lab_sessions.find((x: any) => x.id === req.params.id);
+  if (!s) return fail(res, 404, "Không tìm thấy phiên Lab này.");
+  const course = findCourse(s.course_id);
+  const ok = s.student_id === req.user.id || (course && (req.user.role === "admin" || (req.user.role === "teacher" && isOwner(course, req.user))));
+  if (!ok) return fail(res, 403, "Bạn không có quyền xem phiên này.");
+  res.json({ success: true, data: s });
+});
+
+app.delete("/api/lab/sessions/:id", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên xóa được phiên Lab của mình.");
+  const s = labOwn(req, res); if (!s) return;
+  db.lab_sessions = db.lab_sessions.filter((x: any) => x.id !== s.id); deleteDocument("lab_sessions", s.id);
+  res.json({ success: true, data: { id: s.id } });
+});
+
+/** Step 2-3: the student highlighted a passage. Returns 1-2 opposing views aimed at exactly that passage. */
+app.post("/api/lab/sessions/:id/lens", async (req: AuthedRequest, res) => {
+  if (!labStudent(req, res)) return;
+  const s = labOwn(req, res); if (!s) return;
+  const course = findCourse(s.course_id);
+  if (!course) return fail(res, 404, "Môn học không còn tồn tại.");
+  if (s.events.some((e: any) => !e.action)) return fail(res, 409, "Hãy đối chất với góc nhìn đang mở (bảo vệ hoặc điều chỉnh) trước khi bôi đen đoạn khác.");
+  const start = Math.round(Number(req.body?.start)), end = Math.round(Number(req.body?.end));
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > s.text.length || start >= end) return fail(res, 400, "Vùng chọn không hợp lệ.");
+  const selText = s.text.slice(start, end);
+  if (selText.trim().length < LAB_LIMITS.minSel) return fail(res, 400, `Hãy bôi đen một câu hoặc đoạn dài ít nhất ${LAB_LIMITS.minSel} ký tự.`);
+  if (selText.length > LAB_LIMITS.maxSel) return fail(res, 400, `Đoạn chọn tối đa ${LAB_LIMITS.maxSel.toLocaleString("vi-VN")} ký tự.`);
+  if (s.events.some((e: any) => start < e.selection.end && end > e.selection.start)) return fail(res, 409, "Đoạn này trùng với một đoạn bạn đã đối chất. Hãy chọn đoạn khác.");
+  if (chatRateLimited(req.user.id)) return fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại.");
+
+  const passage = scrub(selText, whoIs(req.user.id)), context = scrub(s.text, whoIs(req.user.id)).slice(0, 6000);
+  try {
+    const cls = await aiJson(`Phân loại ĐOẠN ĐƯỢC CHỌN theo bản chất của nó.
+- "tranh_luan": ý kiến, giá trị, cách tiếp cận, dự đoán, nơi nhiều quan điểm hợp lý có thể cùng tồn tại.
+- "su_kien": khẳng định sự kiện, số liệu hoặc định nghĩa có thể kiểm chứng.
+- "khong_ro": quá mơ hồ hoặc quá ngắn để biết đang khẳng định điều gì.
+Trả JSON {mode, reason} (reason: một câu tiếng Việt).
+
+ĐOẠN ĐƯỢC CHỌN:
+${passage}`, { mode: STR, reason: STR }, ["mode", "reason"], 0.2);
+    const mode: "tranh_luan" | "su_kien" | "khong_ro" = ["tranh_luan", "su_kien", "khong_ro"].includes(cls.mode) ? cls.mode : "khong_ro";
+    if (mode === "khong_ro") return res.json({ success: true, data: { event: null, clarify: "Mình chưa rõ đoạn này đang khẳng định điều gì. Bạn thử bôi đen một câu khẳng định cụ thể hơn nhé.", session: s } });   // nothing is stored: no friction is owed for a passage that got no counter-view
+    const ev: any = { id: uid("ev"), selection: { start, end, text: selText }, mode, reason: cap(cls.reason, 300), counterviews: [], ts: nowIso() };
+
+    if (mode === "tranh_luan") {
+      // The only sources are the class materials; no URL is ever produced. A source is shown only if it is a real material of this class.
+      const passages = pickPassages(course.materials || [], passage, 3500, 3);
+      const mats = passages.length ? passages.map((p) => `[${p.name}]\n${p.text}`).join("\n---\n") : "(Lớp này chưa có tài liệu phù hợp. Để source_ref trống.)";
+      const out = await aiJson(`Bạn giúp một sinh viên nhìn lại MỘT đoạn trong văn bản từ góc khác. KHÔNG viết lại văn bản. Hãy đưa 1 đến 2 góc nhìn KHÁC, mỗi góc nhìn nhắm thẳng vào đoạn được chọn, là một lập luận nghiêm túc (không bù nhìn, không công kích).
+Mỗi góc nhìn có: kind (một trong: phan_bien = góc nhìn phản biện; he_qua_dai_han = hệ quả dài hạn nếu điều này đúng; gia_dinh_ngam = giả định ngầm bị bỏ sót), stance (một câu), argument (2-3 câu tiếng Việt), source_ref (tên tài liệu trong ngoặc vuông dưới đây nếu bạn dựa vào nó, nếu không thì để trống). KHÔNG đưa đường link, KHÔNG bịa nguồn.
+
+TÀI LIỆU CỦA LỚP:
+${mats}
+
+TOÀN VĂN (chỉ để hiểu ngữ cảnh):
+${context}
+
+ĐOẠN ĐƯỢC CHỌN:
+${passage}`, { counterviews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { kind: STR, stance: STR, argument: STR, source_ref: STR }, required: ["kind", "stance", "argument", "source_ref"] } } }, ["counterviews"], 0.6);
+      ev.counterviews = (Array.isArray(out.counterviews) ? out.counterviews : []).slice(0, 2).map((v: any) => {
+        const ref = cap(v.source_ref, 120).toLowerCase();
+        const hit = ref && passages.find((p) => p.name.toLowerCase() === ref);
+        const kind = (LAB_KINDS as readonly string[]).includes(v.kind) ? v.kind : "phan_bien";
+        return { kind, stance: cap(v.stance, 200), argument: cap(v.argument, 700), source: hit ? { title: hit.name, verified: true } : null };
+      }).filter((v: any) => v.stance && v.argument);
+      if (!ev.counterviews.length) throw new Error("AI chưa đưa được góc nhìn nào.");
+    } else {
+      const out = await aiJson(`Đoạn sau khẳng định điều có thể kiểm chứng. Đừng dựng "phe phản biện". Hãy nêu: claim_to_check (điều cụ thể cần kiểm chứng, một câu) và how_to_check (2-3 gợi ý cách tìm bằng chứng, mỗi gợi ý một câu). Tiếng Việt.\n\nĐOẠN ĐƯỢC CHỌN:\n${passage}`, { claim_to_check: STR, how_to_check: { type: Type.ARRAY, items: STR } }, ["claim_to_check", "how_to_check"], 0.4);
+      ev.verify = { claim_to_check: cap(out.claim_to_check, 300), how_to_check: (Array.isArray(out.how_to_check) ? out.how_to_check : []).slice(0, 3).map((x: any) => cap(x, 250)).filter(Boolean) };
+    }
+    s.events.push(ev); labSave(s);
+    res.json({ success: true, data: { event: ev, session: s } });
+  } catch (err: any) {
+    console.error("Lab lens error:", err?.message || err);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Hãy thử lại.");
+  }
+});
+
+/** Step 4, the friction: defend the claim or adjust the sentence. Reading the counter-view and closing it is not enough. */
+app.post("/api/lab/sessions/:id/respond", (req: AuthedRequest, res) => {
+  if (!labStudent(req, res)) return;
+  const s = labOwn(req, res); if (!s) return;
+  const ev = s.events.find((e: any) => e.id === req.body?.event_id);
+  if (!ev) return fail(res, 404, "Không tìm thấy đoạn này.");
+  if (ev.action) return fail(res, 409, "Bạn đã đối chất đoạn này rồi.");
+  const action = req.body?.action;
+  if (action !== "defend" && action !== "adjust") return fail(res, 400, "Hãy chọn Bảo vệ luận điểm hoặc Điều chỉnh câu gốc.");
+  if (clampInt(req.body?.pasted) > 0) return fail(res, 400, PASTE_MSG);
+  if (action === "defend") {
+    const t = cap(req.body?.text, 2000);
+    if (t.length < LAB_LIMITS.minRebut) return fail(res, 400, `Hãy viết 1-2 câu phản bác (ít nhất ${LAB_LIMITS.minRebut} ký tự).`);
+    ev.defense = { text: t, typed: clampInt(req.body?.typed), ts: nowIso() };
+  } else {
+    const after = cap(req.body?.after_text, LAB_LIMITS.maxAfter);
+    if (after.length < LAB_LIMITS.minAfter) return fail(res, 400, "Đoạn sau khi sửa quá ngắn.");
+    const sim = Math.round(wordSimilarity(ev.selection.text, after) * 100) / 100;
+    if (sim >= 0.97) return fail(res, 400, "Bạn chưa thay đổi gì ở đoạn này. Hãy sửa cho chặt chẽ, đa chiều hơn.");
+    ev.rewrite = { before: ev.selection.text, after, similarity: sim, typed: clampInt(req.body?.typed), deleted: clampInt(req.body?.deleted), rewritten_from_scratch: sim < 0.35, ts: nowIso() };
+  }
+  ev.action = action;
+  labSave(s);
+  res.json({ success: true, data: { event: ev, session: s } });
+});
+
+/** Teacher view: every student's Lab sessions in one course. */
+app.get("/api/courses/:id/lab", (req: AuthedRequest, res) => {
+  const course = findCourse(req.params.id);
+  if (!course) return fail(res, 404, "Không tìm thấy môn học.");
+  if (!(req.user.role === "admin" || (req.user.role === "teacher" && isOwner(course, req.user)))) return fail(res, 403, "Chỉ giảng viên phụ trách mới xem được Phòng Lab của lớp.");
+  const list = db.lab_sessions.filter((s: any) => s.course_id === course.id).map((s: any) => ({ ...s, student_name: db.users.find((u: any) => u.id === s.student_id)?.name || "Sinh viên" })).sort((a: any, b: any) => b.created_at.localeCompare(a.created_at));
+  res.json({ success: true, data: list });
+});
+
+// ---- Are you sure? ----
+/** Common checks for the Are-you-sure endpoint. Sends the error response itself and returns null when something is wrong. */
+function aysContext(req: AuthedRequest, res: express.Response, assignmentId: any) {
   if (req.user.role !== "student") { fail(res, 403, "Chỉ sinh viên mới làm bài tập."); return null; }
   if (!can(req.user, "use_ai_chat")) { denied(res); return null; }
   if (needConsent(req, res)) return null;
@@ -2833,151 +2994,26 @@ function stageContext(req: AuthedRequest, res: express.Response, assignmentId: a
   const existing = db.submissions.find((x: any) => x.assignment_id === assignment.id && x.student_id === req.user.id);
   if (existing && isSubmitted(existing)) { fail(res, 409, "Bài đã nộp, các chặng đã được khóa."); return null; }
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
-  const block = stageBlocker(assignment, chatSession, stage);
+  const block = stageBlocker(assignment, chatSession);
   if (block) { fail(res, 409, block); return null; }
   if (chatRateLimited(req.user.id)) { fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại."); return null; }
   return { assignment, course, chatSession };
 }
 function pasteBlocked(assignment: any, body: any): boolean { return assignment.paste_mode === "block" && Number(body?.pasted_chars) > 0; }
-const PASTE_MSG = "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.";
+const ASSIGN_PASTE_MSG = "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.";
 
-app.post("/api/lab/start", (req: AuthedRequest, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const text = String(req.body?.text ?? "").replace(/\r\n/g, "\n").trim();
-  if (text.length < LAB_LIMITS.minText) return fail(res, 400, `Văn bản cần ít nhất ${LAB_LIMITS.minText} ký tự.`);
-  if (text.length > LAB_LIMITS.maxText) return fail(res, 400, `Văn bản tối đa ${LAB_LIMITS.maxText.toLocaleString("vi-VN")} ký tự.`);
-  if (chatSession.lab?.events?.length) return res.json({ success: true, data: { lab: chatSession.lab } });   // already working on it: keep the text, the offsets depend on it
-  // the draft is the student's own document, so it may be pasted even when the lock is on; the amount is recorded
-  chatSession.lab = { text, created_at: nowIso(), pasted_chars: clampInt(req.body?.pasted_chars), events: [] };
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { lab: chatSession.lab } });
-});
-
-app.post("/api/lab/stance", async (req: AuthedRequest, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
-  const { assignment, course, chatSession } = ctx;
-  const lab = chatSession.lab;
-  if (!lab?.text) return fail(res, 409, "Hãy thêm văn bản trước.");
-  const start = Math.round(Number(req.body?.selection?.start)), end = Math.round(Number(req.body?.selection?.end));
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > lab.text.length || start >= end) return fail(res, 400, "Vùng chọn không hợp lệ.");
-  const selText = lab.text.slice(start, end).trim();
-  if (selText.length < LAB_LIMITS.minSel) return fail(res, 400, `Hãy bôi đen một đoạn dài ít nhất ${LAB_LIMITS.minSel} ký tự.`);
-  if (selText.length > LAB_LIMITS.maxSel) return fail(res, 400, `Đoạn chọn tối đa ${LAB_LIMITS.maxSel.toLocaleString("vi-VN")} ký tự.`);
-  // L1: no other view is shown before the student has stated their own
-  const stance = cap(req.body?.stance_text, 2000);
-  if (stance.length < LAB_LIMITS.minStance) return fail(res, 400, `Hãy viết ý của bạn về đoạn này trước (ít nhất ${LAB_LIMITS.minStance} ký tự) rồi mới xem góc nhìn khác.`);
-  if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
-
-  const who = whoIs(req.user.id);
-  const passage = scrub(selText, who), view = scrub(stance, who);
-  try {
-    const cls = await aiJson(`Phân loại ĐOẠN VĂN sau theo bản chất của nó.
-- "tranh_luan": ý kiến, giá trị, cách tiếp cận, dự đoán, nơi nhiều quan điểm hợp lý có thể cùng tồn tại.
-- "su_kien": khẳng định sự kiện, số liệu hoặc định nghĩa đã có đồng thuận (không có "phe phản biện" nghiêm túc).
-- "khong_ro": quá mơ hồ hoặc quá ngắn để biết đang khẳng định điều gì.
-Trả JSON {mode, reason} (reason: một câu tiếng Việt).
-
-ĐOẠN ĐƯỢC CHỌN:
-${passage}`, { mode: STR, reason: STR }, ["mode", "reason"], 0.2);
-    const mode: "tranh_luan" | "su_kien" | "khong_ro" = ["tranh_luan", "su_kien", "khong_ro"].includes(cls.mode) ? cls.mode : "khong_ro";
-    const ev: any = { id: uid("lab"), selection: { start, end, text: selText }, stance_text: stance, mode, reason: cap(cls.reason, 300), counterviews: [], ts: nowIso() };
-
-    if (mode === "tranh_luan") {
-      // L4 (v1): the only sources are the class materials. L3: no URL ever; a source is shown only if it is a real material of this class.
-      const passages = pickPassages(course.materials || [], `${selText} ${stance}`, 3500, 3);
-      const mats = passages.length ? passages.map((p) => `[${p.name}]\n${p.text}`).join("\n---\n") : "(Lớp này chưa có tài liệu phù hợp. Để source_ref trống.)";
-      const out = await aiJson(`Bạn giúp một sinh viên nhìn một đoạn văn từ góc khác. Hãy đưa ĐÚNG 2 góc nhìn KHÁC với ý của sinh viên, mỗi góc nhìn là một lập luận nghiêm túc (không bù nhìn, không công kích).
-Mỗi góc nhìn có: stance (một câu), argument (2-3 câu tiếng Việt), source_ref (tên tài liệu trong ngoặc vuông dưới đây nếu bạn dựa vào nó, nếu không thì để trống). KHÔNG đưa đường link, KHÔNG bịa nguồn.
-
-TÀI LIỆU CỦA LỚP:
-${mats}
-
-ĐOẠN ĐƯỢC CHỌN:
-${passage}
-
-Ý CỦA SINH VIÊN VỀ ĐOẠN NÀY:
-${view}`, { counterviews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { stance: STR, argument: STR, source_ref: STR }, required: ["stance", "argument", "source_ref"] } } }, ["counterviews"], 0.6);
-      ev.counterviews = (Array.isArray(out.counterviews) ? out.counterviews : []).slice(0, 2).map((v: any) => {
-        const ref = cap(v.source_ref, 120).toLowerCase();
-        const hit = ref && passages.find((p) => p.name.toLowerCase() === ref);
-        return { stance: cap(v.stance, 200), argument: cap(v.argument, 700), source: hit ? { title: hit.name, verified: true } : null };
-      }).filter((v: any) => v.stance && v.argument);
-      if (!ev.counterviews.length) throw new Error("AI chưa đưa được góc nhìn nào.");
-    } else if (mode === "su_kien") {
-      const out = await aiJson(`Đoạn sau khẳng định một điều đã có đồng thuận. Đừng dựng "phe phản biện". Hãy nêu: claim_to_check (điều cụ thể cần kiểm chứng, một câu) và how_to_check (2-3 gợi ý cách tìm bằng chứng, mỗi gợi ý một câu). Tiếng Việt.
-
-ĐOẠN ĐƯỢC CHỌN:
-${passage}`, { claim_to_check: STR, how_to_check: { type: Type.ARRAY, items: STR } }, ["claim_to_check", "how_to_check"], 0.4);
-      ev.verify = { claim_to_check: cap(out.claim_to_check, 300), how_to_check: (Array.isArray(out.how_to_check) ? out.how_to_check : []).slice(0, 3).map((x: any) => cap(x, 250)).filter(Boolean) };
-    } else {
-      ev.clarify = "Mình chưa rõ đoạn này đang khẳng định điều gì. Bạn thử chọn một đoạn cụ thể hơn, hoặc viết lại ý của bạn cho rõ hơn nhé.";
-    }
-    lab.events.push(ev);
-    saveDocument("chat_sessions", chatSession.id, chatSession);
-    res.json({ success: true, data: { event: ev, lab } });
-  } catch (err: any) {
-    console.error("Lab stance error:", err?.message || err);
-    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Ý của bạn chưa được ghi nhận, hãy thử lại.");
-  }
-});
-
-app.post("/api/lab/action", (req: AuthedRequest, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const ev = chatSession.lab?.events?.find((e: any) => e.id === req.body?.event_id);
-  if (!ev) return fail(res, 404, "Không tìm thấy đoạn này.");
-  if (ev.action) return fail(res, 409, "Bạn đã chọn hành động cho đoạn này rồi.");
-  const action = req.body?.action;
-  if (!["accept", "rebut", "skip"].includes(action)) return fail(res, 400, "Hành động không hợp lệ.");
-  if (ev.mode === "khong_ro" && action !== "skip") return fail(res, 400, "Đoạn này chưa rõ nghĩa, bạn chỉ có thể bỏ qua hoặc chọn đoạn khác.");
-  if (action === "rebut") {
-    const rb = cap(req.body?.rebuttal_text, 2000);
-    if (rb.length < LAB_LIMITS.minRebut) return fail(res, 400, `Hãy viết phản biện của bạn (ít nhất ${LAB_LIMITS.minRebut} ký tự).`);
-    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
-    ev.rebuttal_text = rb;
-  }
-  ev.action = action;
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
-});
-
-app.post("/api/lab/rewrite", (req: AuthedRequest, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
-  const { assignment, chatSession } = ctx;
-  const ev = chatSession.lab?.events?.find((e: any) => e.id === req.body?.event_id);
-  if (!ev) return fail(res, 404, "Không tìm thấy đoạn này.");
-  if (ev.action !== "accept" && ev.action !== "rebut") return fail(res, 409, "Hãy chọn Ghi nhận hoặc Phản biện lại trước khi sửa đoạn.");
-  if (ev.rewrite) return fail(res, 409, "Bạn đã sửa đoạn này rồi.");
-  const after = cap(req.body?.after_text, LAB_LIMITS.maxAfter);
-  if (after.length < LAB_LIMITS.minAfter) return fail(res, 400, "Đoạn sau khi sửa quá ngắn.");
-  if (assignment.paste_mode === "block" && clampInt(req.body?.pasted) > 0) return fail(res, 400, PASTE_MSG);
-  const sim = Math.round(wordSimilarity(ev.selection.text, after) * 100) / 100;
-  ev.rewrite = { before: ev.selection.text, after, similarity: sim, typed: clampInt(req.body?.typed), deleted: clampInt(req.body?.deleted), pasted: clampInt(req.body?.pasted), rewritten_from_scratch: sim < 0.35, ts: nowIso() };
-  saveDocument("chat_sessions", chatSession.id, chatSession);
-  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
-});
-
-app.get("/api/lab/:assignmentId/mine", (req: AuthedRequest, res) => {
-  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên xem được dữ liệu của mình.");
-  const cs = db.chat_sessions.find((c: any) => c.assignment_id === req.params.assignmentId && c.student_id === req.user.id);
-  res.json({ success: true, data: { lab: cs?.lab || null } });
-});
-
-// ---- Are you sure? ----
 /** What the student has argued so far: the raw text (to check quotes against) and the same text with names removed (to send to the AI). */
 function positionOf(chat: any) {
   const parts: string[] = [];
   for (const m of chat.messages) if (m.role === "user" && m.kind !== "intent" && m.stage !== "are_you_sure") parts.push(m.content);
   if (chat.intent?.answers?.length) parts.push(...chat.intent.answers.map((x: any) => x.a));
-  for (const e of chat.lab?.events || []) { if (e.stance_text) parts.push(e.stance_text); if (e.rebuttal_text) parts.push(e.rebuttal_text); if (e.rewrite?.after) parts.push(e.rewrite.after); }
   for (const m of chat.messages) if (m.role === "user" && m.stage === "are_you_sure") parts.push(m.content);
   const raw = parts.join("\n");
   return { raw, safe: scrub(raw, whoIs(chat.student_id)).slice(-6000) };
 }
 
 app.post("/api/ays/turn", async (req: AuthedRequest, res) => {
-  const ctx = stageContext(req, res, req.body?.assignment_id, "are_you_sure"); if (!ctx) return;
+  const ctx = aysContext(req, res, req.body?.assignment_id); if (!ctx) return;
   const { assignment, chatSession } = ctx;
   const N = stageConfig(assignment).are_you_sure.turns;
   const answered = aysAnswered(chatSession);
@@ -2994,7 +3030,7 @@ app.post("/api/ays/turn", async (req: AuthedRequest, res) => {
     if (!pending) return fail(res, 400, "Chưa có câu chất vấn để trả lời.");
     if (answer.length < 10) return fail(res, 400, "Hãy trả lời kỹ hơn một chút (ít nhất 10 ký tự).");
     if (answer.length > 3000) return fail(res, 413, "Câu trả lời tối đa 3.000 ký tự.");
-    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
+    if (pasteBlocked(assignment, req.body)) return fail(res, 400, ASSIGN_PASTE_MSG);
   }
 
   const who = whoIs(req.user.id);
@@ -3068,14 +3104,18 @@ app.get("/api/me/export", (req: AuthedRequest, res) => {
   const u = req.user;
   const chats = db.chat_sessions.filter((c: any) => c.student_id === u.id);
   const subs = db.submissions.filter((x: any) => x.student_id === u.id);
+  const labs = db.lab_sessions.filter((x: any) => x.student_id === u.id);
   res.setHeader("Content-Disposition", `attachment; filename="traceedu-du-lieu-cua-toi.json"`);
-  res.json({ success: true, data: { exported_at: nowIso(), account: { name: u.name, email: u.email, role: u.role, consent_at: u.consent_at || null }, chat_sessions: chats, submissions: subs, profile_share: u.profile_share || null, note: "Đây là toàn bộ dữ liệu học tập TraceEdu lưu về bạn." } });
+  res.json({ success: true, data: { exported_at: nowIso(), account: { name: u.name, email: u.email, role: u.role, consent_at: u.consent_at || null }, chat_sessions: chats, lab_sessions: labs, submissions: subs, profile_share: u.profile_share || null, note: "Đây là toàn bộ dữ liệu học tập TraceEdu lưu về bạn." } });
 });
 
 app.post("/api/me/delete-data", (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chức năng này dành cho sinh viên.");
   if (req.body?.confirm !== "XOA") return fail(res, 400, "Hãy gõ XOA để xác nhận.");
   const chats = db.chat_sessions.filter((c: any) => c.student_id === req.user.id), subs = db.submissions.filter((x: any) => x.student_id === req.user.id);
+  const labs = db.lab_sessions.filter((x: any) => x.student_id === req.user.id);
+  for (const l of labs) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((x: any) => x.student_id !== req.user.id);
   for (const c of chats) deleteDocument("chat_sessions", c.id);
   for (const x of subs) deleteDocument("submissions", x.id);
   db.chat_sessions = db.chat_sessions.filter((c: any) => c.student_id !== req.user.id);
@@ -3083,7 +3123,7 @@ app.post("/api/me/delete-data", (req: AuthedRequest, res) => {
   delete req.user.profile_share;
   saveDocument("users", req.user.id, req.user);
   audit(req.user, "privacy.delete", req.user.email, `${chats.length} cuộc chat, ${subs.length} bài nộp`);
-  res.json({ success: true, data: { deleted_chats: chats.length, deleted_submissions: subs.length }, message: "Đã xóa dữ liệu học tập của bạn. Tài khoản vẫn còn." });
+  res.json({ success: true, data: { deleted_chats: chats.length, deleted_labs: labs.length, deleted_submissions: subs.length }, message: "Đã xóa dữ liệu học tập của bạn. Tài khoản vẫn còn." });
 });
 
 /** Deletes chat logs of submitted work older than the retention period (days). Scores and grades are kept. Returns how many were deleted. */
@@ -3101,7 +3141,10 @@ function purgeExpired(days: number): number {
     if (sub) { sub.chat_purged_at = nowIso(); saveDocument("submissions", sub.id, sub); }
   }
   db.chat_sessions = db.chat_sessions.filter((c: any) => !old.includes(c));
-  return old.length;
+  const oldLabs = db.lab_sessions.filter((l: any) => new Date(l.created_at).getTime() < cutoff);
+  for (const l of oldLabs) deleteDocument("lab_sessions", l.id);
+  db.lab_sessions = db.lab_sessions.filter((l: any) => !oldLabs.includes(l));
+  return old.length + oldLabs.length;
 }
 app.post("/api/admin/retention/run", (req: AuthedRequest, res) => {
   const n = purgeExpired(Number(db.settings.retention_days) || 0);

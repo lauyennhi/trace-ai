@@ -82,25 +82,26 @@ t("old assignments (no stages) have only Think First and Co-Think, and submit af
   assert.deepEqual(computeStages(a, chat(0)).map((s) => s.id), ["think_first", "co_think"]);
   assert.ok(submitBlocker(a, chat(2))); assert.equal(submitBlocker(a, chat(3)), null);
 });
-t("cleanStages: file-only assignments cannot enable the new stages; turns are clamped", () => {
-  assert.equal(cleanStages({ perspective_lab: { enabled: true } }, "file_only").perspective_lab.enabled, false);
+t("cleanStages: file-only assignments cannot enable Are-you-sure; turns are clamped; default is 3", () => {
+  assert.equal(cleanStages({ are_you_sure: { enabled: true } }, "file_only").are_you_sure.enabled, false);
   assert.equal(cleanStages({ are_you_sure: { enabled: true, turns: 99 } }, "both").are_you_sure.turns, 5);
   assert.equal(cleanStages({ are_you_sure: { enabled: true, turns: 0 } }, "both").are_you_sure.turns, 1);
-  assert.equal(stageConfig({}).ask_confidence, false);
+  assert.equal(stageConfig({ stages: { are_you_sure: { enabled: true } } }).are_you_sure.turns, 3);
+  assert.deepEqual(Object.keys(cleanStages({ perspective_lab: { enabled: true }, think_first: { ask_confidence: true } }, "both")), ["are_you_sure"], "Lab and confidence are no longer part of an assignment");
 });
-t("Lab and Are-you-sure stay locked before 3 Co-Think turns, then open in order", () => {
-  const a = { friction: "none", stages: { perspective_lab: { enabled: true, required: true }, are_you_sure: { enabled: true, required: true, turns: 2 } } };
-  assert.ok(stageBlocker(a, chat(2), "perspective_lab")); assert.equal(stageBlocker(a, chat(3), "perspective_lab"), null);
-  assert.ok(stageBlocker(a, chat(3), "are_you_sure"), "AYS waits for the required Lab");
-  const labDone = chat(3, { lab: { events: [{ rewrite: { after: "x" } }] } });
-  assert.equal(stageBlocker(a, labDone, "are_you_sure"), null);
-  assert.match(String(submitBlocker(a, labDone)), /Bạn chắc chứ/);
+t("Are-you-sure stays locked before 3 Co-Think turns, then opens; it gates submission", () => {
+  const a = { friction: "none", stages: { are_you_sure: { enabled: true, required: true, turns: 3 } } };
+  assert.ok(stageBlocker(a, chat(2))); assert.equal(stageBlocker(a, chat(3)), null);
+  assert.match(String(submitBlocker(a, chat(3))), /Bạn chắc chứ/);
+  const answered = { messages: [{ role: "user" }, { role: "user" }, { role: "user" }, ...[1, 2, 3].map(() => ({ role: "user", stage: "are_you_sure" }))] };
+  assert.equal(submitBlocker(a, answered), null);
+  assert.deepEqual(computeStages(a, answered).map((s) => s.id), ["co_think", "are_you_sure"]);
 });
-t("an optional Lab does not hold back Are-you-sure; Are-you-sure messages are not Co-Think turns", () => {
-  const a = { friction: "none", stages: { perspective_lab: { enabled: true, required: false }, are_you_sure: { enabled: true, required: true, turns: 2 } } };
-  assert.equal(stageBlocker(a, chat(3), "are_you_sure"), null);
+t("an optional Are-you-sure does not block submission; its messages are not Co-Think turns", () => {
+  const a = { friction: "none", stages: { are_you_sure: { enabled: true, required: false, turns: 2 } } };
+  assert.equal(submitBlocker(a, chat(3)), null);
   const c = { messages: [{ role: "user" }, { role: "user" }, { role: "user", stage: "are_you_sure" }, { role: "user", stage: "are_you_sure" }] };
   assert.ok(submitBlocker(a, c), "only 2 real Co-Think turns");
 });
-t("disabled stage is rejected", () => { assert.ok(stageBlocker({ friction: "none" }, chat(5), "perspective_lab")); });
+t("disabled stage is rejected", () => { assert.ok(stageBlocker({ friction: "none" }, chat(5))); });
 console.log(`\n${pass} passed`);

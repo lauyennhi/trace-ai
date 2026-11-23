@@ -534,3 +534,32 @@ Các mặc định ở mục 12 (1 đến 6) được giữ nguyên.
 - P3: hồ sơ tư duy tính cả bài L2; tách `server.ts`; tích hợp LMS, SSO; tiện ích trình duyệt.
 - Bộ chấm và bộ nhận xét vẫn dùng chung cấu hình mô hình (khuyến nghị mục 16: tách, dùng mô hình khác); chưa làm.
 - Quyền riêng tư: chưa có trang chính sách đầy đủ (chỉ màn đồng ý tóm tắt), chưa có quy trình xóa theo yêu cầu qua quản trị viên, chưa có "xóa tài khoản".
+
+### 18.6 Điều chỉnh theo yêu cầu của chủ sản phẩm (sau bản 18.1 đến 18.5)
+
+Bản triển khai đầu tiên xếp Perspective Lab làm chặng 3 của bài. Chủ sản phẩm đã chốt lại, và code đã đổi theo. **Nếu mục này mâu thuẫn với 18.1 đến 18.5 thì mục này là bản đúng.**
+
+**Luồng bài tập (3 chặng, máy chủ ép thứ tự):**
+1. **Think First:** sinh viên nêu vấn đề, luận điểm.
+2. **Co-Think:** hỏi AI; AI mở khoảng 30% đáp án, 70% bị che mờ; sinh viên trả lời câu hỏi của giảng viên để mở khóa; nhận xét theo thời gian thực nếu giảng viên bật; khóa dán nếu giảng viên đặt từ đầu. (Phần này đã có từ trước.)
+3. **Are you sure?:** trước khi nộp, AI hỏi ngược **3 câu** (giảng viên chỉnh được 1 đến 5, mặc định 3) dựa trên chính bài sinh viên đã làm; chỉ ra chỗ yếu về lập luận, nguồn, logic; sau đó chấm theo rubric, giảng viên chấm.
+
+**Đã bỏ khỏi luồng bài:** chế độ Viết L2 (không tạo được bài mới; bài L2 cũ vẫn mở và chấm như trước), câu hỏi mức tự tin (máy chủ không còn nhận hay lưu `confidence`; thẻ "độ tự tin so với tư duy" ở thống kê lớp đã gỡ), và Perspective Lab ra khỏi các chặng (`stages` chỉ còn `are_you_sure`). Endpoint cũ `/api/lab/start|stance|action|rewrite` đã gỡ.
+
+**Perspective Lab là chế độ riêng** ("Góc nhìn khác" ở thanh bên của sinh viên, và một tab cùng tên trong từng môn học). Không nộp, không chấm điểm. Bốn bước:
+1. **Canvas:** sinh viên mở một văn bản: bài luận mẫu có thiên kiến (3 bài dựng sẵn), một đoạn AI vừa viết theo chủ đề, hoặc bài nháp của chính họ.
+2. **Bôi đen và kích hoạt:** bôi đen một câu khẳng định (≥ 20 ký tự) thì nút Cobalt "Hmm... góc nhìn khác thì sao?" hiện ngay phía trên.
+3. **Lăng kính đối lập:** khung trượt bên phải với 1 đến 2 góc nhìn nhắm đúng đoạn đó, gán nhãn *Góc nhìn phản biện*, *Hệ quả dài hạn* hoặc *Giả định ngầm bị bỏ sót*. AI không viết lại bài. Nguồn chỉ là tên tài liệu thật của lớp; không có link; nếu không có nguồn thì ghi "Lập luận do AI soạn, chưa có nguồn".
+4. **Đối chất bắt buộc:** phải chọn **Bảo vệ luận điểm** (viết ≥ 20 ký tự) hoặc **Điều chỉnh câu gốc** (sửa cho khác câu gốc). Chưa chọn thì không đóng được khung, không bôi đen đoạn khác được (máy chủ ép: 409). Hai ô này tự gõ, không dán (máy chủ từ chối `pasted > 0`).
+
+Quyết định kỹ thuật cho Lab riêng:
+- **Lưu trong collection mới `lab_sessions`** (`{student_id, course_id, title, kind, text, pasted_chars, events[]}`), cùng bảng `documents` như các collection khác nên chạy với Supabase và file. Không còn nằm trong `chat_sessions`. Collection này đã được đưa vào xóa môn học, xóa người dùng, "xóa dữ liệu của tôi", xuất dữ liệu và dọn theo thời hạn lưu.
+- Đoạn chọn chưa rõ nghĩa (`khong_ro`) thì AI chỉ nhắc chọn lại và **không lưu gì**. Đoạn là khẳng định có thể kiểm chứng (`su_kien`) thì AI đưa "điều cần kiểm chứng" và gợi ý cách tìm, không dựng phe phản biện; sinh viên vẫn phải bảo vệ hoặc điều chỉnh.
+- Các đoạn đã đối chất không được chọn chồng lên nhau, nên vị trí trong văn bản luôn đúng. Văn bản gốc không đổi; câu đã điều chỉnh được hiển thị thay đoạn cũ, câu gốc xem được khi rê chuột.
+- Giảng viên của môn thấy mọi phiên (tab "Góc nhìn khác"), kèm đoạn bôi đen, góc nhìn, lời bảo vệ hoặc câu trước/sau (độ giống, có viết lại từ đầu không). Thống kê lớp có một dòng tổng hợp (cần ≥ 5 sinh viên mới hiện).
+
+**Điều chưa làm hoặc chưa kiểm chứng của Lab:**
+- Chưa chạy với Gemini thật. Chưa biết "góc nhìn khác" có nghiêm túc hay hời hợt, hay có nhãn `kind` có đúng không. Test chỉ chứng minh luật và đường nối (AI giả lập).
+- Lab **chưa đưa vào điểm quá trình** của bài tập hay vào hồ sơ tư duy: nó không gắn với một bài cụ thể. Nếu muốn tính điểm, cần quyết định cách gắn (ví dụ bài tập yêu cầu "hoàn thành ≥ 3 đối chất" hay đưa số liệu Lab vào hồ sơ). Hiện giảng viên chỉ xem được dấu vết.
+- Việc chọn văn bản bằng chuột đã kiểm thử bằng trình duyệt tự động (mô phỏng chọn và thả chuột). Chưa thử bằng cảm ứng trên điện thoại.
+- Văn bản "AI vừa viết" là một đoạn do AI soạn theo chủ đề sinh viên nhập; chưa có chế độ lấy đoạn từ cuộc chat của bài tập.

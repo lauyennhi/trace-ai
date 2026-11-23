@@ -17,6 +17,7 @@ import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { SupabaseModal } from "./components/SupabaseModal";
 import { StudentWorkspaceView } from "./components/StudentWorkspaceView";
 import { TeacherSubmissionView } from "./components/TeacherSubmissionView";
+import { LabPage } from "./components/LabView";
 import { StudentL2View } from "./components/StudentL2View";
 import { ToastProvider, useToast, Skeleton, pageVariants, hasPerm } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
@@ -277,6 +278,7 @@ function Shell() {
               )}
 
               {route.name === "profile" && user.role === "student" && <ProfilePage />}
+              {route.name === "lab" && user.role === "student" && <LabPage courses={courses} />}
 
               {route.name === "todo" && (
                 <TodoPage user={user} overview={overview} onOpenAssignment={(c, a) => navigate(`/course/${c}/assignment/${a}`)} onOpenSubmission={(c, a, s) => navigate(`/course/${c}/assignment/${a}/submission/${s}`)} />

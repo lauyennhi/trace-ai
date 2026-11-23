@@ -18,6 +18,7 @@ export type Route =
   | { name: "courses" }
   | { name: "todo" }
   | { name: "profile" }
+  | { name: "lab" }
   | { name: "admin"; tab?: string }
   | { name: "course"; courseId: string; tab?: string }
   | { name: "assignment"; courseId: string; assignmentId: string }
@@ -29,6 +30,7 @@ export function parseRoute(path: string): Route {
   if (p[0] === "courses") return { name: "courses" };
   if (p[0] === "todo") return { name: "todo" };
   if (p[0] === "profile") return { name: "profile" };
+  if (p[0] === "lab") return { name: "lab" };
   if (p[0] === "admin") return { name: "admin", tab: p[1] };
   if (p[0] === "course" && p[1]) {
     if (p[2] === "assignment" && p[3]) {

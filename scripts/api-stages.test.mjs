@@ -1,5 +1,5 @@
 /**
- * Offline test of the four stages, the privacy features and grading by stage. Starts the server itself with AI_MOCK=1
+ * Offline test of the assignment flow (Think First -> Co-Think -> Are you sure?), the separate Perspective Lab mode, privacy and grading. Starts the server itself with AI_MOCK=1
  * (a deterministic stand-in for Gemini), so no API key is needed:   node scripts/api-stages.test.mjs
  * It proves the WIRING and the RULES (order, locks, quotes must exist, no leaks). It says nothing about how good Gemini's answers are.
  */
@@ -27,31 +27,32 @@ try {
   const mk = async (extra) => (await call("/api/courses/c_1/assignments", T, { title: "Stages " + Math.random().toString(36).slice(2, 6), description: "Phân tích mạng xã hội và học tập", due_date: due, submission_mode: "ai_chat_only", ai_submode: "socratic", friction: "none", live_coach: false, ...extra })).data;
   await call("/api/courses/c_1/materials", T, { name: "Giáo trình chương 5", text: "Demographic Parity là tiêu chí công bằng yêu cầu tỉ lệ dự đoán dương bằng nhau giữa các nhóm." });
 
-  const ST = await mk({ paste_mode: "block", stages: { perspective_lab: { enabled: true, required: true }, are_you_sure: { enabled: true, required: true, turns: 2 } } });
+  const ST = await mk({ paste_mode: "block", stages: { are_you_sure: { enabled: true, required: true, turns: 3 } } });
   const chat = (id, msg, extra = {}) => call("/api/chat/message", S, { assignment_id: id, message_content: msg, ...extra });
   const stages = async (id) => (await call(`/api/stages/${id}/state`, S)).data;
+  const sampleText = (await call("/api/lab/samples", S)).data;
 
-  await t("privacy: nothing reaches the AI before the student consents", async () => {
+  await t("privacy: nothing reaches the AI or the Lab before the student consents", async () => {
     const r = await chat(ST.id, "Xin chào mình muốn hỏi một điều");
     assert.equal(r.status, 403); assert.equal(r.code, "consent_required");
-    assert.equal((await call("/api/lab/start", S, { assignment_id: ST.id, text: lorem })).code, "consent_required");
+    assert.equal((await call("/api/lab/sessions", S, { course_id: "c_1", kind: "sample", sample_id: "mxh" })).code, "consent_required");
   });
   await t("consent is recorded and shown on the user", async () => {
     const r = await call("/api/me/consent", S, { accept: true });
     assert.ok(r.data.consent_at); assert.equal((await call("/api/me/consent", S, { accept: false })).status, 400);
     await call("/api/me/consent", S2, { accept: true });
   });
-  await t("assignments: stages are stored, clamped, and ignored for file-only", async () => {
-    assert.equal(ST.stages.perspective_lab.enabled, true); assert.equal(ST.stages.are_you_sure.turns, 2);
-    const f = await mk({ submission_mode: "file_only", stages: { perspective_lab: { enabled: true }, are_you_sure: { enabled: true, turns: 99 } } });
-    assert.equal(f.stages.perspective_lab.enabled, false);
+  await t("assignments: only Are-you-sure is a stage; clamped; ignored for file-only; Viết L2 can no longer be created", async () => {
+    assert.deepEqual(Object.keys(ST.stages), ["are_you_sure"]); assert.equal(ST.stages.are_you_sure.turns, 3);
+    const f = await mk({ submission_mode: "file_only", stages: { are_you_sure: { enabled: true, turns: 99 } } });
+    assert.equal(f.stages.are_you_sure.enabled, false);
     const c = await mk({ stages: { are_you_sure: { enabled: true, turns: 99 } } }); assert.equal(c.stages.are_you_sure.turns, 5);
+    const l2 = await call("/api/courses/c_1/assignments", T, { title: "L2 cũ", description: "x", due_date: due, submission_mode: "writing_l2" }); assert.equal(l2.status, 400);
   });
-  await t("order: Lab and Are-you-sure stay locked before 3 Co-Think turns (server rejects)", async () => {
-    assert.equal((await call("/api/lab/start", S, { assignment_id: ST.id, text: lorem })).status, 409);
+  await t("order: Are-you-sure stays locked before 3 Co-Think turns (server rejects)", async () => {
     assert.equal((await call("/api/ays/turn", S, { assignment_id: ST.id })).status, 409);
-    const st = await stages(ST.id); assert.deepEqual(st.stages.map((x) => x.id), ["think_first", "co_think", "perspective_lab", "are_you_sure"].filter((x) => x !== "think_first"));
-    assert.equal(st.stages.find((x) => x.id === "perspective_lab").status, "locked");
+    const st = await stages(ST.id); assert.deepEqual(st.stages.map((x) => x.id), ["co_think", "are_you_sure"]);
+    assert.equal(st.stages.find((x) => x.id === "are_you_sure").status, "locked");
   });
   await t("Co-Think messages carry stage=co_think and the paste lock rejects pasted text", async () => {
     assert.equal((await chat(ST.id, "Mình nghĩ mạng xã hội làm giảm tập trung", { pasted_chars: 30 })).status, 400);
@@ -60,90 +61,100 @@ try {
       assert.equal(r.data.new_message.stage, "co_think");
     }
   });
-  await t("after 3 turns Lab is open; Are-you-sure still waits for the required Lab", async () => {
+  await t("after 3 turns Are-you-sure opens, and submit is blocked on the server until it is done", async () => {
     const st = await stages(ST.id);
-    assert.equal(st.stages.find((x) => x.id === "perspective_lab").status, "open");
-    assert.equal(st.stages.find((x) => x.id === "are_you_sure").status, "locked");
-    assert.equal((await call("/api/ays/turn", S, { assignment_id: ST.id })).status, 409);
-    assert.match(st.submit_blocker, /Góc nhìn khác/);
-  });
-  await t("submit is blocked on the server until the required stages are done", async () => {
+    assert.equal(st.stages.find((x) => x.id === "are_you_sure").status, "open");
+    assert.match(st.submit_blocker, /Bạn chắc chứ/);
     const r = await call("/api/submissions/submit", S, { assignment_id: ST.id, submitted_text: "bài" });
-    assert.equal(r.status, 400); assert.match(r.message, /Góc nhìn khác/);
+    assert.equal(r.status, 400); assert.match(r.message, /Bạn chắc chứ/);
   });
+  await t("the stage-state endpoint is for students only", async () => { assert.equal((await call(`/api/stages/${ST.id}/state`, T)).status, 403); });
 
-  let ev1, ev2;
-  await t("Lab: the draft needs a minimum length; starting twice keeps the same text", async () => {
-    assert.equal((await call("/api/lab/start", S, { assignment_id: ST.id, text: "ngắn quá" })).status, 400);
-    const r = await call("/api/lab/start", S, { assignment_id: ST.id, text: lorem, pasted_chars: lorem.length }); assert.equal(r.status, 200); assert.equal(r.data.lab.text, lorem);
+
+  /* ------------------------------------------------------------ Perspective Lab: separate mode */
+  let lab, ev1;
+  await t("Lab: samples exist, a text needs a minimum length, the source kinds work", async () => {
+    assert.ok(sampleText.length >= 3);
+    assert.equal((await call("/api/lab/sessions", S, { course_id: "c_1", kind: "own", text: "ngắn quá" })).status, 400);
+    assert.equal((await call("/api/lab/sessions", S, { course_id: "c_1", kind: "ai", topic: "ab" })).status, 400);
+    assert.equal((await call("/api/lab/sessions", S, { course_id: "c_1", kind: "nope" })).status, 400);
+    const ai = await call("/api/lab/sessions", S, { course_id: "c_1", kind: "ai", topic: "Có nên cho học sinh tự chọn môn học?" }); assert.equal(ai.status, 200, JSON.stringify(ai)); assert.ok(ai.data.text.length >= 80);
+    const own = await call("/api/lab/sessions", S, { course_id: "c_1", kind: "own", text: lorem, pasted_chars: lorem.length, title: "Nháp" }); assert.equal(own.status, 200); assert.equal(own.data.pasted_chars, lorem.length);
+    const smp = await call("/api/lab/sessions", S, { course_id: "c_1", kind: "sample", sample_id: "mxh" }); assert.equal(smp.status, 200); lab = smp.data;
+    assert.equal(lab.title, sampleText[0].title); assert.deepEqual(lab.events, []);
   });
-  await t("Lab L1: no other view without the student's own view; short selections and pasted views are refused", async () => {
-    const sel = { start: 0, end: 80 };
-    assert.equal((await call("/api/lab/stance", S, { assignment_id: ST.id, selection: sel, stance_text: "ngắn" })).status, 400);
-    assert.equal((await call("/api/lab/stance", S, { assignment_id: ST.id, selection: { start: 0, end: 5 }, stance_text: "Mình nghĩ đoạn này đúng một phần vì lý do sau" })).status, 400);
-    assert.equal((await call("/api/lab/stance", S, { assignment_id: ST.id, selection: sel, stance_text: "Mình nghĩ đoạn này đúng một phần vì lý do sau", pasted_chars: 20 })).status, 400);
-    assert.equal((await call("/api/lab/stance", S, { assignment_id: ST.id, selection: { start: 0, end: 99999 }, stance_text: "Mình nghĩ đoạn này đúng một phần vì lý do sau" })).status, 400);
+  await t("Lab: a student outside the course cannot create a session there", async () => {
+    const lonely = (await call("/api/courses/join", S, { invite_code: "ZZZZZZ" })).status; assert.ok(lonely >= 400);
+    assert.equal((await call("/api/lab/sessions", S, { course_id: "c_does_not_exist", kind: "sample", sample_id: "mxh" })).status, 403);
   });
-  await t("Lab L3/L4: two other views, a source only if it is a real class material, never a URL", async () => {
-    const r = await call("/api/lab/stance", S, { assignment_id: ST.id, selection: { start: 0, end: lorem.length }, stance_text: "Mình nghĩ đoạn này đúng một phần vì có nhiều yếu tố khác." });
-    assert.equal(r.status, 200, JSON.stringify(r)); ev1 = r.data.event;
-    assert.equal(ev1.mode, "tranh_luan"); assert.equal(ev1.counterviews.length, 2);
-    assert.deepEqual(ev1.counterviews[0].source, { title: "Giáo trình chương 5", verified: true });
-    assert.equal(ev1.counterviews[1].source, null, "a made-up reference must not become a source");
+  await t("Lab: selection rules (too short, out of range) and the lens returns 1-2 views aimed at the passage", async () => {
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 0, end: 5 })).status, 400);
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 0, end: 99999 })).status, 400);
+    const r = await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 0, end: 120 }); assert.equal(r.status, 200, JSON.stringify(r));
+    ev1 = r.data.event; assert.equal(ev1.mode, "tranh_luan"); assert.ok(ev1.counterviews.length >= 1 && ev1.counterviews.length <= 2);
+    assert.ok(ev1.counterviews.every((v) => ["phan_bien", "he_qua_dai_han", "gia_dinh_ngam"].includes(v.kind)));
+    assert.equal(ev1.selection.text, lab.text.slice(0, 120), "the AI is shown and keeps exactly the highlighted text; it never rewrites");
     assert.ok(!/https?:\/\//.test(JSON.stringify(ev1.counterviews)), "no URL anywhere");
+    assert.equal(ev1.counterviews.filter((v) => v.source).length <= 1, true, "a made-up reference never becomes a source");
   });
-  await t("Lab L5: a plain fact gets 'what to verify', not an opposing camp", async () => {
-    const text = lorem + " SU_KIEN Nước sôi ở một trăm độ C tại áp suất khí quyển tiêu chuẩn.";
-    const s2 = await call("/api/lab/start", S, { assignment_id: ST.id, text }); // keeps the first text (events exist), so select from it
-    const base = s2.data.lab.text, i = base.indexOf("Demographic");
-    const r = await call("/api/lab/stance", S, { assignment_id: ST.id, selection: { start: i, end: base.length }, stance_text: "Mình thấy đây chỉ là định nghĩa nên chắc không ai cãi." });
-    // the selection text does not contain SU_KIEN, so use the marker through a second draft below
-    assert.equal(r.status, 200);
+  await t("Lab friction: no second highlight until the first is defended or adjusted", async () => {
+    const r = await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 200, end: 300 }); assert.equal(r.status, 409);
+    assert.match(r.message, /đối chất/);
   });
-  await t("Lab: ambiguous passage asks for clarification and cannot be rebutted", async () => {
-    // fresh assignment so a new draft containing the markers can be used
-    const A2 = await mk({ stages: { perspective_lab: { enabled: true, required: false } } });
-    for (const m of ["một hai ba bốn năm sáu", "bảy tám chín mười mười một", "mười hai mười ba mười bốn"]) await call("/api/chat/message", S, { assignment_id: A2.id, message_content: m });
+  await t("Lab friction: only 'defend' or 'adjust'; text is required; pasted text is refused; an unchanged sentence is refused", async () => {
+    const R = (b) => call(`/api/lab/sessions/${lab.id}/respond`, S, { event_id: ev1.id, ...b });
+    assert.equal((await R({ action: "skip" })).status, 400); assert.equal((await R({ action: "accept" })).status, 400);
+    assert.equal((await R({ action: "defend", text: "ngắn" })).status, 400);
+    assert.equal((await R({ action: "defend", text: "Mình bảo vệ luận điểm này vì lý do dài đủ.", pasted: 12 })).status, 400, "paste is refused");
+    assert.equal((await R({ action: "adjust", after_text: ev1.selection.text })).status, 400, "no change");
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/respond`, S, { event_id: "ev_none", action: "defend", text: "x".repeat(30) })).status, 404);
+  });
+  await t("Lab friction: adjust records before/after, similarity and typed/deleted; it can only be done once", async () => {
+    const after = "Mạng xã hội có thể làm giảm tập trung ở một số người, nhưng tác động còn phụ thuộc cách dùng và mục đích học.";
+    const r = await call(`/api/lab/sessions/${lab.id}/respond`, S, { event_id: ev1.id, action: "adjust", after_text: after, typed: 104, deleted: 12 });
+    assert.equal(r.status, 200, JSON.stringify(r)); const rw = r.data.event.rewrite;
+    assert.equal(rw.before, ev1.selection.text); assert.equal(rw.after, after); assert.ok(rw.similarity >= 0 && rw.similarity < 0.97); assert.equal(rw.typed, 104);
+    assert.equal(r.data.event.action, "adjust");
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/respond`, S, { event_id: ev1.id, action: "defend", text: "Mình muốn đổi ý sang bảo vệ luận điểm." })).status, 409);
+  });
+  await t("Lab: a highlight overlapping a finished one is refused; a new one works; defend is recorded", async () => {
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 50, end: 160 })).status, 409);
+    const r = await call(`/api/lab/sessions/${lab.id}/lens`, S, { start: 140, end: 260 }); assert.equal(r.status, 200, JSON.stringify(r));
+    const d = await call(`/api/lab/sessions/${lab.id}/respond`, S, { event_id: r.data.event.id, action: "defend", text: "Mình vẫn giữ ý này vì khảo sát lớp mình cho thấy điều đó.", typed: 55 });
+    assert.equal(d.status, 200); assert.equal(d.data.event.defense.text.startsWith("Mình vẫn giữ"), true);
+    const mine = (await call("/api/lab/sessions?course_id=c_1", S)).data.find((x) => x.id === lab.id); assert.equal(mine.events.length, 2);
+  });
+  await t("Lab: a plain fact gets 'what to verify'; a vague passage asks for clarification and stores nothing", async () => {
     const draft = "SU_KIEN Nước sôi ở một trăm độ C tại áp suất khí quyển tiêu chuẩn của Trái Đất. KHONG_RO Cái đó thì thế này thế kia đấy nhé các bạn ơi. Mạng xã hội là nguyên nhân chính của sự sao nhãng ở người trẻ hiện nay.";
-    await call("/api/lab/start", S, { assignment_id: A2.id, text: draft });
-    const stance = "Mình đã suy nghĩ về đoạn này và có ý kiến riêng của mình.";
-    const fact = await call("/api/lab/stance", S, { assignment_id: A2.id, selection: { start: 0, end: 70 }, stance_text: stance });
+    const s2 = (await call("/api/lab/sessions", S, { course_id: "c_1", kind: "own", text: draft })).data;
+    const fact = await call(`/api/lab/sessions/${s2.id}/lens`, S, { start: 0, end: 80 });
     assert.equal(fact.data.event.mode, "su_kien"); assert.equal(fact.data.event.counterviews.length, 0); assert.ok(fact.data.event.verify.how_to_check.length >= 1);
-    const vague = await call("/api/lab/stance", S, { assignment_id: A2.id, selection: { start: draft.indexOf("KHONG_RO"), end: draft.indexOf("KHONG_RO") + 55 }, stance_text: stance });
-    assert.equal(vague.data.event.mode, "khong_ro"); assert.ok(vague.data.event.clarify);
-    assert.equal((await call("/api/lab/action", S, { assignment_id: A2.id, event_id: vague.data.event.id, action: "rebut", rebuttal_text: "Mình phản biện lại điều này nhé bạn." })).status, 400);
-    assert.equal((await call("/api/lab/action", S, { assignment_id: A2.id, event_id: vague.data.event.id, action: "skip" })).status, 200);
-    // an optional Lab that was skipped does not block Are-you-sure or submission
-    assert.equal((await call(`/api/stages/${A2.id}/state`, S)).data.submit_blocker, null);
+    assert.equal((await call(`/api/lab/sessions/${s2.id}/respond`, S, { event_id: fact.data.event.id, action: "defend", text: "Mình có nguồn kiểm chứng từ sách giáo khoa vật lý." })).status, 200);
+    const i = draft.indexOf("KHONG_RO"), vague = await call(`/api/lab/sessions/${s2.id}/lens`, S, { start: i, end: i + 55 });
+    assert.equal(vague.status, 200); assert.equal(vague.data.event, null); assert.ok(vague.data.clarify);
+    assert.equal((await call(`/api/lab/sessions/${s2.id}`, S)).data.events.length, 1, "nothing is stored for a vague passage");
   });
-  await t("Lab actions: rebut needs text; accept then rewrite records before/after and paste/typed numbers", async () => {
-    assert.equal((await call("/api/lab/action", S, { assignment_id: ST.id, event_id: ev1.id, action: "rebut" })).status, 400);
-    assert.equal((await call("/api/lab/rewrite", S, { assignment_id: ST.id, event_id: ev1.id, after_text: "x".repeat(30) })).status, 409, "rewrite needs an action first");
-    assert.equal((await call("/api/lab/action", S, { assignment_id: ST.id, event_id: ev1.id, action: "rebut", rebuttal_text: "Mình phản biện: thông báo chỉ là một yếu tố, còn thói quen mới quan trọng." })).status, 200);
-    assert.equal((await call("/api/lab/action", S, { assignment_id: ST.id, event_id: ev1.id, action: "skip" })).status, 409, "an event is decided once");
-    assert.equal((await call("/api/lab/rewrite", S, { assignment_id: ST.id, event_id: ev1.id, after_text: "Sao chép dán vào đây dài dài", pasted: 20 })).status, 400, "paste lock");
-    const r = await call("/api/lab/rewrite", S, { assignment_id: ST.id, event_id: ev1.id, after_text: "Mạng xã hội chỉ là một trong nhiều yếu tố làm giảm tập trung; thói quen dùng điện thoại quan trọng không kém.", typed: 104, deleted: 12, pasted: 0 });
-    assert.equal(r.status, 200); const rw = r.data.event.rewrite;
-    assert.ok(rw.before && rw.after && rw.similarity >= 0 && rw.similarity <= 1 && rw.typed === 104 && rw.pasted === 0);
-    assert.equal((await call("/api/lab/rewrite", S, { assignment_id: ST.id, event_id: ev1.id, after_text: "Mạng xã hội chỉ là một trong nhiều yếu tố khác nữa." })).status, 409);
+  await t("Lab: privacy and access — another student cannot read or act; the teacher of the course can read; delete works", async () => {
+    assert.equal((await call(`/api/lab/sessions/${lab.id}`, S2)).status, 403);
+    assert.equal((await call(`/api/lab/sessions/${lab.id}/lens`, S2, { start: 0, end: 60 })).status, 404);
+    assert.equal((await call("/api/lab/sessions?course_id=c_1", S2)).data.some((x) => x.id === lab.id), false);
+    assert.equal((await call(`/api/lab/sessions/${lab.id}`, T)).status, 200);
+    const list = await call("/api/courses/c_1/lab", T); assert.equal(list.status, 200); assert.ok(list.data.some((x) => x.id === lab.id && x.student_name));
+    assert.equal((await call("/api/courses/c_1/lab", S)).status, 403);
+    const tmp = (await call("/api/lab/sessions", S, { course_id: "c_1", kind: "sample", sample_id: "ai" })).data;
+    assert.equal((await call(`/api/lab/sessions/${tmp.id}`, S, null, "DELETE")).status, 200);
+    assert.equal((await call(`/api/lab/sessions/${tmp.id}`, S)).status, 404);
   });
-  await t("Lab L7: another student cannot read or act on this student's Lab", async () => {
-    assert.equal((await call(`/api/lab/${ST.id}/mine`, S2)).data.lab, null);
-    assert.equal((await call("/api/lab/action", S2, { assignment_id: ST.id, event_id: ev1.id, action: "skip" })).status, 409);
+  await t("Lab is not part of an assignment any more: the old endpoints are gone", async () => {
+    assert.equal((await call("/api/lab/start", S, { assignment_id: ST.id, text: lorem })).status, 404);
   });
-  await t("Lab: a stage that is switched off is refused", async () => {
-    const NO = await mk({});
-    assert.equal((await call("/api/lab/start", S, { assignment_id: NO.id, text: lorem })).status, 409);
-    assert.equal((await call("/api/ays/turn", S, { assignment_id: NO.id })).status, 409);
-  });
-  await t("after the required Lab, Are-you-sure opens", async () => { assert.equal((await stages(ST.id)).stages.find((x) => x.id === "are_you_sure").status, "open"); });
 
   await t("AYS A1/A3: each question has an issue type and a quote that really is in the student's text", async () => {
     const r = await call("/api/ays/turn", S, { assignment_id: ST.id }); assert.equal(r.status, 200, JSON.stringify(r));
     const q = r.data.question; assert.equal(q.stage, "are_you_sure"); assert.ok(["logic_gap", "unsupported_claim", "ambiguity", "counterexample", "none"].includes(q.ays.issue_type));
     assert.match(q.content, /\?/);
     if (q.ays.quote) assert.ok(JSON.stringify(r.data.chat_session.messages).toLowerCase().includes(q.ays.quote.toLowerCase()));
-    assert.equal(r.data.total, 2);
+    assert.equal(r.data.total, 3);
     const again = await call("/api/ays/turn", S, { assignment_id: ST.id }); assert.equal(again.data.question.id, q.id, "asking again resumes the same question");
   });
   await t("AYS: too-short and pasted answers are refused; the server counts the turns (A7)", async () => {
@@ -154,8 +165,10 @@ try {
     const userMsg = r1.data.chat_session.messages.filter((m) => m.stage === "are_you_sure" && m.role === "user")[0];
     assert.equal(userMsg.ays.response_type, "held_with_reason");
     const r2 = await call("/api/ays/turn", S, { assignment_id: ST.id, answer: "Mình thấy đúng như bạn nói, mình đồng ý ngay." });
-    assert.equal(r2.data.closed, true); assert.equal(r2.data.answered, 2);
-    assert.equal((await call("/api/ays/turn", S, { assignment_id: ST.id })).status, 409, "no more turns after N");
+    assert.equal(r2.data.closed, false); assert.equal(r2.data.answered, 2);
+    const r3 = await call("/api/ays/turn", S, { assignment_id: ST.id, answer: "Còn nữa, mình có thêm một ví dụ cụ thể từ lớp học." });
+    assert.equal(r3.data.closed, true); assert.equal(r3.data.answered, 3);
+    assert.equal((await call("/api/ays/turn", S, { assignment_id: ST.id })).status, 409, "no more turns after N (3)");
     assert.equal((await call("/api/ays/turn", S, { assignment_id: ST.id, answer: "Thêm một câu trả lời nữa cho đủ dài." })).status, 409);
   });
   await t("AYS stage messages are not Co-Think turns and do not leak into the Co-Think chat", async () => {
@@ -178,7 +191,7 @@ try {
     assert.equal((await call("/api/ays/turn", S, { assignment_id: A5.id })).data.question.ays.quote, "", "an invented quote is dropped");
   });
 
-  await t("grading by stage: the Lab and Are-you-sure evidence reaches the grader, with the model name", async () => {
+  await t("grading: the Are-you-sure evidence reaches the grader, with the model name", async () => {
     const r = await call("/api/submissions/submit", S, { assignment_id: ST.id, submitted_text: "Bài nộp của mình." });
     assert.equal(r.status, 200, JSON.stringify(r)); const res = r.data.process_score_result || r.data.submission?.process_score_result;
     assert.ok(res, "evaluated"); assert.equal(res.eval_model, "mock");
@@ -188,17 +201,15 @@ try {
     const res = (await call(`/api/submissions/${sub.id}`, T)).data; const pr = (res.submission || res).process_score_result;
     assert.equal(pr.highlight_segments.length, 1); assert.equal(pr.dropped_quotes, 1); assert.equal(pr.highlight_segments[0].stage, "co_think");
   });
-  await t("teacher can read the Lab and Are-you-sure records of the submission", async () => {
+  await t("teacher can read the Are-you-sure record of the submission", async () => {
     const subs = (await call(`/api/assignments/${ST.id}/submissions`, T)).data.submissions; const sub = subs.find((x) => x.student_email === "la.uyennhi@student.edu.vn");
     const d = (await call(`/api/submissions/${sub.id}`, T)).data; const cs = d.chat_session || d.chatSession;
-    assert.ok(cs.lab.events.length >= 1 && cs.lab.events[0].rewrite); assert.equal(cs.messages.filter((m) => m.stage === "are_you_sure" && m.role === "user").length, 2);
+    assert.equal(cs.messages.filter((m) => m.stage === "are_you_sure" && m.role === "user").length, 3);
   });
-
-  await t("confidence: not collected unless the teacher asks (and then it is)", async () => {
-    const OFF = await mk({ friction: "required" }), ON = await mk({ friction: "required", stages: { think_first: { ask_confidence: true } } });
+  await t("confidence is gone: the server never stores it", async () => {
+    const OFF = await mk({ friction: "required" });
     const body = { answers: ["Luận điểm của mình là mạng xã hội gây mất tập trung", "Mình định dùng khảo sát lớp làm dẫn chứng"], confidence: 4 };
     const a = await call("/api/chat/intent", S, { assignment_id: OFF.id, ...body }); assert.equal(a.status, 200, JSON.stringify(a)); assert.equal(a.data.chat_session.intent.confidence, undefined);
-    const b = await call("/api/chat/intent", S, { assignment_id: ON.id, ...body }); assert.equal(b.data.chat_session.intent.confidence, 4);
   });
   await t("privacy: names, emails and phone numbers never reach the AI (the AI saw 'clean')", async () => {
     const P = await mk({});
@@ -212,6 +223,8 @@ try {
     const d = await call("/api/me/delete-data", S, { confirm: "XOA" }); assert.equal(d.status, 200); assert.ok(d.data.deleted_chats >= 1 && d.data.deleted_submissions >= 1);
     assert.equal((await call("/api/me/profile", S)).data.profile.evaluated, 0); assert.ok(before > 0);
     assert.equal((await call("/api/me/export", S)).data.chat_sessions.length, 0);
+    assert.equal((await call("/api/me/export", S)).data.lab_sessions.length, 0, "Lab sessions are deleted with the rest"); assert.ok(d.data.deleted_labs >= 1);
+    assert.equal((await call("/api/courses/c_1/lab", T)).data.some((x) => x.student_name === "Lã Uyển Nhi"), false, "and they disappear from the teacher view");
   });
   await t("privacy: retention is an admin setting and the purge endpoint runs", async () => {
     assert.equal((await call("/api/admin/settings", A, { retention_days: 365 }, "PUT")).data.retention_days, 365);

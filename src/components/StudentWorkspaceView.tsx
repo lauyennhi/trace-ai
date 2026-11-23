@@ -1,6 +1,6 @@
 import { PasteGuard } from "./PasteGuard";
 import { CoachChip } from "./CoachChip";
-import { StageBar, LabView, AysView } from "./StageViews";
+import { StageBar, AysView } from "./StageViews";
 import { computeStages, submitBlocker, coThinkTurns, stageConfig, type StageId } from "../lib/stages";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
@@ -29,7 +29,7 @@ interface Props {
   onSaveDraft: (data: { assignment_id: string; submitted_files: any[]; submitted_text: string }) => Promise<void>;
   onSendMessage: (data: { assignment_id: string; message_content: string; pasted_chars?: number; paste_attempts?: number }) => Promise<{ chat_session: ChatSession }>;
   onUnlock: (data: { assignment_id: string; message_id: string; answers?: string[]; skip?: boolean }) => Promise<{ chat_session: ChatSession }>;
-  onSubmitIntent: (data: { assignment_id: string; answers?: string[]; confidence?: number; skip?: boolean; pasted_chars?: number; paste_attempts?: number }) => Promise<{ chat_session: ChatSession }>;
+  onSubmitIntent: (data: { assignment_id: string; answers?: string[]; skip?: boolean; pasted_chars?: number; paste_attempts?: number }) => Promise<{ chat_session: ChatSession }>;
 }
 
 const MIN_TURNS = 3;
@@ -41,8 +41,6 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const [intentData, setIntentData] = useState<ChatSession["intent"]>(chatSession?.intent);
   const [tab, setTab] = useState<"de" | "rubric" | "doc">("de");
   const [ideas, setIdeas] = useState<string[]>(["", "", ""]);
-  const [confidence, setConfidence] = useState<number | undefined>(undefined);
-  const [lab, setLab] = useState<any>((chatSession as any)?.lab || null);
   const [view, setView] = useState<StageId>("co_think");
   const [intentBusy, setIntentBusy] = useState(false);
   const ideasPasted = useRef(0);
@@ -80,9 +78,9 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const needIntent = chatEnabled && friction !== "none" && !intentDone && !locked;
   const turns = coThinkTurns({ messages });
   const cfg = stageConfig(assignment);
-  const chatLike = { messages, intent: intentData, lab };
+  const chatLike = { messages, intent: intentData };
   const stageViews = computeStages(assignment, chatLike);
-  const showStages = chatEnabled && assignment.submission_mode !== "writing_l2" && (cfg.perspective_lab.enabled || cfg.are_you_sure.enabled);
+  const showStages = chatEnabled && assignment.submission_mode !== "writing_l2" && cfg.are_you_sure.enabled;
   const blocker = chatEnabled ? submitBlocker(assignment, chatLike) : null;
   const coMessages = messages.filter((m) => m.stage !== "are_you_sure");
   const needTurns = chatEnabled ? Math.max(0, MIN_TURNS - turns) : 0;
@@ -128,8 +126,8 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
     setIntentBusy(true);
     try {
       const res = await onSubmitIntent(skip
-        ? { assignment_id: assignment.id, skip: true, confidence }
-        : { assignment_id: assignment.id, answers: ideas, confidence, pasted_chars: ideasPasted.current, paste_attempts: attemptsRef.current || undefined });
+        ? { assignment_id: assignment.id, skip: true }
+        : { assignment_id: assignment.id, answers: ideas, pasted_chars: ideasPasted.current, paste_attempts: attemptsRef.current || undefined });
       setMessages(res.chat_session.messages); setIntentDone(true); setIntentData(res.chat_session.intent);
     } catch (err: any) { toast.error(err.message || "Không gửi được ý của bạn."); }
     finally { setIntentBusy(false); }
@@ -188,7 +186,6 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           <div className="flex items-center gap-2 text-xs font-bold text-[#0f8a55] dark:text-[#4ade9a]"><CheckCircle2 className="w-4 h-4" />{intentData.skipped ? "Đã bỏ qua bước ghi ý đầu vào" : "Đã ghi ý riêng trước khi hỏi AI"}</div>
           {!intentData.skipped && intentData.answers[0] && <p className="text-xs italic text-ink-2 mt-2 line-clamp-4">“{intentData.answers[0].a}”</p>}
           <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
-            {intentData?.confidence && <span className="chip chip-gray">Mức tự tin ban đầu {intentData.confidence}/5</span>}
             {!intentData.skipped && <span className="chip chip-green"><Lock className="w-3 h-3" />Luận điểm đã được ghi lại</span>}
           </div>
         </div>
@@ -250,8 +247,6 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
               <div><label className="label">Ghi chú gửi giảng viên</label>
                 <textarea rows={4} disabled={locked} className="input resize-none" placeholder="Tóm tắt bài nộp hoặc ghi chú…" value={text} onChange={(e) => setText(e.target.value)} /></div>
             </div>
-          ) : view === "perspective_lab" && showStages ? (
-            <LabView assignment={assignment} lab={lab} locked={locked} onLab={setLab} />
           ) : view === "are_you_sure" && showStages ? (
             <AysView assignment={assignment} messages={messages} locked={locked} onMessages={setMessages} attempts={attemptsRef} />
           ) : (
@@ -285,16 +280,6 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                           onChange={(e) => setIdeas(ideas.map((x, k) => (k === i ? e.target.value : x)))} />
                       </div>
                     ))}
-                    {cfg.ask_confidence && <div>
-                      <label className="label">Hiện giờ em tự tin về bài này đến mức nào?</label>
-                      <div className="flex gap-2" role="radiogroup" aria-label="Mức tự tin">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <button key={n} type="button" role="radio" aria-checked={confidence === n} onClick={() => setConfidence(n)}
-                            className={`w-10 h-10 rounded-xl border font-semibold transition-all ${confidence === n ? "border-brand bg-brand text-white" : "border-line hover:border-brand/40"}`}>{n}</button>
-                        ))}
-                        <span className="text-xs text-mute self-center ml-1">1 = chưa chắc · 5 = rất chắc</span>
-                      </div>
-                    </div>}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs text-mute">{ideasOk ? "Đủ ý để mở trợ lý." : `Viết ít nhất ${Math.min(2, frictionPrompts.length)} ô, tổng tối thiểu 40 ký tự.`}</span>
                       <div className="flex gap-2">
