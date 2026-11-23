@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { ATTACKS, detectPressure, looksLikeFullAnswer, cleanCoach, pickPassages, agreement, buildProfile, memoryNote, spread, chunkText } from "../src/lib/coach.ts";
+import { ATTACKS, ATTACKS_HOLDOUT, detectPressure, looksLikeFullAnswer, cleanCoach, pickPassages, agreement, buildProfile, memoryNote, spread, chunkText, quoteIn, safeChallenge, SAFE_SOURCE_QUESTION, scrub } from "../src/lib/coach.ts";
+import { computeStages, submitBlocker, stageBlocker, cleanStages, stageConfig } from "../src/lib/stages.ts";
 
 let pass = 0; const t = (name: string, fn: () => void) => { try { fn(); pass++; console.log("ok  ", name); } catch (e: any) { console.error("FAIL", name, "\n    ", e.message); process.exitCode = 1; } };
 
@@ -48,4 +49,58 @@ t("buildProfile: weakest/strongest/trend/delta and memory note", () => {
   assert.match(memoryNote(p), /Kiểm chứng/); assert.equal(memoryNote(buildProfile([])), "");
 });
 t("spread of repeated scores", () => { assert.deepEqual(spread([70, 70, 70]), { mean: 70, sd: 0, range: 0 }); assert.equal(spread([5]), null); });
+
+/* ---- hold-out attacks: measured, not tuned for (see ATTACKS_HOLDOUT) ---- */
+t("hold-out attacks: report how many the detector misses (the output guard is the real defence)", () => {
+  const missed = ATTACKS_HOLDOUT.filter((a) => !detectPressure(a));
+  console.log(`      hold-out: ${ATTACKS_HOLDOUT.length}, missed by regex: ${missed.length}${missed.map((m) => `\n        - ${m}`).join("")}`);
+  assert.ok(ATTACKS_HOLDOUT.length >= 10);
+});
+
+/* ---- quote check, safe challenge, privacy ---- */
+t("quoteIn keeps only real quotes", () => {
+  assert.equal(quoteIn("Mạng xã hội làm giảm tập trung.", "“mạng xã hội  làm giảm”"), "mạng xã hội  làm giảm");
+  assert.equal(quoteIn("Mạng xã hội làm giảm tập trung.", "điều chưa từng viết"), "");
+  assert.equal(quoteIn("abc", 42 as any), "");
+});
+t("safeChallenge never says the source is wrong, never hands over an answer, and always asks", () => {
+  assert.equal(safeChallenge("Nguồn của bạn là sai rồi, nó không tồn tại.", "unsupported_claim"), SAFE_SOURCE_QUESTION);
+  assert.equal(safeChallenge("Đáp án đúng là B vì lý do sau đây.", "logic_gap"), SAFE_SOURCE_QUESTION);
+  assert.match(safeChallenge("Đây là kết luận.", "none"), /\?/);
+  assert.equal(safeChallenge("Bạn dựa vào đâu để nói điều đó?", "unsupported_claim"), "Bạn dựa vào đâu để nói điều đó?");
+});
+t("scrub removes emails, phones, ids and the student's own name", () => {
+  const s = scrub("Mình là Lã Uyển Nhi, mail la.uyennhi@student.edu.vn, sđt 0912 345 678, mssv 20211234567. Nhi hỏi tiếp.", { name: "Lã Uyển Nhi", email: "la.uyennhi@student.edu.vn" });
+  assert.ok(!/@|0912|20211234567|Lã Uyển Nhi/.test(s), s); assert.match(s, /\[SV\]/); assert.match(s, /\[email\]/);
+  assert.equal(scrub("Demographic Parity là gì?"), "Demographic Parity là gì?");
+});
+
+/* ---- stages: order, requirements, backward compatibility ---- */
+const chat = (n: number, extra: any = {}) => ({ messages: Array.from({ length: n }, () => ({ role: "user" })), intent: { answers: [], skipped: false }, ...extra });
+t("old assignments (no stages) have only Think First and Co-Think, and submit after 3 turns", () => {
+  const a = { friction: "required" };
+  assert.deepEqual(computeStages(a, chat(0)).map((s) => s.id), ["think_first", "co_think"]);
+  assert.ok(submitBlocker(a, chat(2))); assert.equal(submitBlocker(a, chat(3)), null);
+});
+t("cleanStages: file-only assignments cannot enable the new stages; turns are clamped", () => {
+  assert.equal(cleanStages({ perspective_lab: { enabled: true } }, "file_only").perspective_lab.enabled, false);
+  assert.equal(cleanStages({ are_you_sure: { enabled: true, turns: 99 } }, "both").are_you_sure.turns, 5);
+  assert.equal(cleanStages({ are_you_sure: { enabled: true, turns: 0 } }, "both").are_you_sure.turns, 1);
+  assert.equal(stageConfig({}).ask_confidence, false);
+});
+t("Lab and Are-you-sure stay locked before 3 Co-Think turns, then open in order", () => {
+  const a = { friction: "none", stages: { perspective_lab: { enabled: true, required: true }, are_you_sure: { enabled: true, required: true, turns: 2 } } };
+  assert.ok(stageBlocker(a, chat(2), "perspective_lab")); assert.equal(stageBlocker(a, chat(3), "perspective_lab"), null);
+  assert.ok(stageBlocker(a, chat(3), "are_you_sure"), "AYS waits for the required Lab");
+  const labDone = chat(3, { lab: { events: [{ rewrite: { after: "x" } }] } });
+  assert.equal(stageBlocker(a, labDone, "are_you_sure"), null);
+  assert.match(String(submitBlocker(a, labDone)), /Bạn chắc chứ/);
+});
+t("an optional Lab does not hold back Are-you-sure; Are-you-sure messages are not Co-Think turns", () => {
+  const a = { friction: "none", stages: { perspective_lab: { enabled: true, required: false }, are_you_sure: { enabled: true, required: true, turns: 2 } } };
+  assert.equal(stageBlocker(a, chat(3), "are_you_sure"), null);
+  const c = { messages: [{ role: "user" }, { role: "user" }, { role: "user", stage: "are_you_sure" }, { role: "user", stage: "are_you_sure" }] };
+  assert.ok(submitBlocker(a, c), "only 2 real Co-Think turns");
+});
+t("disabled stage is rejected", () => { assert.ok(stageBlocker({ friction: "none" }, chat(5), "perspective_lab")); });
 console.log(`\n${pass} passed`);

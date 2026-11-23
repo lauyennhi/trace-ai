@@ -10,7 +10,8 @@ import {
 import { generateDemoData, DEMO_PREFIX } from "./src/lib/demoData.ts";
 import { isAnswerGate, makeTeaser, GATE_MIN_ANSWERS, GATE_MIN_CHARS, type GateInfo } from "./src/lib/gate.ts";
 import { isPasteMode } from "./src/lib/paste.ts";
-import { CRITERIA, buildProfile, memoryNote, cleanCoach, materialsBlock, MATERIAL_LIMITS, detectPressure, SOCRATIC_RULES, looksLikeFullAnswer, SOCRATIC_FALLBACK, agreement, spread, type LearningProfile, type CoachNote } from "./src/lib/coach.ts";
+import { CRITERIA, buildProfile, memoryNote, cleanCoach, materialsBlock, MATERIAL_LIMITS, detectPressure, SOCRATIC_RULES, looksLikeFullAnswer, SOCRATIC_FALLBACK, agreement, spread, quoteIn, quoteInLoose, safeChallenge, ISSUE_TYPES, RESPONSE_TYPES, scrub, pickPassages, type IssueType, type ResponseType, type LearningProfile, type CoachNote } from "./src/lib/coach.ts";
+import { stageConfig, cleanStages, computeStages, submitBlocker, stageBlocker, coThinkTurns, aysAnswered, LAB_LIMITS } from "./src/lib/stages.ts";
 import { isFrictionLevel, cleanFrictionPrompts, FRICTION_MIN_ANSWERS, FRICTION_MIN_CHARS, type ChatIntent } from "./src/lib/friction.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -41,12 +42,35 @@ function mockAi(params: { contents: any; config?: any }): { text: string } {
     const word = mine.split(" ").slice(0, 4).join(" ");
     return { text: JSON.stringify({ level: "weak", criterion: "kiem_chung_thong_tin", quote: /BỊA/.test(mine) ? "câu mà sinh viên chưa từng viết" : word, note: "Ý này chưa có dẫn chứng.", tip: "Hãy nêu một ví dụ cụ thể." }) };
   }
+  const sch = params.config?.responseSchema?.properties || {};
+  const mineOf = (k: string) => (last.split(k)[1] || last);
+  if (sch.mode) {   // Perspective Lab: classify the passage
+    const sel = mineOf("ĐOẠN ĐƯỢC CHỌN:");
+    return { text: JSON.stringify({ mode: /SU_KIEN/.test(sel) ? "su_kien" : /KHONG_RO/.test(sel) ? "khong_ro" : "tranh_luan", reason: "mock" }) };
+  }
+  if (sch.counterviews) {   // Perspective Lab: two other views; cites a class material only if the prompt shows one
+    const src = (last.match(/\[(Giáo trình[^\]]*)\]/) || [])[1] || "";
+    return { text: JSON.stringify({ counterviews: [{ stance: "Góc nhìn A", argument: "Lập luận A.", source_ref: src }, { stance: "Góc nhìn B", argument: "Lập luận B.", source_ref: "https://bia-dat.example/fake" }, { stance: "Thừa", argument: "x", source_ref: "" }] }) };
+  }
+  if (sch.claim_to_check) return { text: JSON.stringify({ claim_to_check: "Số liệu trong đoạn.", how_to_check: ["Tìm nguồn gốc số liệu.", "Đối chiếu một nguồn thứ hai."] }) };
+  if (sch.issue_type && sch.question) {   // Are you sure?: challenge
+    const mine = mineOf("LẬP TRƯỜNG HIỆN TẠI CỦA SINH VIÊN:");
+    const none = /VUNG/.test(mine);
+    return { text: JSON.stringify({ issue_type: none ? "none" : "unsupported_claim", question: /NGUON_SAI/.test(mine) ? "Nguồn của bạn là sai." : none ? "Lập luận của bạn khá vững. Nếu đổi bối cảnh thì nó còn đúng không?" : "Bạn dựa vào đâu để nói điều đó?", quote: /BIA/.test(mine) ? "câu chưa từng viết" : mine.trim().split(" ").slice(0, 4).join(" ") }) };
+  }
+  if (sch.response_type) {
+    const ans = mineOf("CÂU TRẢ LỜI CỦA SINH VIÊN:");
+    return { text: JSON.stringify({ response_type: /DODGE/.test(ans) ? "dodged" : /CONCEDE/.test(ans) ? "conceded_without_reason" : "held_with_reason", quote: ans.trim().split(" ").slice(0, 4).join(" ") }) };
+  }
   if (params.config?.responseSchema?.properties?.process_score) {
     mockRuns += 1;   // varies a little between calls so the stability report has something to measure
     const base = 60 + (mockRuns % 3) * 2;
-    return { text: JSON.stringify({ process_score: base, tieu_chi: { tu_duy_phan_bien: base, dao_sau_van_de: base, kiem_chung_thong_tin: base - 10, noi_hoa_kien_thuc: base, tinh_chu_dong: base }, noi_dung_ngoai_luong: "", nhan_xet_ngan: "mock", highlight_segments: [] }) };
+    // one real quote (from the transcript) and one invented quote, so the "quote must exist" rule can be tested
+    const real = ((last.match(/Sinh viên: ([^\n]{12,})/) || [])[1] || "").slice(0, 30);
+    return { text: JSON.stringify({ process_score: base, tieu_chi: { tu_duy_phan_bien: base, dao_sau_van_de: base, kiem_chung_thong_tin: base - 10, noi_hoa_kien_thuc: base, tinh_chu_dong: base }, noi_dung_ngoai_luong: "", nhan_xet_ngan: "mock", highlight_segments: [{ doan_van_ban: real || "không có", mau: "xanh", ly_do: "thật", stage: "co_think" }, { doan_van_ban: "một câu sinh viên chưa từng viết ra", mau: "xanh", ly_do: "bịa", stage: "perspective_lab" }] }) };
   }
-  const flags = [`mem=${/TRÍ NHỚ VỀ SINH VIÊN/.test(sys) ? "yes" : "no"}`, `mat=${/TÀI LIỆU CỦA LỚP/.test(sys) ? "yes" : "no"}`, `rules=${/QUY TẮC BẤT BIẾN/.test(sys) ? "yes" : "no"}`, `retry=${/BẠN VỪA ĐƯA ĐÁP ÁN/.test(sys) ? "yes" : "no"}`];
+  const piiFlag = /@|0912\s?345/.test(JSON.stringify(params.contents)) ? "LEAK" : "clean";
+  const flags = [`pii=${piiFlag}`, `mem=${/TRÍ NHỚ VỀ SINH VIÊN/.test(sys) ? "yes" : "no"}`, `mat=${/TÀI LIỆU CỦA LỚP/.test(sys) ? "yes" : "no"}`, `rules=${/QUY TẮC BẤT BIẾN/.test(sys) ? "yes" : "no"}`, `retry=${/BẠN VỪA ĐƯA ĐÁP ÁN/.test(sys) ? "yes" : "no"}`];
   if (/MOCK_GIVEAWAY/.test(last) && !/BẠN VỪA ĐƯA ĐÁP ÁN/.test(sys)) return { text: `Đây là bài hoàn chỉnh cho bạn, chép lại là xong. ${flags.join(" ")}` };
   if (/MOCK_STUBBORN/.test(last)) return { text: `Đây là toàn bộ lời giải, không có câu hỏi nào cả. ${flags.join(" ")}` };
   return { text: `Bạn nghĩ sao về điều đó? [${flags.join(" ")}]` };
@@ -54,16 +78,18 @@ function mockAi(params: { contents: any; config?: any }): { text: string } {
 
 /** Calls Gemini, retrying overloaded/rate-limited responses and falling back to other models. */
 async function generateWithFallback(params: { contents: any; config?: any }, timeoutMs = 30000) {
-  if (process.env.AI_MOCK === "1") return mockAi(params);   // offline tests only: never set in production
+  if (process.env.AI_MOCK === "1") return Object.assign(mockAi(params), { __model: "mock" });   // offline tests only: never set in production
   const models = [GEMINI_MODEL, ...GEMINI_FALLBACKS.filter((m) => m !== GEMINI_MODEL)];
   let lastErr: any;
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await Promise.race([
+        const out: any = await Promise.race([
           getGenAI().models.generateContent({ model, ...params }),
           new Promise<never>((_, rej) => setTimeout(() => rej(Object.assign(new Error(`Model ${model} không phản hồi trong ${timeoutMs / 1000}s`), { code: 503 })), timeoutMs)),
         ]);
+        try { out.__model = model; } catch { /* response objects may be frozen */ }
+        return out;
       } catch (err: any) {
         lastErr = err;
         const msg = String(err?.message || err);
@@ -142,7 +168,7 @@ function getGenAI(): GoogleGenAI {
 
 // Mock Initial DB Setup in memory with file backup
 interface DB {
-  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student' | 'admin'; avatar: string; pwd?: string; active?: boolean; last_seen?: string; profile_share?: { token: string; include_quotes: boolean; created_at: string } }>;
+  users: Array<{ id: string; name: string; email: string; role: 'teacher' | 'student' | 'admin'; avatar: string; pwd?: string; active?: boolean; last_seen?: string; profile_share?: { token: string; include_quotes: boolean; created_at: string }; consent_at?: string }>;
   courses: Array<any>;
   course_members: Array<any>;
   assignments: Array<any>;
@@ -1006,7 +1032,7 @@ const uid = (p: string) => `${p}_${Date.now()}_${crypto.randomBytes(3).toString(
 const PERMISSION_KEYS = ["create_course", "manage_assignments", "grade", "manage_members", "join_course", "use_ai_chat", "submit"];
 const can = (user: any, perm: string) => user.role === "admin" || db.settings?.permissions?.[user.role]?.[perm] === true;
 const permsFor = (user: any) => PERMISSION_KEYS.filter((k) => can(user, k));
-const publicUser = (u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, active: u.active !== false, last_seen: u.last_seen, permissions: permsFor(u) });
+const publicUser = (u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, active: u.active !== false, last_seen: u.last_seen, consent_at: u.consent_at, permissions: permsFor(u) });
 function audit(actor: any, action: string, target: string, detail = "") {
   const log = { id: uid("log"), actor_id: actor?.id || "", actor_name: actor?.name || "Hệ thống", action, target, detail, created_at: nowIso() };
   db.audit_logs.unshift(log);
@@ -1014,7 +1040,7 @@ function audit(actor: any, action: string, target: string, detail = "") {
   saveDocument("audit_logs", log.id, log);
 }
 const denied = (res: express.Response) => fail(res, 403, "Bạn chưa được cấp quyền thực hiện thao tác này. Hãy liên hệ quản trị viên.");
-const fail = (res: express.Response, code: number, message: string) => res.status(code).json({ success: false, message });
+const fail = (res: express.Response, code: number, message: string, errCode?: string) => res.status(code).json({ success: false, message, ...(errCode ? { code: errCode } : {}) });
 
 function addNotification(userId: string, title: string, body: string, link?: string) {
   const n = { id: uid("n"), user_id: userId, title, body, link: link || "", read: false, created_at: nowIso() };
@@ -1330,7 +1356,7 @@ function publicAssignment(a: any, user: any) {
 }
 
 function sanitizeAssignmentInput(body: any) {
-  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode, live_coach } = body || {};
+  const { title, description, rubric, due_date, attachments, submission_mode, ai_submode, allow_late, friction, friction_prompts, answer_gate, paste_mode, live_coach, stages } = body || {};
   const mode = ["file_only", "ai_chat_only", "both", "writing_l2"].includes(submission_mode) ? submission_mode : "both";
   // Input friction only applies to plain AI-chat assignments (not file-only, not the 3-step L2 flow)
   const level = (mode === "ai_chat_only" || mode === "both") && isFrictionLevel(friction) ? friction : "none";
@@ -1346,6 +1372,7 @@ function sanitizeAssignmentInput(body: any) {
     friction: level,
     paste_mode: isPasteMode(paste_mode) ? paste_mode : "track",
     live_coach: live_coach === false ? false : true,
+    stages: cleanStages(stages, mode),
     friction_prompts: cleanFrictionPrompts(friction_prompts),
     answer_gate: (mode === "ai_chat_only" || mode === "both") && isAnswerGate(answer_gate) ? answer_gate : "none",
   };
@@ -1509,6 +1536,10 @@ app.post("/api/submissions/:id/reevaluate", async (req: AuthedRequest, res) => {
 function transcriptOf(chat: any) {
   return chat.messages.map((m: any) => {
     const g: GateInfo | undefined = m.gate;
+    if (m.stage === "are_you_sure") {
+      const meta = m.role === "user" ? (m.ays?.response_type ? ` (phân loại phản hồi: ${m.ays.response_type})` : "") : (m.ays?.issue_type ? ` (loại vấn đề: ${m.ays.issue_type})` : "");
+      return `[Chặng Bạn chắc chứ?] ${m.role === "user" ? "Sinh viên" : "AI chất vấn"}: ${m.content}${meta}`;
+    }
     if (m.role === "user" || !g) return `${m.role === "user" ? "Sinh viên" : "AI Assistant"}: ${m.content}`;
     // Gated answers: the grader must see what the student actually did to read the rest
     if (g.state === "locked") return `AI Assistant: ${m.content} [phần còn lại chưa được mở khóa]`;
@@ -1518,16 +1549,32 @@ function transcriptOf(chat: any) {
   }).join("\n");
 }
 
+/** The Perspective Lab part of a student's work, written out so the grader can read it like the chat transcript. */
+function labEvidence(chat: any): string {
+  const ev: any[] = chat?.lab?.events || [];
+  if (!ev.length) return "";
+  const ACT: Record<string, string> = { accept: "Ghi nhận", rebut: "Phản biện lại", skip: "Bỏ qua" };
+  return "\n\n[Chặng Góc nhìn khác]\n" + ev.map((e, i) => {
+    const views = (e.counterviews || []).map((v: any, k: number) => `${k + 1}) ${v.stance}: ${v.argument}`).join(" | ");
+    const rw = e.rewrite ? `\n  Bản trước: ${e.rewrite.before}\n  Bản sau: ${e.rewrite.after}\n  (độ giống ${e.rewrite.similarity}; gõ ${e.rewrite.typed}, xóa ${e.rewrite.deleted}, dán ${e.rewrite.pasted}${e.rewrite.rewritten_from_scratch ? "; viết lại từ đầu" : ""})` : "";
+    return `Đoạn ${i + 1}: "${e.selection.text}"\n  Sinh viên: ${e.stance_text}\n  Loại đoạn: ${e.mode}${views ? `\n  Góc nhìn AI đưa ra: ${views}` : ""}${e.action ? `\n  Hành động: ${ACT[e.action] || e.action}` : ""}${e.rebuttal_text ? `\n  Sinh viên phản biện: ${e.rebuttal_text}` : ""}${rw}`;
+  }).join("\n");
+}
+
 async function evaluateProcess(assignment: any, chat: any, submittedText: string) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
-  const transcript = transcriptOf(chat).slice(-60000);
+  const who = whoIs(chat.student_id);
+  const transcript = scrub(transcriptOf(chat) + labEvidence(chat), who).slice(-60000);
+  submittedText = scrub(submittedText || "", who);
   const evalPrompt = `Bạn được cung cấp transcript cuộc trò chuyện giữa sinh viên và AI khi làm bài tập [${assignment.title}], cùng bài nộp cuối cùng (nếu có: "${submittedText || "Không có văn bản nộp trực tiếp"}"). Hãy đánh giá QUÁ TRÌNH TƯ DUY của sinh viên một cách nghiêm khắc, trung thực: nếu sinh viên chỉ xin đáp án, copy-paste, hoặc làm hộ thì điểm phải thấp. Trả về JSON theo schema:
 - process_score: số nguyên 0-100
 - tieu_chi: tu_duy_phan_bien (chất vấn/phản bác AI), dao_sau_van_de (refine câu hỏi từ chung chung sang cụ thể), kiem_chung_thong_tin (yêu cầu dẫn nguồn/verify), noi_hoa_kien_thuc (tự diễn giải bằng lời riêng), tinh_chu_dong (mở rộng vấn đề thay vì chỉ nhận đáp án); mỗi tiêu chí 0-100
 - noi_dung_ngoai_luong: mô tả nếu bài nộp có đoạn không khớp transcript, hoặc chuỗi rỗng
 - nhan_xet_ngan: 2-3 câu tiếng Việt tóm tắt kiểu tư duy
 - highlight_segments: danh sách {doan_van_ban (trích NGUYÊN VĂN câu của sinh viên), mau: "xanh"|"vang"|"do", ly_do}
-Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần làm rõ; do = copy hoàn toàn hoặc nhờ AI làm hộ.`;
+Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần làm rõ; do = copy hoàn toàn hoặc nhờ AI làm hộ.
+Mỗi highlight có thể kèm "stage": think_first | co_think | perspective_lab | are_you_sure, tùy đoạn trích nằm ở chặng nào (các đoạn bắt đầu bằng [Chặng …] cho biết chặng). Chỉ trích những câu có thật trong transcript.
+Cách dùng bằng chứng theo chặng: chặng "Góc nhìn khác" là bằng chứng chính cho Phản biện (sinh viên có phản biện lại, có sửa đoạn thật sự hay chỉ chép lại không); chặng "Bạn chắc chứ?" cho Kiểm chứng và Phản biện: HÃY THƯỞNG việc giữ vững lập trường có lý lẽ (held_with_reason) và việc điều chỉnh có lý do (revised); nhượng bộ không lý do (conceded_without_reason) hoặc né tránh (dodged) là tín hiệu yếu, không phải tín hiệu tốt.`;
   const response = await generateWithFallback({
     contents: [{ role: "user", parts: [{ text: `Transcript:\n${transcript}\n\n${evalPrompt}` }] }],
     config: {
@@ -1553,7 +1600,7 @@ Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
-              properties: { doan_van_ban: { type: Type.STRING }, mau: { type: Type.STRING }, ly_do: { type: Type.STRING } },
+              properties: { doan_van_ban: { type: Type.STRING }, mau: { type: Type.STRING }, ly_do: { type: Type.STRING }, stage: { type: Type.STRING } },
               required: ["doan_van_ban", "mau", "ly_do"],
             },
           },
@@ -1568,7 +1615,13 @@ Màu: xanh = phản biện/tư duy sâu/tự tổng hợp; vang = tò mò, cần
   parsed.process_score = clamp(parsed.process_score);
   for (const k of Object.keys(parsed.tieu_chi || {})) parsed.tieu_chi[k] = clamp(parsed.tieu_chi[k]);
   parsed.noi_dung_ngoai_luong = parsed.noi_dung_ngoai_luong?.trim() ? parsed.noi_dung_ngoai_luong : null;
-  parsed.highlight_segments = (parsed.highlight_segments || []).map((h: any) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang" }));
+  // Principle P4: the AI does not get to invent evidence. A highlight whose quote is not in the transcript is dropped.
+  const STAGES = ["think_first", "co_think", "perspective_lab", "are_you_sure"];
+  const all: any[] = parsed.highlight_segments || [];
+  parsed.highlight_segments = all.filter((h) => quoteInLoose(transcript, h.doan_van_ban)).map((h) => ({ ...h, mau: ["xanh", "vang", "do"].includes(h.mau) ? h.mau : "vang", stage: STAGES.includes(h.stage) ? h.stage : undefined }));
+  parsed.dropped_quotes = all.length - parsed.highlight_segments.length;
+  parsed.eval_model = (response as any).__model || undefined;
+  parsed.evidence_truncated = transcript.length >= 60000;
   return parsed;
 }
 
@@ -1697,7 +1750,7 @@ QUY TẮC:
 - "overall_comment": 2-3 câu tiếng Việt tóm tắt điểm mạnh và việc cần cải thiện.
 - Phải trả đủ cả 5 chiều với đúng "key" như bảng.`;
   const response = await generateWithFallback({
-    contents: [{ role: "user", parts: [{ text: `${instruction}\n\nBẰNG CHỨNG (JSON):\n${JSON.stringify(evidence)}` }] }],
+    contents: [{ role: "user", parts: [{ text: `${instruction}\n\nBẰNG CHỨNG (JSON):\n${scrub(JSON.stringify(evidence), whoIs(sub.student_id))}` }] }],
     config: {
       temperature: 0.2,
       responseMimeType: "application/json",
@@ -1869,7 +1922,7 @@ const chatHits = new Map<string, number[]>();
 function chatRateLimited(userId: string): boolean {
   const now = Date.now();
   const hits = (chatHits.get(userId) || []).filter((t) => now - t < 5 * 60 * 1000);
-  if (hits.length >= 25) { chatHits.set(userId, hits); return true; }
+  if (hits.length >= (Number(process.env.CHAT_RATE_MAX) || 25)) { chatHits.set(userId, hits); return true; }
   hits.push(now);
   chatHits.set(userId, hits);
   return false;
@@ -1904,7 +1957,7 @@ QUY TẮC RIÊNG CHO LƯỢT NÀY (ưu tiên hơn các chỉ dẫn trên): câu 
 - Phần ĐẦU (khoảng 60-90 từ, tức 3-4 dòng) phải là phần hay nhất và gây tò mò: mở bằng một nhận định bất ngờ, một ví dụ sống động hoặc một câu hỏi sắc; dừng ở chỗ khiến người đọc muốn biết tiếp, nhưng vẫn đúng và tự đủ nghĩa. Không tiết lộ kết luận ở phần này, không chiêu trò câu khách.
 - Đưa 2-3 "questions": mỗi câu ngắn, cụ thể cho chủ đề này, để sinh viên nêu quan điểm của chính mình (ví dụ: em nghiêng về hướng nào và vì sao; em định dùng ví dụ nào). Không hỏi chung chung.`;
   const response = await generateWithFallback({
-    contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+    contents: aiContents(chatSession),
     config: {
       systemInstruction: chatInstruction(assignment, course, chatSession) + addendum,
       temperature: 0.8,
@@ -1945,11 +1998,24 @@ NHIỆM VỤ: sinh viên đã đọc phần mở đầu của một câu trả l
 }
 
 /** System prompt for plain (non-L2) assignment chat. When the student wrote their own ideas first, the AI builds on them. */
+/** Students must accept how their learning data is stored and processed before anything of theirs reaches the AI. */
+function needConsent(req: AuthedRequest, res: express.Response): boolean {
+  if (req.user.role === "student" && !req.user.consent_at) { fail(res, 403, "Bạn cần đồng ý với cách TraceEdu lưu và xử lý dữ liệu học tập trước khi tiếp tục.", "consent_required"); return true; }
+  return false;
+}
+const whoIs = (studentId?: string) => { const u = db.users.find((x: any) => x.id === studentId); return { name: u?.name, email: u?.email }; };
+/** Messages as the AI sees them: Are-you-sure turns belong to their own stage, and names / emails / phone numbers never leave the server. */
+function aiContents(chat: any, keep: (m: any) => boolean = () => true) {
+  const who = whoIs(chat?.student_id);
+  return (chat?.messages || []).filter((m: any) => m.stage !== "are_you_sure" && keep(m)).map((m: any) => ({ role: m.role, parts: [{ text: m.role === "user" ? scrub(m.content, who) : m.content }] }));
+}
+
 /** One short, evidence-based observation about the student's latest turn. Returns null on any failure: coaching is optional. */
 async function coachTurn(assignment: any, chatSession: any, text: string): Promise<CoachNote | null> {
   if (text.trim().length < 12 || !(process.env.GEMINI_API_KEY || process.env.AI_MOCK === "1")) return null;
   try {
-    const recent = chatSession.messages.slice(-7, -1).map((m: any) => `${m.role === "user" ? "SV" : "AI"}: ${String(m.content).slice(0, 400)}`).join("\n");
+    const recent = chatSession.messages.slice(-7, -1).map((m: any) => `${m.role === "user" ? "SV" : "AI"}: ${scrub(String(m.content).slice(0, 400), whoIs(chatSession.student_id))}`).join("\n");
+    const who = whoIs(chatSession.student_id); text = scrub(text, who);
     const prompt = `Bạn là người quan sát quá trình tư duy của sinh viên khi làm bài "${assignment.title}" cùng trợ lý AI. Chỉ nhận xét LƯỢT MỚI NHẤT của sinh viên (bên dưới), dựa trên 5 tiêu chí: tu_duy_phan_bien, dao_sau_van_de, kiem_chung_thong_tin, noi_hoa_kien_thuc, tinh_chu_dong.
 Chọn đúng MỘT tiêu chí nổi bật nhất ở lượt này.
 - level: "good" nếu lượt này thể hiện tốt tiêu chí đó; "weak" nếu còn yếu hoặc thiếu; "warn" nếu sinh viên đang nhờ AI làm hộ hoặc xin đáp án.
@@ -1997,6 +2063,7 @@ Sinh viên đã tự ghi ý riêng của mình TRƯỚC khi hỏi bạn (tin nh�
 app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
+  if (needConsent(req, res)) return;
   const { assignment_id } = req.body || {};
   const assignment = db.assignments.find((a: any) => a.id === assignment_id);
   if (!assignment) return fail(res, 404, "Bài tập không tìm thấy.");
@@ -2010,7 +2077,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   let chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   if (chatSession?.intent) return fail(res, 409, "Bạn đã ghi ý ban đầu cho bài này rồi.");
   const conf = Number(req.body?.confidence);
-  const confidence = Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : undefined;
+  const confidence = stageConfig(assignment).ask_confidence && Number.isInteger(conf) && conf >= 1 && conf <= 5 ? conf : undefined;
   const pasted = Math.max(0, Math.round(Number(req.body?.pasted_chars) || 0));
   if (assignment.paste_mode === "block" && pasted > 0) return fail(res, 400, "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.");
   const pasteAttempts = Math.min(50, Math.max(0, Math.round(Number(req.body?.paste_attempts) || 0)));
@@ -2044,7 +2111,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
     const response = await generateWithFallback({
-      contents: chatSession.messages.map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+      contents: aiContents(chatSession),
       config: { systemInstruction: chatInstruction(assignment, course, chatSession), temperature: 0.7 },
     });
     const replyText = response.text;
@@ -2065,6 +2132,7 @@ app.post("/api/chat/intent", async (req: AuthedRequest, res) => {
 app.post("/api/chat/unlock", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
+  if (needConsent(req, res)) return;
   const { assignment_id, message_id } = req.body || {};
   const assignment = db.assignments.find((a: any) => a.id === assignment_id);
   if (!assignment) return fail(res, 404, "Bài tập không tìm thấy.");
@@ -2113,6 +2181,7 @@ app.post("/api/chat/unlock", async (req: AuthedRequest, res) => {
 app.post("/api/chat/message", async (req: AuthedRequest, res) => {
   if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên mới trò chuyện trong bài tập.");
   if (!can(req.user, "use_ai_chat")) return denied(res);
+  if (needConsent(req, res)) return;
   const { assignment_id, message_content } = req.body || {};
   const phase: "prompt" | "critique" | undefined = req.body?.phase === "critique" ? "critique" : req.body?.phase === "prompt" ? "prompt" : undefined;
   if (!assignment_id || !message_content || typeof message_content !== "string") return fail(res, 400, "Thiếu thông tin tin nhắn.");
@@ -2148,7 +2217,7 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
     if (lastModel?.gate?.state === "locked") return fail(res, 409, "Hãy trả lời các câu hỏi để mở khóa câu trả lời trước, rồi mới hỏi tiếp.");
   }
   const userMsg: any = { id: uid("m"), role: "user" as const, content: message_content, timestamp: nowIso() };
-  if (isL2) userMsg.phase = phase;
+  if (isL2) userMsg.phase = phase; else userMsg.stage = "co_think";
   const pasted = Number(req.body?.pasted_chars);
   if (assignment.paste_mode === "block" && Number.isFinite(pasted) && pasted > 0) return fail(res, 400, "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.");
   if (Number.isFinite(pasted) && pasted > 0) userMsg.pasted_chars = Math.min(Math.round(pasted), message_content.length);
@@ -2169,9 +2238,9 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
       // Full answer stays on the server; the student gets the opening ~30% and the unlock questions
       const { answer, questions } = await generateGatedAnswer(assignment, course, chatSession);
       const teaser = makeTeaser(answer);
-      aiMsg = { id: uid("m"), role: "model" as const, content: teaser, timestamp: nowIso(), gate: { state: "locked", questions, teaser, draft: answer } satisfies GateInfo };
+      aiMsg = { id: uid("m"), role: "model" as const, content: teaser, timestamp: nowIso(), stage: "co_think", gate: { state: "locked", questions, teaser, draft: answer } satisfies GateInfo };
     } else {
-      const contents = chatSession.messages.filter((m: any) => !isL2 || m.phase === phase).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] }));
+      const contents = aiContents(chatSession, (m: any) => !isL2 || m.phase === phase);
       const response = await generateWithFallback({ contents, config: { systemInstruction, temperature: 0.7 } });
       let replyText = response.text;
       if (!replyText) throw new Error("AI trả về nội dung rỗng.");
@@ -2182,6 +2251,7 @@ app.post("/api/chat/message", async (req: AuthedRequest, res) => {
         if (again.text && !looksLikeFullAnswer(again.text)) { replyText = again.text; guard = "regenerated"; } else { replyText = SOCRATIC_FALLBACK; guard = "fallback"; }
       }
       aiMsg = { id: uid("m"), role: "model" as const, content: replyText, timestamp: nowIso() };
+      if (!isL2) aiMsg.stage = "co_think";
       if (guard) aiMsg.guard = guard;
       if (isL2) aiMsg.phase = phase;
     }
@@ -2242,8 +2312,8 @@ app.post("/api/submissions/submit", async (req: AuthedRequest, res) => {
 
   const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment_id && cs.student_id === req.user.id);
   // The student's own first-ideas message (input friction) is not counted as a chat turn
-  const userTurns = chatSession ? chatSession.messages.filter((m: any) => m.role === "user" && m.kind !== "intent").length : 0;
-  if (assignment.submission_mode !== "file_only" && userTurns < 3) return fail(res, 400, "Bạn cần trao đổi ít nhất 3 lượt với trợ lý AI trước khi nộp.");
+  const userTurns = coThinkTurns(chatSession);
+  if (assignment.submission_mode !== "file_only") { const blocked = submitBlocker(assignment, chatSession); if (blocked) return fail(res, 400, blocked); }
   if (assignment.submission_mode === "file_only" && !(submitted_files?.length || submitted_text?.trim())) return fail(res, 400, "Vui lòng đính kèm file hoặc nhập nội dung bài làm.");
 
   let processScoreResult: any = undefined;
@@ -2336,6 +2406,11 @@ function behaviorStats(assignments: any[], members: any[], subs: any[]) {
   }).filter(Boolean) as { c: number; p: number }[];
   const avgOf = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 
+  // Stage 3 and 4 usage, over the assignments where the teacher switched them on
+  const labSessions = sessions.filter((cs: any) => stageConfig(chatAssignments.find((a: any) => a.id === cs.assignment_id)).perspective_lab.enabled);
+  const labUsed = labSessions.filter((cs: any) => cs.lab?.events?.length), labRewrote = labSessions.filter((cs: any) => (cs.lab?.events || []).some((e: any) => e.rewrite));
+  const aysMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.stage === "are_you_sure" && m.role === "user" && m.ays?.response_type));
+  const aysDist = Object.fromEntries(RESPONSE_TYPES.map((t) => [t, aysMsgs.filter((m: any) => m.ays.response_type === t).length]));
   const gatedMsgs = sessions.flatMap((cs: any) => cs.messages.filter((m: any) => m.role === "model" && m.gate && m.gate.state === "unlocked"));
   const gateAnswered = gatedMsgs.filter((m: any) => !m.gate.skipped).length;
   return {
@@ -2347,6 +2422,8 @@ function behaviorStats(assignments: any[], members: any[], subs: any[]) {
     skipped_rate: pct(skipped, frictionSessions.length),
     paste_heavy_rate: pct(heavy, userMsgs.length),
     paste_heavy_chars: PASTE_HEAVY_CHARS,
+    lab: labSessions.length >= BEHAVIOR_MIN_STUDENTS ? { sessions: labSessions.length, used_rate: pct(labUsed.length, labSessions.length), rewrote_rate: pct(labRewrote.length, labSessions.length) } : null,
+    ays: aysMsgs.length >= BEHAVIOR_MIN_STUDENTS ? { answered: aysMsgs.length, distribution: aysDist } : null,
     calibration: pairs.length >= BEHAVIOR_MIN_STUDENTS ? { n: pairs.length, avg_confidence: avgOf(pairs.map((x) => x.c)), avg_process_score: avgOf(pairs.map((x) => x.p)) } : null,
   };
 }
@@ -2665,10 +2742,11 @@ app.delete("/api/admin/courses/:id", (req: AuthedRequest, res) => {
 app.get("/api/admin/settings", (req, res) => res.json({ success: true, data: db.settings }));
 
 app.put("/api/admin/settings", (req: AuthedRequest, res) => {
-  const { allow_registration, teacher_self_register, permissions } = req.body || {};
+  const { allow_registration, teacher_self_register, permissions, retention_days } = req.body || {};
   const next = JSON.parse(JSON.stringify(db.settings));
   if (typeof allow_registration === "boolean") next.allow_registration = allow_registration;
   if (typeof teacher_self_register === "boolean") next.teacher_self_register = teacher_self_register;
+  if (retention_days !== undefined) { const d = Math.round(Number(retention_days)); next.retention_days = Number.isFinite(d) ? Math.min(3650, Math.max(0, d)) : 0; }
   if (permissions && typeof permissions === "object") {
     for (const role of ["teacher", "student"]) {
       for (const key of Object.keys(DEFAULT_SETTINGS.permissions[role])) {
@@ -2722,6 +2800,314 @@ app.delete("/api/admin/demo-data", (req: AuthedRequest, res) => {
 
 app.get("/api/admin/audit", (req, res) => res.json({ success: true, data: db.audit_logs.slice(0, 200) }));
 
+
+
+// =====================================================================================================================
+// Stages 3 and 4: Perspective Lab (góc nhìn khác) and Are you sure? (bạn chắc chứ?)
+// Every rule here is enforced on the server: order of stages, minimum lengths, paste lock, number of turns.
+// Lab data lives inside the student's chat session document (chatSession.lab) so it is persisted, deleted and exported
+// together with the rest of that student's work on the assignment.
+// =====================================================================================================================
+
+/** One JSON answer from the model. Throws if the model fails or returns something unusable. */
+async function aiJson(prompt: string, properties: Record<string, any>, required: string[], temperature: number): Promise<any> {
+  if (!process.env.GEMINI_API_KEY) throw new Error("Chưa cấu hình GEMINI_API_KEY trên máy chủ.");
+  const r: any = await generateWithFallback({ contents: [{ role: "user", parts: [{ text: prompt }] }], config: { temperature, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties, required } } });
+  if (!r.text) throw new Error("AI trả về nội dung rỗng.");
+  return JSON.parse(String(r.text).trim());
+}
+const STR = { type: Type.STRING };
+const cap = (v: any, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
+const clampInt = (v: any, max = 100000) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
+
+/** Common checks for the Lab and Are-you-sure endpoints. Sends the error response itself and returns null when something is wrong. */
+function stageContext(req: AuthedRequest, res: express.Response, assignmentId: any, stage: "perspective_lab" | "are_you_sure") {
+  if (req.user.role !== "student") { fail(res, 403, "Chỉ sinh viên mới làm bài tập."); return null; }
+  if (!can(req.user, "use_ai_chat")) { denied(res); return null; }
+  if (needConsent(req, res)) return null;
+  const assignment = db.assignments.find((a: any) => a.id === assignmentId);
+  if (!assignment) { fail(res, 404, "Bài tập không tìm thấy."); return null; }
+  const course = findCourse(assignment.course_id);
+  if (!course || !isMember(course.id, req.user)) { fail(res, 403, "Bạn không thuộc môn học này."); return null; }
+  if (assignment.submission_mode !== "ai_chat_only" && assignment.submission_mode !== "both") { fail(res, 400, "Bài tập này không có chặng này."); return null; }
+  const existing = db.submissions.find((x: any) => x.assignment_id === assignment.id && x.student_id === req.user.id);
+  if (existing && isSubmitted(existing)) { fail(res, 409, "Bài đã nộp, các chặng đã được khóa."); return null; }
+  const chatSession = db.chat_sessions.find((cs: any) => cs.assignment_id === assignment.id && cs.student_id === req.user.id);
+  const block = stageBlocker(assignment, chatSession, stage);
+  if (block) { fail(res, 409, block); return null; }
+  if (chatRateLimited(req.user.id)) { fail(res, 429, "Bạn gửi quá nhanh, vui lòng đợi vài phút rồi thử lại."); return null; }
+  return { assignment, course, chatSession };
+}
+function pasteBlocked(assignment: any, body: any): boolean { return assignment.paste_mode === "block" && Number(body?.pasted_chars) > 0; }
+const PASTE_MSG = "Bài này khóa dán và sao chép. Hãy tự viết bằng lời của bạn.";
+
+app.post("/api/lab/start", (req: AuthedRequest, res) => {
+  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
+  const { assignment, chatSession } = ctx;
+  const text = String(req.body?.text ?? "").replace(/\r\n/g, "\n").trim();
+  if (text.length < LAB_LIMITS.minText) return fail(res, 400, `Văn bản cần ít nhất ${LAB_LIMITS.minText} ký tự.`);
+  if (text.length > LAB_LIMITS.maxText) return fail(res, 400, `Văn bản tối đa ${LAB_LIMITS.maxText.toLocaleString("vi-VN")} ký tự.`);
+  if (chatSession.lab?.events?.length) return res.json({ success: true, data: { lab: chatSession.lab } });   // already working on it: keep the text, the offsets depend on it
+  // the draft is the student's own document, so it may be pasted even when the lock is on; the amount is recorded
+  chatSession.lab = { text, created_at: nowIso(), pasted_chars: clampInt(req.body?.pasted_chars), events: [] };
+  saveDocument("chat_sessions", chatSession.id, chatSession);
+  res.json({ success: true, data: { lab: chatSession.lab } });
+});
+
+app.post("/api/lab/stance", async (req: AuthedRequest, res) => {
+  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
+  const { assignment, course, chatSession } = ctx;
+  const lab = chatSession.lab;
+  if (!lab?.text) return fail(res, 409, "Hãy thêm văn bản trước.");
+  const start = Math.round(Number(req.body?.selection?.start)), end = Math.round(Number(req.body?.selection?.end));
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > lab.text.length || start >= end) return fail(res, 400, "Vùng chọn không hợp lệ.");
+  const selText = lab.text.slice(start, end).trim();
+  if (selText.length < LAB_LIMITS.minSel) return fail(res, 400, `Hãy bôi đen một đoạn dài ít nhất ${LAB_LIMITS.minSel} ký tự.`);
+  if (selText.length > LAB_LIMITS.maxSel) return fail(res, 400, `Đoạn chọn tối đa ${LAB_LIMITS.maxSel.toLocaleString("vi-VN")} ký tự.`);
+  // L1: no other view is shown before the student has stated their own
+  const stance = cap(req.body?.stance_text, 2000);
+  if (stance.length < LAB_LIMITS.minStance) return fail(res, 400, `Hãy viết ý của bạn về đoạn này trước (ít nhất ${LAB_LIMITS.minStance} ký tự) rồi mới xem góc nhìn khác.`);
+  if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
+
+  const who = whoIs(req.user.id);
+  const passage = scrub(selText, who), view = scrub(stance, who);
+  try {
+    const cls = await aiJson(`Phân loại ĐOẠN VĂN sau theo bản chất của nó.
+- "tranh_luan": ý kiến, giá trị, cách tiếp cận, dự đoán, nơi nhiều quan điểm hợp lý có thể cùng tồn tại.
+- "su_kien": khẳng định sự kiện, số liệu hoặc định nghĩa đã có đồng thuận (không có "phe phản biện" nghiêm túc).
+- "khong_ro": quá mơ hồ hoặc quá ngắn để biết đang khẳng định điều gì.
+Trả JSON {mode, reason} (reason: một câu tiếng Việt).
+
+ĐOẠN ĐƯỢC CHỌN:
+${passage}`, { mode: STR, reason: STR }, ["mode", "reason"], 0.2);
+    const mode: "tranh_luan" | "su_kien" | "khong_ro" = ["tranh_luan", "su_kien", "khong_ro"].includes(cls.mode) ? cls.mode : "khong_ro";
+    const ev: any = { id: uid("lab"), selection: { start, end, text: selText }, stance_text: stance, mode, reason: cap(cls.reason, 300), counterviews: [], ts: nowIso() };
+
+    if (mode === "tranh_luan") {
+      // L4 (v1): the only sources are the class materials. L3: no URL ever; a source is shown only if it is a real material of this class.
+      const passages = pickPassages(course.materials || [], `${selText} ${stance}`, 3500, 3);
+      const mats = passages.length ? passages.map((p) => `[${p.name}]\n${p.text}`).join("\n---\n") : "(Lớp này chưa có tài liệu phù hợp. Để source_ref trống.)";
+      const out = await aiJson(`Bạn giúp một sinh viên nhìn một đoạn văn từ góc khác. Hãy đưa ĐÚNG 2 góc nhìn KHÁC với ý của sinh viên, mỗi góc nhìn là một lập luận nghiêm túc (không bù nhìn, không công kích).
+Mỗi góc nhìn có: stance (một câu), argument (2-3 câu tiếng Việt), source_ref (tên tài liệu trong ngoặc vuông dưới đây nếu bạn dựa vào nó, nếu không thì để trống). KHÔNG đưa đường link, KHÔNG bịa nguồn.
+
+TÀI LIỆU CỦA LỚP:
+${mats}
+
+ĐOẠN ĐƯỢC CHỌN:
+${passage}
+
+Ý CỦA SINH VIÊN VỀ ĐOẠN NÀY:
+${view}`, { counterviews: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { stance: STR, argument: STR, source_ref: STR }, required: ["stance", "argument", "source_ref"] } } }, ["counterviews"], 0.6);
+      ev.counterviews = (Array.isArray(out.counterviews) ? out.counterviews : []).slice(0, 2).map((v: any) => {
+        const ref = cap(v.source_ref, 120).toLowerCase();
+        const hit = ref && passages.find((p) => p.name.toLowerCase() === ref);
+        return { stance: cap(v.stance, 200), argument: cap(v.argument, 700), source: hit ? { title: hit.name, verified: true } : null };
+      }).filter((v: any) => v.stance && v.argument);
+      if (!ev.counterviews.length) throw new Error("AI chưa đưa được góc nhìn nào.");
+    } else if (mode === "su_kien") {
+      const out = await aiJson(`Đoạn sau khẳng định một điều đã có đồng thuận. Đừng dựng "phe phản biện". Hãy nêu: claim_to_check (điều cụ thể cần kiểm chứng, một câu) và how_to_check (2-3 gợi ý cách tìm bằng chứng, mỗi gợi ý một câu). Tiếng Việt.
+
+ĐOẠN ĐƯỢC CHỌN:
+${passage}`, { claim_to_check: STR, how_to_check: { type: Type.ARRAY, items: STR } }, ["claim_to_check", "how_to_check"], 0.4);
+      ev.verify = { claim_to_check: cap(out.claim_to_check, 300), how_to_check: (Array.isArray(out.how_to_check) ? out.how_to_check : []).slice(0, 3).map((x: any) => cap(x, 250)).filter(Boolean) };
+    } else {
+      ev.clarify = "Mình chưa rõ đoạn này đang khẳng định điều gì. Bạn thử chọn một đoạn cụ thể hơn, hoặc viết lại ý của bạn cho rõ hơn nhé.";
+    }
+    lab.events.push(ev);
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    res.json({ success: true, data: { event: ev, lab } });
+  } catch (err: any) {
+    console.error("Lab stance error:", err?.message || err);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Ý của bạn chưa được ghi nhận, hãy thử lại.");
+  }
+});
+
+app.post("/api/lab/action", (req: AuthedRequest, res) => {
+  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
+  const { assignment, chatSession } = ctx;
+  const ev = chatSession.lab?.events?.find((e: any) => e.id === req.body?.event_id);
+  if (!ev) return fail(res, 404, "Không tìm thấy đoạn này.");
+  if (ev.action) return fail(res, 409, "Bạn đã chọn hành động cho đoạn này rồi.");
+  const action = req.body?.action;
+  if (!["accept", "rebut", "skip"].includes(action)) return fail(res, 400, "Hành động không hợp lệ.");
+  if (ev.mode === "khong_ro" && action !== "skip") return fail(res, 400, "Đoạn này chưa rõ nghĩa, bạn chỉ có thể bỏ qua hoặc chọn đoạn khác.");
+  if (action === "rebut") {
+    const rb = cap(req.body?.rebuttal_text, 2000);
+    if (rb.length < LAB_LIMITS.minRebut) return fail(res, 400, `Hãy viết phản biện của bạn (ít nhất ${LAB_LIMITS.minRebut} ký tự).`);
+    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
+    ev.rebuttal_text = rb;
+  }
+  ev.action = action;
+  saveDocument("chat_sessions", chatSession.id, chatSession);
+  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
+});
+
+app.post("/api/lab/rewrite", (req: AuthedRequest, res) => {
+  const ctx = stageContext(req, res, req.body?.assignment_id, "perspective_lab"); if (!ctx) return;
+  const { assignment, chatSession } = ctx;
+  const ev = chatSession.lab?.events?.find((e: any) => e.id === req.body?.event_id);
+  if (!ev) return fail(res, 404, "Không tìm thấy đoạn này.");
+  if (ev.action !== "accept" && ev.action !== "rebut") return fail(res, 409, "Hãy chọn Ghi nhận hoặc Phản biện lại trước khi sửa đoạn.");
+  if (ev.rewrite) return fail(res, 409, "Bạn đã sửa đoạn này rồi.");
+  const after = cap(req.body?.after_text, LAB_LIMITS.maxAfter);
+  if (after.length < LAB_LIMITS.minAfter) return fail(res, 400, "Đoạn sau khi sửa quá ngắn.");
+  if (assignment.paste_mode === "block" && clampInt(req.body?.pasted) > 0) return fail(res, 400, PASTE_MSG);
+  const sim = Math.round(wordSimilarity(ev.selection.text, after) * 100) / 100;
+  ev.rewrite = { before: ev.selection.text, after, similarity: sim, typed: clampInt(req.body?.typed), deleted: clampInt(req.body?.deleted), pasted: clampInt(req.body?.pasted), rewritten_from_scratch: sim < 0.35, ts: nowIso() };
+  saveDocument("chat_sessions", chatSession.id, chatSession);
+  res.json({ success: true, data: { event: ev, lab: chatSession.lab } });
+});
+
+app.get("/api/lab/:assignmentId/mine", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên xem được dữ liệu của mình.");
+  const cs = db.chat_sessions.find((c: any) => c.assignment_id === req.params.assignmentId && c.student_id === req.user.id);
+  res.json({ success: true, data: { lab: cs?.lab || null } });
+});
+
+// ---- Are you sure? ----
+/** What the student has argued so far: the raw text (to check quotes against) and the same text with names removed (to send to the AI). */
+function positionOf(chat: any) {
+  const parts: string[] = [];
+  for (const m of chat.messages) if (m.role === "user" && m.kind !== "intent" && m.stage !== "are_you_sure") parts.push(m.content);
+  if (chat.intent?.answers?.length) parts.push(...chat.intent.answers.map((x: any) => x.a));
+  for (const e of chat.lab?.events || []) { if (e.stance_text) parts.push(e.stance_text); if (e.rebuttal_text) parts.push(e.rebuttal_text); if (e.rewrite?.after) parts.push(e.rewrite.after); }
+  for (const m of chat.messages) if (m.role === "user" && m.stage === "are_you_sure") parts.push(m.content);
+  const raw = parts.join("\n");
+  return { raw, safe: scrub(raw, whoIs(chat.student_id)).slice(-6000) };
+}
+
+app.post("/api/ays/turn", async (req: AuthedRequest, res) => {
+  const ctx = stageContext(req, res, req.body?.assignment_id, "are_you_sure"); if (!ctx) return;
+  const { assignment, chatSession } = ctx;
+  const N = stageConfig(assignment).are_you_sure.turns;
+  const answered = aysAnswered(chatSession);
+  if (answered >= N) return fail(res, 409, "Chặng này đã đủ số lượt, bạn có thể nộp bài.");   // A7: the server counts turns
+  const ays = chatSession.messages.filter((m: any) => m.stage === "are_you_sure");
+  const last = ays[ays.length - 1];
+  const pending = last && last.role === "model" ? last : null;
+  const answer = typeof req.body?.answer === "string" ? req.body.answer.trim() : "";
+  const state = (closed: boolean, q: any) => res.json({ success: true, data: { chat_session: publicChat(chatSession, req.user), question: q, answered: aysAnswered(chatSession), total: N, closed } });
+
+  if (!answer) {   // start, or resume the pending question
+    if (pending) return state(false, pending);
+  } else {
+    if (!pending) return fail(res, 400, "Chưa có câu chất vấn để trả lời.");
+    if (answer.length < 10) return fail(res, 400, "Hãy trả lời kỹ hơn một chút (ít nhất 10 ký tự).");
+    if (answer.length > 3000) return fail(res, 413, "Câu trả lời tối đa 3.000 ký tự.");
+    if (pasteBlocked(assignment, req.body)) return fail(res, 400, PASTE_MSG);
+  }
+
+  const who = whoIs(req.user.id);
+  try {
+    let userMsg: any = null;
+    if (answer) {
+      const cls = await aiJson(`Phân loại CÂU TRẢ LỜI của sinh viên trước một câu chất vấn.
+- "held_with_reason": giữ lập trường VÀ đưa lý lẽ hoặc dẫn chứng.
+- "revised": điều chỉnh hoặc làm rõ lập trường, có nêu lý do.
+- "conceded_without_reason": đồng ý ngay hoặc nhượng bộ mà không giải thích.
+- "dodged": không trả lời vào câu hỏi.
+Trả JSON {response_type, quote}; quote là cụm từ 3-12 chữ trích NGUYÊN VĂN từ câu trả lời.
+
+CÂU HỎI CHẤT VẤN: ${scrub(pending.content, who)}
+
+CÂU TRẢ LỜI CỦA SINH VIÊN:
+${scrub(answer, who)}`, { response_type: STR, quote: STR }, ["response_type", "quote"], 0.2);
+      const rt: ResponseType = (RESPONSE_TYPES as string[]).includes(cls.response_type) ? cls.response_type : "dodged";
+      userMsg = { id: uid("m"), role: "user" as const, stage: "are_you_sure", content: answer, timestamp: nowIso(), ays: { response_type: rt, quote: quoteIn(answer, cls.quote) } };
+      const p = Number(req.body?.pasted_chars); if (Number.isFinite(p) && p > 0) userMsg.pasted_chars = Math.min(Math.round(p), answer.length);
+      const at = clampInt(req.body?.paste_attempts, 50); if (at) userMsg.paste_attempts = at;
+    }
+    const nowAnswered = answered + (userMsg ? 1 : 0);
+    if (userMsg && nowAnswered >= N) {   // last answer: close the stage, no new question
+      chatSession.messages.push(userMsg);
+      saveDocument("chat_sessions", chatSession.id, chatSession);
+      return state(true, null);
+    }
+    const pos = positionOf(chatSession);
+    const prior = chatSession.messages.filter((m: any) => m.stage === "are_you_sure" && m.role === "model").map((m: any) => `- ${m.content}`).join("\n");
+    const posText = scrub(pos.raw + (userMsg ? "\n" + userMsg.content : ""), who).slice(-6000);
+    const ch = await aiJson(`Bạn là người phản biện thân thiện và giỏi lập luận. Đọc LẬP TRƯỜNG HIỆN TẠI của sinh viên và chọn MỘT điểm yếu CÓ THẬT để chất vấn.
+- issue_type: logic_gap (hở logic) | unsupported_claim (khẳng định chưa có dẫn chứng) | ambiguity (chưa rõ nghĩa) | counterexample (có phản ví dụ) | none.
+- Chỉ chọn "none" khi lập luận THẬT SỰ vững. Khi đó nói ngắn lập luận vững ở đâu và đặt một câu hỏi MỞ RỘNG (sang tình huống khác), TUYỆT ĐỐI không bịa lỗi.
+- question: MỘT câu hỏi tiếng Việt, có dấu "?", bám vào câu của sinh viên, không đưa đáp án. Bạn KHÔNG kiểm tra được nguồn, nên không được khẳng định nguồn của sinh viên là sai hay không tồn tại; chỉ được hỏi "nguồn của bạn là gì, làm sao biết nó đáng tin".
+- quote: trích NGUYÊN VĂN 3-12 chữ từ câu sinh viên mà bạn chất vấn.
+${prior ? `Các câu đã hỏi (đừng lặp lại):\n${prior}\n` : ""}
+LẬP TRƯỜNG HIỆN TẠI CỦA SINH VIÊN:
+${posText}`, { issue_type: STR, question: STR, quote: STR }, ["issue_type", "question", "quote"], 0.5);
+    const issue: IssueType = (ISSUE_TYPES as string[]).includes(ch.issue_type) ? ch.issue_type : "logic_gap";
+    const corpus = pos.raw + (userMsg ? "\n" + userMsg.content : "");
+    const qMsg = { id: uid("m"), role: "model" as const, stage: "are_you_sure", content: safeChallenge(cap(ch.question, 600), issue), timestamp: nowIso(), ays: { issue_type: issue, quote: quoteIn(corpus, ch.quote) } };
+    if (userMsg) chatSession.messages.push(userMsg);
+    chatSession.messages.push(qMsg);
+    saveDocument("chat_sessions", chatSession.id, chatSession);
+    state(false, qMsg);
+  } catch (err: any) {
+    console.error("AYS error:", err?.message || err);
+    fail(res, 502, "Trợ lý AI tạm thời không phản hồi được. Câu trả lời của bạn chưa được ghi nhận, hãy gửi lại.");
+  }
+});
+
+app.get("/api/stages/:assignmentId/state", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chỉ sinh viên xem được tiến độ chặng của mình.");
+  const assignment = db.assignments.find((a: any) => a.id === req.params.assignmentId);
+  if (!assignment || !isMember(assignment.course_id, req.user)) return fail(res, 404, "Bài tập không tìm thấy.");
+  const cs = db.chat_sessions.find((c: any) => c.assignment_id === assignment.id && c.student_id === req.user.id);
+  res.json({ success: true, data: { stages: computeStages(assignment, cs), config: stageConfig(assignment), submit_blocker: submitBlocker(assignment, cs) } });
+});
+
+// =====================================================================================================================
+// Privacy: consent, export, deletion, retention
+// =====================================================================================================================
+app.post("/api/me/consent", (req: AuthedRequest, res) => {
+  if (req.body?.accept !== true) return fail(res, 400, "Cần xác nhận đồng ý để tiếp tục.");
+  if (!req.user.consent_at) { req.user.consent_at = nowIso(); saveDocument("users", req.user.id, req.user); audit(req.user, "privacy.consent", req.user.email, ""); }
+  res.json({ success: true, data: publicUser(req.user) });
+});
+
+app.get("/api/me/export", (req: AuthedRequest, res) => {
+  const u = req.user;
+  const chats = db.chat_sessions.filter((c: any) => c.student_id === u.id);
+  const subs = db.submissions.filter((x: any) => x.student_id === u.id);
+  res.setHeader("Content-Disposition", `attachment; filename="traceedu-du-lieu-cua-toi.json"`);
+  res.json({ success: true, data: { exported_at: nowIso(), account: { name: u.name, email: u.email, role: u.role, consent_at: u.consent_at || null }, chat_sessions: chats, submissions: subs, profile_share: u.profile_share || null, note: "Đây là toàn bộ dữ liệu học tập TraceEdu lưu về bạn." } });
+});
+
+app.post("/api/me/delete-data", (req: AuthedRequest, res) => {
+  if (req.user.role !== "student") return fail(res, 403, "Chức năng này dành cho sinh viên.");
+  if (req.body?.confirm !== "XOA") return fail(res, 400, "Hãy gõ XOA để xác nhận.");
+  const chats = db.chat_sessions.filter((c: any) => c.student_id === req.user.id), subs = db.submissions.filter((x: any) => x.student_id === req.user.id);
+  for (const c of chats) deleteDocument("chat_sessions", c.id);
+  for (const x of subs) deleteDocument("submissions", x.id);
+  db.chat_sessions = db.chat_sessions.filter((c: any) => c.student_id !== req.user.id);
+  db.submissions = db.submissions.filter((x: any) => x.student_id !== req.user.id);
+  delete req.user.profile_share;
+  saveDocument("users", req.user.id, req.user);
+  audit(req.user, "privacy.delete", req.user.email, `${chats.length} cuộc chat, ${subs.length} bài nộp`);
+  res.json({ success: true, data: { deleted_chats: chats.length, deleted_submissions: subs.length }, message: "Đã xóa dữ liệu học tập của bạn. Tài khoản vẫn còn." });
+});
+
+/** Deletes chat logs of submitted work older than the retention period (days). Scores and grades are kept. Returns how many were deleted. */
+function purgeExpired(days: number): number {
+  if (!days || days < 1) return 0;
+  const cutoff = Date.now() - days * 86400000;
+  const old = db.chat_sessions.filter((c: any) => {
+    const sub = db.submissions.find((x: any) => x.assignment_id === c.assignment_id && x.student_id === c.student_id);
+    const lastTs = Math.max(0, ...c.messages.map((m: any) => new Date(m.timestamp || 0).getTime()));
+    return sub && isSubmitted(sub) && lastTs > 0 && lastTs < cutoff;
+  });
+  for (const c of old) {
+    deleteDocument("chat_sessions", c.id);
+    const sub = db.submissions.find((x: any) => x.assignment_id === c.assignment_id && x.student_id === c.student_id);
+    if (sub) { sub.chat_purged_at = nowIso(); saveDocument("submissions", sub.id, sub); }
+  }
+  db.chat_sessions = db.chat_sessions.filter((c: any) => !old.includes(c));
+  return old.length;
+}
+app.post("/api/admin/retention/run", (req: AuthedRequest, res) => {
+  const n = purgeExpired(Number(db.settings.retention_days) || 0);
+  audit(req.user, "privacy.retention", "Dọn dữ liệu quá hạn", `${n} cuộc chat`);
+  res.json({ success: true, data: { deleted: n, retention_days: db.settings.retention_days || 0 } });
+});
 
 // ---- Class materials: text the teacher gives the AI to ground its answers in ----
 app.post("/api/courses/:id/materials", (req: AuthedRequest, res) => {
@@ -2889,6 +3275,8 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Trace Server] Running on http://0.0.0.0:${PORT}`);
+    const sweep = () => { try { const n = purgeExpired(Number(db.settings.retention_days) || 0); if (n) console.log(`[Privacy] Retention: deleted ${n} expired chat log(s).`); } catch (e: any) { console.warn("[Privacy] retention sweep failed:", e?.message || e); } };
+    sweep(); setInterval(sweep, 24 * 3600 * 1000).unref?.();
   });
 }
 

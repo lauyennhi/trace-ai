@@ -10,6 +10,8 @@ j(){ python3 -c "import sys,json;d=json.load(sys.stdin);d=d.get('data',d) if isi
 login(){ curl -s -X POST $B/api/auth/login -H 'content-type: application/json' -d "{\"email\":\"$1\",\"password\":\"123456\"}" | j "print(d['token'])"; }
 T=$(login hung.nguyen@edu.vn); S=$(login la.uyennhi@student.edu.vn)
 H(){ echo "authorization: Bearer $1"; }
+curl -s -X POST $B/api/me/consent -H "$(H $S)" -H 'content-type: application/json' -d '{"accept":true}' > /dev/null   # students must consent before anything reaches the AI
+H(){ echo "authorization: Bearer $1"; }
 post(){ curl -s -X POST "$B$2" -H "$(H $1)" -H 'content-type: application/json' -d "$3"; }
 FAIL=0; ok(){ if [ "$2" = "1" ]; then echo "ok    $1"; else echo "FAIL  $1"; FAIL=1; fi; }
 DUE=$(date -u -d "+7 days" +%Y-%m-%dT%H:%M:%SZ)
