@@ -55,13 +55,13 @@ const InfinityStage: React.FC = () => {
         <div className="flex items-baseline gap-1.5"><span className="text-[20px] font-semibold" style={{ color: NAVY }}>86</span><span className="text-[12px] font-semibold text-[#16a34a]">+12</span></div>
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 3.1 }} className="float-y absolute bottom-[6%] right-[8%] inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/85 px-4 py-2 text-[13px] font-semibold shadow-[0_18px_40px_-18px_rgba(4,27,45,0.35)] backdrop-blur" style={{ color: "#16a34a", animationDelay: "-2s" }}>
-        <BadgeCheck className="h-4 w-4" />Verified Mind
+        <BadgeCheck className="h-4 w-4" />Giảng viên đã xác nhận
       </motion.div>
     </div>
   );
 };
 
-const PILLS = [[Brain, "Chấm 5 tiêu chí tư duy"], [MessageSquareText, "Nhật ký chat minh bạch"], [ShieldCheck, "Chống nhờ AI làm hộ"]] as const;
+const PILLS = [[Brain, "Chấm 5 tiêu chí tư duy"], [MessageSquareText, "Nhật ký chat minh bạch"], [ShieldCheck, "Ngăn dán, ghi nhận hành vi"]] as const;
 
 export const Hero: React.FC<{ onStart: () => void; onListen: () => void }> = ({ onStart, onListen }) => (
   <section id="top" className="relative flex min-h-[100svh] items-center overflow-hidden px-5 pb-16 pt-32 sm:px-8 md:px-14" style={{ background: LIGHT_BG, color: NAVY }} aria-label="TraceEdu">

@@ -1,5 +1,7 @@
 import { PasteGuard } from "./PasteGuard";
 import { CoachChip } from "./CoachChip";
+import { StageBar, LabView, AysView } from "./StageViews";
+import { computeStages, submitBlocker, coThinkTurns, stageConfig, type StageId } from "../lib/stages";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -40,6 +42,8 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
   const [tab, setTab] = useState<"de" | "rubric" | "doc">("de");
   const [ideas, setIdeas] = useState<string[]>(["", "", ""]);
   const [confidence, setConfidence] = useState<number | undefined>(undefined);
+  const [lab, setLab] = useState<any>((chatSession as any)?.lab || null);
+  const [view, setView] = useState<StageId>("co_think");
   const [intentBusy, setIntentBusy] = useState(false);
   const ideasPasted = useRef(0);
   const pastedRef = useRef(0);
@@ -74,9 +78,15 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
     finally { setUnlockBusy(false); }
   };
   const needIntent = chatEnabled && friction !== "none" && !intentDone && !locked;
-  const turns = messages.filter((m) => m.role === "user" && m.kind !== "intent").length;
+  const turns = coThinkTurns({ messages });
+  const cfg = stageConfig(assignment);
+  const chatLike = { messages, intent: intentData, lab };
+  const stageViews = computeStages(assignment, chatLike);
+  const showStages = chatEnabled && assignment.submission_mode !== "writing_l2" && (cfg.perspective_lab.enabled || cfg.are_you_sure.enabled);
+  const blocker = chatEnabled ? submitBlocker(assignment, chatLike) : null;
+  const coMessages = messages.filter((m) => m.stage !== "are_you_sure");
   const needTurns = chatEnabled ? Math.max(0, MIN_TURNS - turns) : 0;
-  const canSubmit = !locked && !sending && needTurns === 0;
+  const canSubmit = !locked && !sending && !blocker;
 
   useEffect(() => { if (!needIntent) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, sending, needIntent]);
 
@@ -178,7 +188,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           <div className="flex items-center gap-2 text-xs font-bold text-[#0f8a55] dark:text-[#4ade9a]"><CheckCircle2 className="w-4 h-4" />{intentData.skipped ? "Đã bỏ qua bước ghi ý đầu vào" : "Đã ghi ý riêng trước khi hỏi AI"}</div>
           {!intentData.skipped && intentData.answers[0] && <p className="text-xs italic text-ink-2 mt-2 line-clamp-4">“{intentData.answers[0].a}”</p>}
           <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
-            {intentData.confidence && <span className="chip chip-gray">Mức tự tin ban đầu {intentData.confidence}/5</span>}
+            {intentData?.confidence && <span className="chip chip-gray">Mức tự tin ban đầu {intentData.confidence}/5</span>}
             {!intentData.skipped && <span className="chip chip-green"><Lock className="w-3 h-3" />Luận điểm đã được ghi lại</span>}
           </div>
         </div>
@@ -216,11 +226,13 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
           {!locked && <span className="text-xs text-mute hidden sm:flex items-center gap-1">{draftState === "saving" ? "Đang lưu nháp…" : draftState === "saved" ? <><Save className="w-3.5 h-3.5 text-emerald-500" />Đã lưu nháp</> : ""}</span>}
           {submitted ? <span className="chip chip-green py-1.5 px-3 text-sm"><CheckCircle2 className="w-4 h-4" />Đã nộp {current?.status === "late" ? "(trễ)" : ""}</span>
             : locked ? <span className="chip chip-rose py-1.5 px-3 text-sm"><Lock className="w-4 h-4" />Đã khóa</span>
-            : <button className="btn btn-primary" disabled={!canSubmit} onClick={() => setConfirmOpen(true)} title={needTurns ? `Cần trao đổi thêm ${needTurns} lượt` : ""}><Upload className="w-4 h-4" />{needTurns ? `Còn ${needTurns} lượt để nộp` : "Nộp bài"}</button>}
+            : <button className="btn btn-primary" disabled={!canSubmit} onClick={() => setConfirmOpen(true)} title={blocker || ""}><Upload className="w-4 h-4" />{needTurns ? `Còn ${needTurns} lượt để nộp` : blocker ? "Cần xong các chặng" : "Nộp bài"}</button>}
         </div>
       </div>
 
       {submitted && <div className="mb-5"><StudentResultSection userName={userName} submission={current!} messages={messages} late={current?.status === "late"} /></div>}
+
+      {showStages && !submitted && <StageBar stages={stageViews} active={view} onPick={setView} />}
 
       <div className="grid lg:grid-cols-12 gap-4 items-start">
         {/* Left: prompt */}
@@ -238,6 +250,10 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
               <div><label className="label">Ghi chú gửi giảng viên</label>
                 <textarea rows={4} disabled={locked} className="input resize-none" placeholder="Tóm tắt bài nộp hoặc ghi chú…" value={text} onChange={(e) => setText(e.target.value)} /></div>
             </div>
+          ) : view === "perspective_lab" && showStages ? (
+            <LabView assignment={assignment} lab={lab} locked={locked} onLab={setLab} />
+          ) : view === "are_you_sure" && showStages ? (
+            <AysView assignment={assignment} messages={messages} locked={locked} onMessages={setMessages} attempts={attemptsRef} />
           ) : (
             <>
             {!locked && turns > 0 && (
@@ -269,7 +285,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                           onChange={(e) => setIdeas(ideas.map((x, k) => (k === i ? e.target.value : x)))} />
                       </div>
                     ))}
-                    <div>
+                    {cfg.ask_confidence && <div>
                       <label className="label">Hiện giờ em tự tin về bài này đến mức nào?</label>
                       <div className="flex gap-2" role="radiogroup" aria-label="Mức tự tin">
                         {[1, 2, 3, 4, 5].map((n) => (
@@ -278,7 +294,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                         ))}
                         <span className="text-xs text-mute self-center ml-1">1 = chưa chắc · 5 = rất chắc</span>
                       </div>
-                    </div>
+                    </div>}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs text-mute">{ideasOk ? "Đủ ý để mở trợ lý." : `Viết ít nhất ${Math.min(2, frictionPrompts.length)} ô, tổng tối thiểu 40 ký tự.`}</span>
                       <div className="flex gap-2">
@@ -296,7 +312,7 @@ export const StudentWorkspaceView: React.FC<Props> = ({ assignment, courseName, 
                   </div>
                 )}
                 <AnimatePresence initial={false}>
-                  {messages.map((m, i) => {
+                  {coMessages.map((m, i) => {
                     const mine = m.role === "user";
                     return (
                       <motion.div key={m.id || i} initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 26 }} className={`flex gap-3 ${mine ? "flex-row-reverse" : ""}`}>

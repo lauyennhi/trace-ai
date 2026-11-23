@@ -7,6 +7,7 @@ import { googleSignIn, getAccessToken, exportReportToDocs, sendResultEmailViaGma
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { L2Review } from "./L2Review";
 import { ThinkingTrace } from "./ThinkingTrace";
+import { ISSUE_LABEL, RESPONSE_LABEL, type IssueType, type ResponseType } from "../lib/coach";
 import { Avatar, Bar, Modal, fmtDate, riseItem, staggerParent, useToast } from "./ui";
 
 interface Props {
@@ -142,6 +143,44 @@ export const TeacherSubmissionView: React.FC<Props> = ({ submission, assignment,
               })()}
               {(() => { const n = chatSession.messages.reduce((t, m) => t + (m.paste_attempts || 0), 0) + (chatSession.intent?.paste_attempts || 0); return n > 0 ? <div className="mb-3"><span className="chip chip-amber" data-testid="paste-attempts">Đã thử dán/sao chép {n} lần (bị chặn)</span></div> : null; })()}
               <ThinkingTrace messages={chatSession.messages} highlights={result?.highlight_segments} studentLabel="sinh viên" />
+            </motion.div>
+          )}
+          {chatSession?.lab?.events?.length ? (
+            <motion.div variants={riseItem} className="card p-6 space-y-4" data-testid="lab-record">
+              <div>
+                <h3 className="font-bold">Góc nhìn khác (Perspective Lab)</h3>
+                <p className="text-xs text-mute mt-1" data-testid="lab-chip">Góc nhìn khác: xem {chatSession.lab.events.filter((e) => e.counterviews?.length || e.verify).length}, phản biện {chatSession.lab.events.filter((e) => e.action === "rebut").length}, sửa lại {chatSession.lab.events.filter((e) => e.rewrite).length}</p>
+              </div>
+              {chatSession.lab.events.map((e, i) => (
+                <div key={e.id} className="rounded-2xl border border-line p-4 space-y-2 text-sm">
+                  <div className="flex flex-wrap gap-2"><span className="chip chip-gray">Đoạn {i + 1}</span><span className="chip chip-gray">{e.mode === "tranh_luan" ? "Tranh luận" : e.mode === "su_kien" ? "Sự kiện" : "Chưa rõ"}</span>{e.action && <span className="chip chip-brand">{e.action === "accept" ? "Ghi nhận" : e.action === "rebut" ? "Phản biện lại" : "Bỏ qua"}</span>}</div>
+                  <p className="italic text-ink-2">“{e.selection.text}”</p>
+                  <p><b>Ý của sinh viên:</b> {e.stance_text}</p>
+                  {e.counterviews?.map((v, k) => <p key={k} className="text-ink-2"><b>Góc nhìn {k + 1}:</b> {v.stance}. {v.argument} <span className="text-xs text-mute">({v.source ? `Nguồn: ${v.source.title}` : "chưa có nguồn"})</span></p>)}
+                  {e.rebuttal_text && <p><b>Phản biện:</b> {e.rebuttal_text}</p>}
+                  {e.rewrite && (
+                    <div className="grid gap-2 md:grid-cols-2"><div className="tonal p-3"><div className="text-xs font-semibold text-mute mb-1">Bản trước</div>{e.rewrite.before}</div><div className="tonal p-3"><div className="text-xs font-semibold text-mute mb-1">Bản sau · giống {Math.round(e.rewrite.similarity * 100)}% · gõ {e.rewrite.typed}, xóa {e.rewrite.deleted}, dán {e.rewrite.pasted}</div>{e.rewrite.after}{e.rewrite.rewritten_from_scratch && <div className="text-xs text-amber-600 mt-1">Viết lại gần như từ đầu</div>}</div></div>
+                  )}
+                </div>
+              ))}
+            </motion.div>
+          ) : null}
+
+          {chatSession?.messages?.some((m) => m.stage === "are_you_sure") && (
+            <motion.div variants={riseItem} className="card p-6 space-y-3" data-testid="ays-record">
+              <div>
+                <h3 className="font-bold">Bạn chắc chứ? (chất vấn)</h3>
+                <p className="text-xs text-mute mt-1">Giữ vững có lý lẽ là tín hiệu tốt; nhượng bộ không lý do hoặc né tránh là tín hiệu yếu.</p>
+              </div>
+              {chatSession.messages.filter((m) => m.stage === "are_you_sure").map((m) => (
+                <div key={m.id} className={`rounded-2xl p-3 text-sm ${m.role === "user" ? "bg-brand-soft/50" : "border border-line"}`}>
+                  <div className="flex flex-wrap gap-2 mb-1">
+                    {m.role === "model" ? <span className="chip chip-gray">AI chất vấn · {ISSUE_LABEL[(m.ays?.issue_type || "logic_gap") as IssueType]}</span> : <span className={`chip ${m.ays?.response_type === "held_with_reason" || m.ays?.response_type === "revised" ? "chip-green" : "chip-amber"}`}>{RESPONSE_LABEL[(m.ays?.response_type || "dodged") as ResponseType]}</span>}
+                  </div>
+                  {m.ays?.quote && <div className="text-xs italic text-mute mb-1">“{m.ays.quote}”</div>}
+                  {m.content}
+                </div>
+              ))}
             </motion.div>
           )}
 

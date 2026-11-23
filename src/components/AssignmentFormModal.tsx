@@ -5,6 +5,7 @@ import { FileUploadZone, UploadedFileItem } from "./FileUploadZone";
 import { Modal } from "./ui";
 import { DEFAULT_L2_DIMENSIONS, L2_ERROR_LABEL, L2_ERROR_TYPES, findPhraseRange, type L2Dimension, type L2ErrorType } from "../lib/l2";
 import { ANSWER_GATES, GATE_LABEL, type AnswerGate } from "../lib/gate";
+import { stageConfig, AYS_TURNS } from "../lib/stages";
 import { PASTE_LABEL, PASTE_MODES, type PasteMode } from "../lib/paste";
 import { DEFAULT_FRICTION_PROMPTS, FRICTION_LABEL, FRICTION_LEVELS, type FrictionLevel } from "../lib/friction";
 
@@ -14,7 +15,7 @@ export interface L2FormData { ai_text: string; errors: L2FormError[]; dimensions
 export interface AssignmentFormData {
   title: string; description: string; rubric: string; due_date: string;
   attachments: AssignmentAttachment[]; submission_mode: SubmissionMode; ai_submode: AISubmode; allow_late: boolean;
-  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate; paste_mode: PasteMode; live_coach: boolean;
+  friction: FrictionLevel; friction_prompts: string[]; answer_gate: AnswerGate; paste_mode: PasteMode; live_coach: boolean; stages: any;
   l2?: L2FormData;
 }
 interface Props {
@@ -42,6 +43,9 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
   const [answerGate, setAnswerGate] = useState<AnswerGate>("none");
   const [pasteMode, setPasteMode] = useState<PasteMode>("track");
   const [liveCoach, setLiveCoach] = useState(true);
+  const [askConf, setAskConf] = useState(false);
+  const [labOn, setLabOn] = useState(false), [labReq, setLabReq] = useState(true);
+  const [aysOn, setAysOn] = useState(false), [aysReq, setAysReq] = useState(true), [aysTurns, setAysTurns] = useState<number>(AYS_TURNS.default);
   const [frictionPrompts, setFrictionPrompts] = useState<string[]>(DEFAULT_FRICTION_PROMPTS);
   const [files, setFiles] = useState<UploadedFileItem[]>([]);
   const [l2Text, setL2Text] = useState("");
@@ -63,6 +67,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
     setAnswerGate(assignment?.answer_gate || "none");
     setPasteMode(assignment?.paste_mode || "track");
     setLiveCoach(assignment?.live_coach !== false);
+    { const c = stageConfig(assignment); setAskConf(c.ask_confidence); setLabOn(c.perspective_lab.enabled); setLabReq(c.perspective_lab.required); setAysOn(c.are_you_sure.enabled); setAysReq(c.are_you_sure.required); setAysTurns(c.are_you_sure.turns); }
     setFrictionPrompts(assignment?.friction_prompts?.length ? assignment.friction_prompts : DEFAULT_FRICTION_PROMPTS);
     setL2Text(assignment?.l2?.ai_text || ""); setL2Lang(assignment?.l2?.prompt_language || "en");
     setL2Errors((assignment?.l2?.errors || []).map((e) => ({ id: e.id, type: e.type, text: e.text, answer: e.answer })));
@@ -86,6 +91,7 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
         attachments: files.map((f) => ({ id: f.id, name: f.name, url: f.url, size: f.size, type: f.type })),
         submission_mode: mode, ai_submode: aiMode, allow_late: allowLate,
         friction, friction_prompts: frictionPrompts.map((p) => p.trim()).filter(Boolean), answer_gate: answerGate, paste_mode: pasteMode, live_coach: liveCoach,
+        stages: { think_first: { ask_confidence: askConf }, perspective_lab: { enabled: labOn, required: labReq }, are_you_sure: { enabled: aysOn, required: aysReq, turns: aysTurns } },
         ...(mode === "writing_l2" ? { l2: { ai_text: l2Text, errors: l2Errors, dimensions: l2Dims, prompt_language: l2Lang } } : {}),
       });
       onClose();
@@ -156,6 +162,23 @@ export const AssignmentFormModal: React.FC<Props> = ({ isOpen, assignment, onClo
                   <div className="text-[11px] text-mute mt-1">{hint}</div>
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+        {(mode === "ai_chat_only" || mode === "both") && (
+          <div className="rounded-2xl border border-line p-4 space-y-3" data-testid="stages-group">
+            <div><div className="label !mb-0">Các chặng của bài</div><p className="text-[11px] text-mute">Sinh viên đi qua theo thứ tự: Nghĩ trước → Cùng nghĩ → Góc nhìn khác → Bạn chắc chứ?. Hai chặng sau chỉ mở sau {3} lượt Cùng nghĩ, và máy chủ ép thứ tự này.</p></div>
+            <label className="flex items-start gap-3 cursor-pointer"><input type="checkbox" className="mt-1" checked={askConf} onChange={(e) => setAskConf(e.target.checked)} data-testid="ask-confidence" />
+              <span><span className="block text-sm font-semibold">Nghĩ trước: hỏi mức tự tin (tùy chọn)</span><span className="block text-[11px] text-mute">Thêm câu "em tự tin đến mức nào" 1–5 để so với điểm quá trình. Mặc định tắt.</span></span></label>
+            <div className="rounded-xl bg-surface-2 p-3 space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer"><input type="checkbox" className="mt-1" checked={labOn} onChange={(e) => setLabOn(e.target.checked)} data-testid="stage-lab-on" />
+                <span><span className="block text-sm font-semibold">Góc nhìn khác <span className="font-normal text-mute">(Perspective Lab)</span></span><span className="block text-[11px] text-mute">Sinh viên chọn một đoạn trong bản nháp của mình, nói ý của mình trước, xem 2 góc nhìn khác rồi sửa lại đoạn đó. Rèn Phản biện.</span></span></label>
+              {labOn && <label className="ml-7 flex items-center gap-2 text-xs"><input type="checkbox" checked={labReq} onChange={(e) => setLabReq(e.target.checked)} />Bắt buộc phải làm mới nộp được</label>}
+            </div>
+            <div className="rounded-xl bg-surface-2 p-3 space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer"><input type="checkbox" className="mt-1" checked={aysOn} onChange={(e) => setAysOn(e.target.checked)} data-testid="stage-ays-on" />
+                <span><span className="block text-sm font-semibold">Bạn chắc chứ? <span className="font-normal text-mute">(Are you sure?)</span></span><span className="block text-[11px] text-mute">AI chất vấn lập trường của sinh viên vài lượt. Chỉ hỏi điểm yếu có thật; lập luận vững thì AI nói rõ và hỏi mở rộng. Giữ vững ý kiến có lý lẽ được tính là tốt.</span></span></label>
+              {aysOn && <div className="ml-7 flex flex-wrap items-center gap-4 text-xs"><label className="flex items-center gap-2"><input type="checkbox" checked={aysReq} onChange={(e) => setAysReq(e.target.checked)} />Bắt buộc</label><label className="flex items-center gap-2">Số lượt<input type="number" min={AYS_TURNS.min} max={AYS_TURNS.max} className="input !w-16 !py-1" value={aysTurns} onChange={(e) => setAysTurns(Math.min(AYS_TURNS.max, Math.max(AYS_TURNS.min, Number(e.target.value) || AYS_TURNS.default)))} /></label></div>}
             </div>
           </div>
         )}

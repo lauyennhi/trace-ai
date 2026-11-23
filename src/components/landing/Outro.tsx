@@ -92,11 +92,11 @@ export const Aha: React.FC = () => (
         ); })}
       </svg>
       {/* the stamp lands last */}
-      <motion.svg viewBox="0 0 120 120" className="absolute -bottom-16 right-0 h-[96px] w-[96px] sm:-bottom-4 sm:-right-10 sm:h-[140px] sm:w-[140px]" initial={{ opacity: 0, scale: 2.4, rotate: -30 }} whileInView={{ opacity: 1, scale: 1, rotate: -12 }} viewport={{ once: true }} transition={{ delay: 1.8, type: "spring", stiffness: 200, damping: 13 }} aria-label="Dấu mộc Verified Mind">
+      <motion.svg viewBox="0 0 120 120" className="absolute -bottom-16 right-0 h-[96px] w-[96px] sm:-bottom-4 sm:-right-10 sm:h-[140px] sm:w-[140px]" initial={{ opacity: 0, scale: 2.4, rotate: -30 }} whileInView={{ opacity: 1, scale: 1, rotate: -12 }} viewport={{ once: true }} transition={{ delay: 1.8, type: "spring", stiffness: 200, damping: 13 }} aria-label="Dấu mộc: giảng viên đã xác nhận (minh họa)">
         <defs><path id="vm-circle" d="M60 60 m-43 0 a43 43 0 1 1 86 0 a43 43 0 1 1 -86 0" /></defs>
         <circle cx="60" cy="60" r="56" fill="rgba(22,163,74,0.08)" stroke={GREEN} strokeWidth="2.5" />
         <circle cx="60" cy="60" r="36" fill="none" stroke={GREEN} strokeWidth="1.2" strokeDasharray="2 3" />
-        <text fontSize="9.5" fontWeight="700" letterSpacing="2.6" fill={GREEN}><textPath href="#vm-circle">VERIFIED MIND · TRACEEDU · VERIFIED MIND ·</textPath></text>
+        <text fontSize="8.5" fontWeight="700" letterSpacing="2.2" fill={GREEN}><textPath href="#vm-circle">GIẢNG VIÊN XÁC NHẬN · TRACEEDU ·</textPath></text>
         <path d="M44 61 l11 11 l22 -24" fill="none" stroke={GREEN} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
       </motion.svg>
     </div>

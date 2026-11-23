@@ -28,7 +28,12 @@ export const ReliabilityCard: React.FC = () => {
         <div><h3 className="flex items-center gap-2 text-lg font-semibold"><FlaskConical className="h-5 w-5 text-brand" />Điểm AI có đáng tin không?</h3><p className="text-sm text-ink-2">So điểm quá trình do AI chấm (0-100) với điểm giảng viên đã chấm (0-10) trên cùng bài nộp.</p></div>
         {d.demo && <span className="chip chip-amber shrink-0">Dữ liệu demo</span>}
       </div>
-      {o.n === 0 ? <p className="text-sm text-mute">Chưa có bài nào vừa được AI chấm vừa được giảng viên chấm. Số liệu sẽ hiện khi bạn chấm bài.</p> : (
+      {d.demo ? (
+        <div className="relative overflow-hidden rounded-2xl border border-dashed border-amber-500/50 bg-amber-500/5 p-6 text-center" data-testid="reliability-demo-watermark">
+          <div className="text-sm font-semibold text-amber-700">Dữ liệu demo, không phải bằng chứng</div>
+          <p className="mx-auto mt-1 max-w-xl text-sm text-ink-2">Toàn bộ bài ở đây do hệ thống tự sinh, nên các con số so sánh điểm AI với điểm giảng viên được ẩn đi để không bị hiểu nhầm. Chúng sẽ hiện khi bạn có bài thật được chấm ở cả hai phía (nên từ {d.min_recommended} bài trở lên).</p>
+        </div>
+      ) : o.n === 0 ? <p className="text-sm text-mute">Chưa có bài nào vừa được AI chấm vừa được giảng viên chấm. Số liệu sẽ hiện khi bạn chấm bài.</p> : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[["Số bài so sánh", String(o.n)], ["Lệch trung bình", `${o.mae} điểm`], ["Trong ±1 điểm", pct(o.within1)], ["Tương quan", o.pearson === null ? "-" : String(o.pearson)]].map(([k, v]) => <div key={k} className="tonal p-4"><div className="text-xs text-mute">{k}</div><div className="mt-1 text-xl font-semibold tabular-nums">{v}</div></div>)}

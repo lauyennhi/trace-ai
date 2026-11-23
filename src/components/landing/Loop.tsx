@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView } from "motion/react";
-import { Bell, Check, Lock, TriangleAlert } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { HmmLoader } from "../HmmBrand";
-import { NAVY, COBALT, SKY, MUTED, MIST, BRICK, GREEN, wait, reduced, Eyebrow } from "./shared";
+import { NAVY, COBALT, SKY, MUTED, MIST, GREEN, wait, reduced, Eyebrow } from "./shared";
 
 const INK = NAVY;
 
 /* The Hmm loop: the text on the left stays put, the product mockups scroll past on the right. */
 const SCENES = [
-  { kicker: "01 · Tiện ích trình duyệt", title: "Hmm... How about a different point of view?", body: "Bôi đen bất kỳ rào cản nào trên internet. Chúng tôi sẽ ném cho bạn một góc nhìn đối lập để đập tan sự phiến diện." },
+  { kicker: "01 · Góc nhìn khác", title: "Hmm... How about a different point of view?", body: "Bôi đen một đoạn trong bài của bạn. Nói ý của bạn trước, rồi Hmm đưa ra hai góc nhìn khác để bạn nghĩ lại và sửa chính đoạn đó." },
   { kicker: "02 · Làm mờ để buộc nghĩ", title: "Hmm... Think first!", body: "Copy-paste thì dễ. Nhưng AI của chúng tôi sẽ khóa đáp án lại, cho đến khi bạn tự đưa ra được lập luận của riêng mình." },
-  { kicker: "03 · Chất vấn Socratic & quét nguồn", title: "Hmm... Are you sure?", body: "Không có chỗ cho những trích dẫn ma hay lập luận rỗng tuếch. AI sẽ đóng vai hội đồng phản biện ngay trước khi bạn nộp bài." },
+  { kicker: "03 · Chất vấn", title: "Hmm... Are you sure?", body: "AI đóng vai người phản biện thân thiện: chỉ hỏi điểm yếu có thật, và nếu lập luận của bạn vững thì nói rõ như vậy. Giữ vững ý kiến có lý lẽ cũng là một câu trả lời tốt." },
 ] as const;
 
 const Frame: React.FC<{ url: string; children: React.ReactNode; refEl?: React.Ref<HTMLDivElement> }> = ({ url, children, refEl }) => (
@@ -24,14 +24,15 @@ const Frame: React.FC<{ url: string; children: React.ReactNode; refEl?: React.Re
 const MockLens: React.FC = () => {
   const ref = useRef<HTMLDivElement>(null), seen = useInView(ref, { amount: 0.5, once: true });
   return (
-    <Frame url="bao-chi.minhhoa/giao-duc" refEl={ref}>
-      <div className="mb-3 h-4 w-3/4 rounded bg-black/10" />
-      <p className="leading-relaxed" style={{ color: MUTED }}>Nhiều ý kiến cho rằng việc học sinh dùng điện thoại là nguyên nhân chính của sự sa sút. <motion.span animate={{ backgroundSize: seen ? "100% 100%" : "0% 100%" }} transition={{ duration: 1.1, delay: 0.3 }} style={{ backgroundImage: "linear-gradient(#cfe3f7,#cfe3f7)", backgroundRepeat: "no-repeat", color: INK, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>Mạng xã hội làm giảm khả năng tập trung của người học.</motion.span> Điều này được xem là hiển nhiên và ít khi bị đặt lại câu hỏi.</p>
-      <div className="mt-3 space-y-2">{["w-full", "w-11/12", "w-2/3"].map((w) => <div key={w} className={`h-2 rounded bg-black/[0.07] ${w}`} />)}</div>
-      <motion.div initial={{ opacity: 0, y: 24, scale: 0.85 }} animate={seen ? { opacity: 1, y: 0, scale: 1 } : {}} transition={{ delay: 1.5, type: "spring", stiffness: 380, damping: 15 }} className="absolute right-4 bottom-4 w-[78%] max-w-[300px] rounded-xl border border-black/10 bg-white p-3.5 shadow-xl">
-        <motion.span initial={{ opacity: 0, scale: 0.4 }} animate={seen ? { opacity: [0, 1, 1, 0], scale: [0.4, 1.15, 1, 0.9], y: [0, -6, -10, -16] } : {}} transition={{ delay: 1.5, duration: 1.4 }} className="absolute -top-4 right-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ background: SKY }}><Bell className="h-3 w-3" />ting!</motion.span>
-        <div className="text-[12px] font-semibold" style={{ color: COBALT }}>Hmm… góc nhìn khác</div>
-        {["Dùng có kiểm soát có thể hỗ trợ việc học", "Mất tập trung còn do nhiều nguyên nhân khác"].map((t) => <div key={t} className="mt-2 rounded-lg bg-[#f1f6fb] px-2.5 py-2 text-[12px]" style={{ color: INK }}><span className="mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "rgba(194,80,63,0.12)", color: BRICK }}>Phản biện</span>{t}</div>)}
+    <Frame url="traceedu.app/lop/tieu-luan · Góc nhìn khác" refEl={ref}>
+      <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Bản nháp của bạn</div>
+      <p className="leading-relaxed" style={{ color: MUTED }}>Việc học sinh dùng điện thoại đang làm giảm chất lượng học tập. <motion.span animate={{ backgroundSize: seen ? "100% 100%" : "0% 100%" }} transition={{ duration: 1.1, delay: 0.3 }} style={{ backgroundImage: "linear-gradient(#cfe3f7,#cfe3f7)", backgroundRepeat: "no-repeat", color: INK, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>Mạng xã hội làm giảm khả năng tập trung của người học.</motion.span> Vì vậy nhà trường nên hạn chế thiết bị cá nhân trong lớp.</p>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={seen ? { opacity: 1, y: 0 } : {}} transition={{ delay: 1.3 }} className="mt-4 rounded-xl border border-black/10 bg-[#f1f6fb] p-3 text-[12px]" style={{ color: INK }}>
+        <div className="mb-1 text-[11px] font-semibold" style={{ color: COBALT }}>Hmm… Bạn nghĩ gì về đoạn này?</div>Mình thấy đúng một phần, nhưng còn nhiều yếu tố khác.
+      </motion.div>
+      <motion.div initial={{ opacity: 0, y: 24, scale: 0.9 }} animate={seen ? { opacity: 1, y: 0, scale: 1 } : {}} transition={{ delay: 2.1, type: "spring", stiffness: 320, damping: 16 }} className="absolute inset-x-4 bottom-4 rounded-xl border border-black/10 bg-white p-3 shadow-xl">
+        <div className="mb-2 text-[12px] font-semibold" style={{ color: COBALT }}>Hai góc nhìn khác</div>
+        <div className="grid gap-2 sm:grid-cols-2">{[["Dùng có kiểm soát", "Điện thoại có thể là công cụ học nếu có quy tắc rõ."], ["Nguyên nhân nằm ở nơi khác", "Mất tập trung còn do giấc ngủ và cách tổ chức lớp."]].map(([h, t]) => <div key={h} className="rounded-lg bg-[#f1f6fb] px-2.5 py-2 text-[11.5px]" style={{ color: INK }}><div className="font-semibold">{h}</div><div style={{ color: MUTED }}>{t}</div></div>)}</div>
       </motion.div>
     </Frame>
   );
@@ -71,23 +72,20 @@ const MockThink: React.FC = () => {
 
 const MockSure: React.FC = () => {
   const ref = useRef<HTMLDivElement>(null), seen = useInView(ref, { amount: 0.5, once: true });
-  const refs = [["[1] Nghiên cứu về mạng xã hội và học tập, 2021", false], ["[2] baocao-khongtontai.org/tt-2023", true], ["[3] doi:10.0000/khong.ton.tai", true]] as const;
   return (
-    <Frame url="tai-lieu/tieu-luan.doc" refEl={ref}>
-      <div className="mb-2 text-[15px] font-semibold" style={{ color: INK }}>Tài liệu tham khảo</div>
-      <div className="space-y-2">
-        {refs.map(([r, bad]) => (
-          <motion.div key={r} animate={bad && seen ? { backgroundColor: ["rgba(194,80,63,0)", "rgba(194,80,63,0.16)", "rgba(194,80,63,0.07)", "rgba(194,80,63,0.16)"] } : {}} transition={{ duration: 1.6, delay: 0.6, times: [0, 0.3, 0.6, 1], repeat: Infinity, repeatType: "reverse" }} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2" style={{ borderColor: bad && seen ? "rgba(194,80,63,0.55)" : "rgba(0,0,0,0.1)", color: INK }}>
-            <span className={bad ? "underline decoration-dotted" : ""}>{r}</span>
-            {bad && seen && <span className="inline-flex shrink-0 items-center gap-1 text-[11px]" style={{ color: BRICK }}><TriangleAlert className="h-3 w-3" />không tìm thấy</span>}
-          </motion.div>
-        ))}
+    <Frame url="traceedu.app/lop/tieu-luan · Bạn chắc chứ?" refEl={ref}>
+      <div className="mb-3 flex items-center justify-between text-[11px]" style={{ color: MUTED }}><span className="font-semibold uppercase tracking-wide">Lượt 1/3</span><span>Không phải để bắt lỗi</span></div>
+      <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-black/10 bg-[#f1f6fb] px-3.5 py-2.5" style={{ color: INK }}>
+        <div className="mb-1 text-[11px] font-semibold" style={{ color: COBALT }}>Chưa có dẫn chứng</div>
+        <div className="mb-1 text-[11.5px] italic" style={{ color: MUTED }}>Bạn đã viết: “làm giảm khả năng tập trung”</div>
+        Bạn chứng minh luận điểm này thế nào?
       </div>
-      <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={seen ? { opacity: 1, scale: 1 } : {}} transition={{ delay: 1.8, duration: 0.4 }} className="absolute inset-x-6 bottom-5 rounded-xl border border-black/10 bg-white p-4 shadow-2xl">
-        <div className="text-[12px] font-semibold" style={{ color: COBALT }}>Hmm…</div>
-        <div className="mt-1 text-[16px] font-semibold" style={{ color: INK }}>Bạn chứng minh luận điểm này thế nào?</div>
-        <div className="mt-2 rounded-lg border border-black/10 bg-[#f1f6fb] px-3 py-1.5 text-[12px]" style={{ color: MUTED }}>Nhập dẫn chứng của bạn…</div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={seen ? { opacity: 1, y: 0 } : {}} transition={{ delay: 1.2 }} className="ml-auto mt-3 max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2.5 text-white" style={{ background: COBALT }}>Khảo sát lớp mình cho thấy 7/10 bạn bị ngắt mạch khi có thông báo, nên mình giữ ý kiến này.</motion.div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={seen ? { opacity: 1, y: 0 } : {}} transition={{ delay: 2.2 }} className="mt-3 max-w-[85%] rounded-2xl rounded-tl-md border border-black/10 bg-[#f1f6fb] px-3.5 py-2.5" style={{ color: INK }}>
+        <div className="mb-1 text-[11px] font-semibold" style={{ color: COBALT }}>Hỏi mở rộng</div>
+        Số liệu đó đến từ đâu, và nếu mẫu khác thì kết quả còn như vậy không?
       </motion.div>
+      <motion.div initial={{ opacity: 0 }} animate={seen ? { opacity: 1 } : {}} transition={{ delay: 2.8 }} className="mt-4 text-[11.5px]" style={{ color: MUTED }}>Giữ vững ý kiến có lý lẽ cũng là một câu trả lời tốt.</motion.div>
     </Frame>
   );
 };

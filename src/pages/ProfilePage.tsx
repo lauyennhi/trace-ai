@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Copy, Link2, Link2Off, UserRound } from "lucide-react";
+import { Copy, Download, Link2, Link2Off, Trash2, UserRound } from "lucide-react";
 import { useToast } from "../components/ui";
 import { api } from "../lib/api";
 import { ProfileView, type ProfileData } from "../components/ProfileView";
@@ -17,6 +17,20 @@ export const ProfilePage: React.FC = () => {
   const link = data.share ? `${window.location.origin}/#/p/${data.share.token}` : "";
   const share = async (include: boolean) => { setBusy(true); try { await api("/api/me/profile/share", { method: "POST", body: { include_quotes: include } }); await load(); } catch (e: any) { toast.error(e.message); } finally { setBusy(false); } };
   const revoke = async () => { setBusy(true); try { await api("/api/me/profile/share", { method: "DELETE" }); await load(); toast.success("Đã thu hồi liên kết."); } catch (e: any) { toast.error(e.message); } finally { setBusy(false); } };
+  const exportData = async () => {
+    try {
+      const d = await api("/api/me/export");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a"); a.href = url; a.download = "traceedu-du-lieu-cua-toi.json"; a.click(); URL.revokeObjectURL(url);
+    } catch (e: any) { toast.error(e.message); }
+  };
+  const deleteData = async () => {
+    const word = window.prompt("Thao tác này xóa toàn bộ cuộc chat, bài nộp và hồ sơ tư duy của bạn trong TraceEdu, và không hoàn tác được. Điểm giảng viên đã chấm cũng sẽ mất. Tài khoản vẫn còn.\n\nGõ XOA để xác nhận:");
+    if (word !== "XOA") return;
+    setBusy(true);
+    try { const r: any = await api("/api/me/delete-data", { method: "POST", body: { confirm: "XOA" } }); toast.success(`Đã xóa ${r.deleted_chats} cuộc chat và ${r.deleted_submissions} bài nộp.`); await load(); }
+    catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
   const empty = data.profile.evaluated === 0;
   return (
     <div className="space-y-6">
@@ -37,6 +51,13 @@ export const ProfilePage: React.FC = () => {
           </div>
         </>
       )}
+      <div className="card p-6 space-y-3" data-testid="my-data">
+        <div><h2 className="text-lg font-semibold">Dữ liệu của tôi</h2><p className="text-sm text-ink-2">Bạn quyết định dữ liệu học tập của mình. Tải về để giữ một bản, hoặc xóa khi bạn không muốn TraceEdu lưu nữa.</p></div>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-ghost" onClick={exportData} data-testid="export-data"><Download className="h-4 w-4" />Tải dữ liệu của tôi (.json)</button>
+          <button className="btn btn-ghost text-red-600" disabled={busy} onClick={deleteData} data-testid="delete-data"><Trash2 className="h-4 w-4" />Xóa dữ liệu học tập của tôi</button>
+        </div>
+      </div>
     </div>
   );
 };

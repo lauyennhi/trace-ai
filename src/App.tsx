@@ -5,6 +5,7 @@ import { User, Course, Assignment, ClassStats, AppNotification, Submission } fro
 import { api, apiRaw, getToken, setToken, setUnauthorizedHandler } from "./lib/api";
 import { parseRoute, useHashRoute } from "./lib/router";
 import { ProfilePage } from "./pages/ProfilePage";
+import { ConsentModal } from "./components/ConsentModal";
 import { PublicProfilePage } from "./pages/PublicProfilePage";
 import { googleSignIn, getAccessToken, exportSubmissionsToSheets, downloadGradebookCSV } from "./lib/workspace";
 import { Sidebar } from "./components/Sidebar";
@@ -342,6 +343,7 @@ function Shell() {
       <JoinCourseModal isOpen={joinOpen} onClose={() => setJoinOpen(false)} onSubmit={joinCourse} />
       <AssignmentFormModal isOpen={assignmentModal.open} assignment={assignmentModal.assignment} onClose={() => setAssignmentModal({ open: false, assignment: null })} onSubmit={saveAssignment} />
       <SupabaseModal isOpen={supabaseOpen} onClose={() => setSupabaseOpen(false)} onDataChanged={loadCourses} />
+      {user.role === "student" && !user.consent_at && <ConsentModal onAccepted={setUser} onDecline={logout} />}
       <SettingsModal open={settingsOpen} user={user} onClose={() => setSettingsOpen(false)} onUpdated={setUser} />
       {pendingConfig && <DeleteConfirmModal isOpen={!!pending} {...pendingConfig} onClose={() => setPending(null)} onConfirm={confirmPending} />}
     </div>

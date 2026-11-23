@@ -28,7 +28,7 @@ const STOPS: Stop[] = [
   { t: 0.17, label: "Muốn copy cho xong", sub: "Cám dỗ của đường tắt", tone: "down" },
   { t: 0.34, label: "Hmm… nghĩ lại", sub: "Nói ra ý mình trước", tone: "loop", above: true },
   { t: 0.53, label: "Tự viết lập luận", sub: "Đáp án mở khóa", tone: "up" },
-  { t: 0.705, label: "Hmm… chắc chưa?", sub: "Bị hỏi ngược, kiểm nguồn", tone: "loop", above: true },
+  { t: 0.705, label: "Hmm… chắc chưa?", sub: "Bị hỏi ngược, giữ hoặc đổi ý", tone: "loop", above: true },
   { t: 1, label: "Aha!", sub: "Hiểu, và có bằng chứng", tone: "aha", above: true },
 ];
 const TONE = { start: NAVY, down: BRICK, loop: COBALT, up: SKY, aha: GREEN } as const;

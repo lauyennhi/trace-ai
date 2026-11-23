@@ -212,6 +212,15 @@ export const AdminPage: React.FC<{ me: User; tab: string; onTab: (t: string) => 
                   <div className="tonal flex items-center gap-4 px-4 py-3"><div className="flex-1"><div className="text-sm font-medium">Cho phép tự đăng ký giảng viên</div><div className="text-xs text-mute">Tắt để tài khoản giảng viên chỉ do quản trị viên cấp.</div></div><Switch on={settings.teacher_self_register} label="Tự đăng ký giảng viên" onChange={(v) => setSettings({ ...settings, teacher_self_register: v })} /></div>
                 </div>
               </div>
+              <div className="panel" data-testid="retention-panel">
+                <h3 className="text-lg flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-brand" />Thời hạn lưu nhật ký chat</h3>
+                <p className="text-xs text-mute mt-1">Sau số ngày này, nhật ký chat của các bài đã nộp sẽ tự bị xóa. Điểm và nhận xét vẫn được giữ. Để 0 nếu muốn giữ mãi.</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <input type="number" min={0} max={3650} className="input !w-28" aria-label="Số ngày lưu" value={settings.retention_days ?? 0} onChange={(e) => setSettings({ ...settings, retention_days: Math.max(0, Number(e.target.value) || 0) })} />
+                  <span className="text-sm text-ink-2">ngày (nhớ bấm Lưu cấu hình)</span>
+                  <button className="btn btn-ghost btn-sm" onClick={async () => { try { const r: any = await api("/api/admin/retention/run", { method: "POST" }); toast.success(`Đã dọn ${r.deleted} nhật ký quá hạn.`); } catch (e: any) { toast.error(e.message); } }}>Dọn ngay</button>
+                </div>
+              </div>
               <div className="panel !p-0 overflow-hidden">
                 <div className="p-5 pb-3"><h3 className="text-lg flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-brand" />Ma trận phân quyền</h3><p className="text-xs text-mute mt-1">Quản trị viên luôn có toàn quyền. Thay đổi áp dụng ngay sau khi lưu.</p></div>
                 <table className="w-full text-sm">

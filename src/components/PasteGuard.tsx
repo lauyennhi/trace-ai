@@ -8,6 +8,7 @@ export const PasteGuard: React.FC<{ enabled: boolean; attempts: React.MutableRef
   useEffect(() => () => window.clearTimeout(timer.current), []);
   if (!enabled) return <div className={className}>{children}</div>;
   const stop = (e: React.SyntheticEvent) => {
+    if ((e.target as HTMLElement)?.closest?.("[data-paste-ok]")) return;   // e.g. the student's own draft in Perspective Lab (the amount is still recorded)
     e.preventDefault(); e.stopPropagation();
     attempts.current += 1; setNote(true);
     window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setNote(false), 2600);
